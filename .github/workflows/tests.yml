@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# `shell: bash` makes GitHub run steps with `-eo pipefail`. Without it, `coverage.sh | tee` would pass even when coverage.sh fails.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
