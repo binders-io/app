@@ -4,7 +4,7 @@ Binders is free software. Copyright © 2026 Helder Feixas. You may redistribute 
 GNU General Public License, version 3, as published by the Free Software Foundation. It is distributed in the hope that it
 will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 PURPOSE. The full licence text is at https://www.gnu.org/licenses/gpl-3.0.html and the complete source code is at
-https://github.com/binders-io/mac-app. The name "Binders" and the app icon are not covered by that licence.
+https://github.com/binders-io/app. The name "Binders" and the app icon are not covered by that licence.
 
 ACKNOWLEDGEMENTS
 

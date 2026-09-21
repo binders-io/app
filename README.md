@@ -5,12 +5,12 @@
 Binders is a free Mac app that turns what you say, what you hear in meetings and what you write into notes, to-dos and a
 memory you can ask questions. The speech models, the language model and your data all stay on your Mac.
 
-[![Tests](https://github.com/binders-io/mac-app/actions/workflows/tests.yml/badge.svg)](https://github.com/binders-io/mac-app/actions/workflows/tests.yml)
-[![Latest release](https://img.shields.io/github/v/release/binders-io/mac-app?label=download)](https://github.com/binders-io/mac-app/releases/latest)
+[![Tests](https://github.com/binders-io/app/actions/workflows/tests.yml/badge.svg)](https://github.com/binders-io/app/actions/workflows/tests.yml)
+[![Latest release](https://img.shields.io/github/v/release/binders-io/app?label=download)](https://github.com/binders-io/app/releases/latest)
 ![macOS 14.2 or later](https://img.shields.io/badge/macOS-14.2%2B-604CF4)
 [![Licence: GPL v3](https://img.shields.io/badge/licence-GPLv3-604CF4)](LICENSE)
 
-**Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/mac-app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple
+**Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple
 
 ![The Binders home screen: binders, open to-dos with owners and deadlines, and two weeks of dictation activity](site/assets/shot-home.webp)
 
