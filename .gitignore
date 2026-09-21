@@ -1,0 +1,14 @@
+.DS_Store
+build/
+build-dev/
+DerivedData/
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+*.xcuserstate
+build-release/
+site/download/
+site/.deploy.env
+dist/
+docs/internal/

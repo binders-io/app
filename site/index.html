@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binders for Mac</title>
+<meta name="description" content="Binders is a free Mac app that remembers what you say, hear in meetings and write, and answers questions about it. Everything runs on your Mac: the speech models, the AI and your data.">
+<meta name="color-scheme" content="dark light">
+<link rel="canonical" href="https://binders.io/">
+<meta property="og:title" content="Binders for Mac">
+<meta property="og:description" content="Remembers everything. Tells no one. Free, private, and running entirely on your Mac.">
+<meta property="og:image" content="https://binders.io/assets/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="brand" href="#top" aria-label="Binders, back to top">
+      <img src="assets/icon-512.png" width="60" height="60" alt="">
+      <span>Binders</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#ask">Ask</a>
+      <a href="#dictation">Dictation</a>
+      <a href="#meetings">Meetings</a>
+      <a href="#writing">Writing</a>
+      <a href="#knowledge">Knowledge</a>
+      <a href="#privacy">Privacy</a>
+    </nav>
+    <a class="button small" href="#download">Download</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="wrap">
+    <ul class="pills" aria-label="In short">
+      <li><span class="pulse" aria-hidden="true"></span>Runs entirely on your Mac</li>
+      <li>Free</li>
+      <li>No account</li>
+    </ul>
+    <h1>Remembers everything.<br>Tells no one.</h1>
+    <p class="lede">Binders is a free Mac app that turns what you say, what you hear in meetings and what you write into notes, to-dos and a memory you can ask anything. The speech models, the AI and your data all stay on your Mac.</p>
+    <div class="cta-row">
+      <a class="button" href="download/Binders-0.1.0.dmg" data-download>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 19h16"/></svg>
+        Download free for Mac
+      </a>
+      <a class="ghost" href="#ask">See how it works</a>
+    </div>
+    <p class="fineprint">Free, with no account and no subscription · macOS 14.2 or later · Notarized by Apple</p>
+
+    <div class="stage">
+      <figure class="window">
+        <img src="assets/shot-home.webp" width="2204" height="1520" alt="The Binders home screen: four binders, open to-dos with owners and due dates, including promises made in messages, and two weeks of dictation activity." fetchpriority="high">
+      </figure>
+      <div class="flow" id="flow" aria-hidden="true">
+        <div class="flow-caption" id="flow-caption"><span id="flow-text">I'll send you the final launch checklist by Friday</span></div>
+        <div class="flow-pill" id="flow-pill"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="band-title">
+  <div class="wrap">
+    <h2 id="band-title">Private by construction, not by policy.</h2>
+    <div class="facts">
+      <div class="fact">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-7 9a7 7 0 0 0 14 0M12 19v2"/></svg>
+        <h3>Your voice stays here</h3>
+        <p>Speech is transcribed on the Neural Engine of your Mac. Audio is never uploaded, and once the speech model has downloaded, dictation works offline.</p>
+      </div>
+      <div class="fact">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v2m6-2v2M9 19v2m6-2v2M3 9h2m-2 6h2m14-6h2m-2 6h2M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm3 5h4v4h-4z"/></svg>
+        <h3>Your AI, on your machine</h3>
+        <p>Notes, answers and to-dos come from a language model running in Ollama on your Mac. With that default, no prompt ever leaves it.</p>
+      </div>
+      <div class="fact">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Zm-3 9 2.2 2.2L15.5 10"/></svg>
+        <h3>Free, because there is no server</h3>
+        <p>No account, no analytics, no cloud of ours. Nothing runs on our side, so there is nothing to charge you for.</p>
+      </div>
+    </div>
+    <p class="more"><a href="#privacy">See exactly what can leave your Mac, and when</a></p>
+  </div>
+</section>
+
+<section class="feature stack" id="ask">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-indigo)">Ask</p>
+      <h2>Ask your work anything.</h2>
+      <p>Every meeting, note and message you keep becomes something you can question in plain language. Type it on the Knowledge page, or hold <span class="combo"><kbd>fn</kbd> <kbd>⌃</kbd></span> and ask out loud. Answers come with the sources they were drawn from.</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Finds things by meaning, not just matching words.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Reads transcripts too, so “what did I say in that meeting” works.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Answered by the model on your Mac. Your questions stay private as well.</li>
+      </ul>
+    </div>
+    <div class="ask visual" id="ask-demo">
+      <div class="ask-bar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+        <p class="ask-question" id="ask-question">What did I promise Jonas this week?</p>
+        <span class="ask-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3.5 11.8 9l5.2 1.8-5.2 1.8L10 18l-1.8-5.4L3 10.8 8.2 9 10 3.5Zm8 9 .9 2.6 2.6.9-2.6.9L18 19.5l-.9-2.6-2.6-.9 2.6-.9.9-2.6Z"/></svg>Ask</span>
+      </div>
+      <div class="ask-chips" role="group" aria-label="Example questions">
+        <button type="button" class="chip" aria-pressed="true" data-q="0">What did I promise Jonas this week?</button>
+        <button type="button" class="chip" aria-pressed="false" data-q="1">What did I say about the onboarding emails in the launch review?</button>
+        <button type="button" class="chip" aria-pressed="false" data-q="2">What did we decide about annual plans?</button>
+        <button type="button" class="chip" aria-pressed="false" data-q="3">What did Delphine say about the import tool?</button>
+      </div>
+      <div class="answer" aria-live="polite">
+        <p class="answer-head"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3.5 11.8 9l5.2 1.8-5.2 1.8L10 18l-1.8-5.4L3 10.8 8.2 9 10 3.5Zm8 9 .9 2.6 2.6.9-2.6.9L18 19.5l-.9-2.6-2.6-.9 2.6-.9.9-2.6Z"/></svg><span id="answer-state">Answer</span></p>
+        <div class="answer-body" id="answer-body">
+          <p>You promised Jonas the following this week:</p>
+          <ul><li>The final launch checklist by Friday <sup>[1][2][3]</sup>.</li><li>To loop in support on the last two onboarding emails today <sup>[1]</sup>.</li></ul>
+        </div>
+        <p class="answer-sub">Sources</p>
+        <ol class="sources" id="answer-sources">
+          <li data-kind="writing"><span>To Jonas Lindqvist</span><em>Sep 19 · Microsoft Teams</em></li>
+          <li data-kind="meeting"><span>Launch readiness review</span><em>Sep 18 · transcript at 00:04</em></li>
+          <li data-kind="meeting"><span>Launch readiness review</span><em>Sep 18 · Summary</em></li>
+        </ol>
+      </div>
+      <p class="ask-note">These are real answers. Binders produced them from the fictional demo data in these screenshots, using a model running on a Mac.</p>
+    </div>
+  </div>
+</section>
+
+<section class="strip" aria-label="What Binders keeps">
+  <div class="wrap strip-row">
+    <p><strong>Say it.</strong> Dictation in any app.</p>
+    <p><strong>Hear it.</strong> Meeting notes with owners.</p>
+    <p><strong>Write it.</strong> Promises become to-dos.</p>
+    <p><strong>Find it.</strong> A memory with connections.</p>
+  </div>
+</section>
+
+<section class="feature" id="dictation">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-indigo)">Dictation</p>
+      <h2>Hold fn. Talk. Let go.</h2>
+      <p>Your words land in whatever app has the cursor, already cleaned up: no ums, no false starts, and the correction you made mid-sentence is the one that sticks. Speech recognition runs on the Neural Engine, so it is fast and it works offline.</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Learns names and jargon from the edits you make afterwards.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Command mode rewrites the selected text: “make this shorter”.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Matches the tone of the app: looser in chat, tidier in mail.</li>
+      </ul>
+    </div>
+    <div class="visual">
+      <div class="transform">
+        <p class="label">What you said</p>
+        <p class="said">so I think we should meet at <s>2 actually no</s> 3 pm tomorrow and bring the slides</p>
+        <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v15m0 0-5-5m5 5 5-5"/></svg></div>
+        <p class="label">What lands in the app</p>
+        <p class="landed">I think we should meet at 3 pm tomorrow and bring the slides.</p>
+      </div>
+      <dl class="keys" aria-label="Shortcuts">
+        <div><dt><kbd>fn</kbd> hold</dt><dd>Dictate</dd></div>
+        <div><dt><kbd>fn</kbd> <kbd>fn</kbd></dt><dd>Hands-free</dd></div>
+        <div><dt><kbd>fn</kbd> <kbd>⌃</kbd></dt><dd>Command mode</dd></div>
+        <div><dt><kbd>⌥</kbd> <kbd>M</kbd></dt><dd>Meeting notes</dd></div>
+        <div><dt><kbd>fn</kbd> <kbd>W</kbd></dt><dd>Writing capture</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="feature flip" id="meetings">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-teal)">Meetings</p>
+      <h2>Notes that know who owes what.</h2>
+      <p>Binders records your microphone and the other side of the call in any meeting app, then writes the summary, the decisions and the action items, each with its owner. Every to-do from every meeting collects on one board, filtered by person.</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Works with Zoom, Teams, Meet or a recording you import.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Full transcript with speakers, and an Ask tab for follow-up questions.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Edit the notes and tick to-dos off right where they live.</li>
+      </ul>
+      <p class="fineprint consent">Recording laws differ from place to place, and many require everyone’s consent. Binders reminds you before your first recording; letting people know is up to you.</p>
+    </div>
+    <figure class="window visual pane">
+      <img src="assets/shot-meeting.webp" width="1208" height="1190" loading="lazy" alt="Meeting notes for a launch readiness review: summary, key points, decisions, and action items assigned to You, Jonas, Tomás and Priya.">
+    </figure>
+  </div>
+</section>
+
+<section class="feature stack" id="writing">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-orange)">Writing capture</p>
+      <h2>It catches the promises you make.</h2>
+      <p>Switch capture on and Binders keeps what you send in Teams, Outlook, Mail, Slack and your browser. When a message says “I’ll send it by Friday”, that becomes a to-do with a deadline and a reminder on the morning it is due.</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Kept only when you send or save. Keystrokes are never recorded.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Labelled passwords, card numbers and long keys are redacted before anything is stored.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Password managers and terminals are never read, and pages that look like a login or a payment are skipped.</li>
+      </ul>
+    </div>
+    <figure class="window visual pane">
+      <img src="assets/detail-writing.webp" width="1510" height="610" loading="lazy" alt="Two captured messages, one sent in Teams and one in Outlook. Under each are the to-dos Binders found: send Jonas the final launch checklist by Friday, loop in support today, share the beta list export by Monday, send Delphine the sandbox link tomorrow.">
+    </figure>
+  </div>
+</section>
+
+<section class="feature flip" id="knowledge">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-pink)">Knowledge</p>
+      <h2>A memory with connections.</h2>
+      <p>Meetings, notes and messages are indexed together, and the people, projects and topics in them are linked into a graph. Search by meaning, or hold the command shortcut and ask out loud: “what did we decide about annual plans?”</p>
+      <ul class="points">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Answers cite the meeting or note they came from.</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7"/></svg>Merge, rename or forget a person when the graph gets it wrong.</li>
+      </ul>
+    </div>
+    <figure class="window visual dark">
+      <img src="assets/shot-graph.webp" width="1936" height="1152" loading="lazy" alt="A knowledge graph linking people such as Jonas Lindqvist and Priya Raman to meetings, messages and topics like the pricing page and the import tool.">
+    </figure>
+  </div>
+</section>
+
+<section class="feature" id="binders">
+  <div class="wrap grid">
+    <div class="copy">
+      <p class="tab" style="--spine: var(--b-green)">Binders and teams</p>
+      <h2>One binder per thing you are working on.</h2>
+      <p>A launch, a hire, a customer. Each binder holds its meetings, notes, to-dos and the people who come up in it. Share a binder with your team through a folder you already sync, such as OneDrive, Dropbox, Google Drive or iCloud Drive. There is no server of ours in between.</p>
+    </div>
+    <figure class="window visual">
+      <img src="assets/shot-binder.webp" width="2204" height="1520" loading="lazy" alt="A binder called Harbor launch with its meetings, notes, open to-dos and the people and topics that come up in it.">
+    </figure>
+  </div>
+</section>
+
+<section class="privacy" id="privacy">
+  <div class="wrap">
+    <p class="tab" style="--spine: var(--b-indigo)">Privacy</p>
+    <h2>Yours, on your Mac.</h2>
+    <p class="lede narrow">Binders has no account, no analytics and no cloud of its own. Here is exactly where your data goes.</p>
+    <div class="ledger">
+      <div class="col">
+        <h3><span class="dot on" aria-hidden="true"></span>Stays on this Mac</h3>
+        <ul>
+          <li>Audio, transcripts, notes, meetings and captured writing, in one folder you can open.</li>
+          <li>Speech recognition, with Parakeet or Whisper running on the Neural Engine.</li>
+          <li>The search index and the knowledge graph.</li>
+          <li>Your dictionary, snippets and settings.</li>
+        </ul>
+      </div>
+      <div class="col">
+        <h3><span class="dot choice" aria-hidden="true"></span>Leaves only where you point it</h3>
+        <ul>
+          <li>Text sent to your language model: Ollama on your Mac by default, or a server you choose.</li>
+          <li>Binders you share with your team, through your own cloud folder.</li>
+          <li>A one-time download of the speech models.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="more"><a href="privacy.html">Read the full privacy notes</a></p>
+  </div>
+</section>
+
+<section class="download" id="download">
+  <div class="wrap">
+    <img class="big-icon" src="assets/icon-512.png" width="112" height="112" alt="">
+    <h2>Binders is free.</h2>
+    <p class="lede narrow">No account, no subscription, no trial clock. Everything runs on your Mac, so there is no server for anyone to pay for. Signed and notarized by Apple, so it opens like any other Mac app.</p>
+    <a class="button" href="download/Binders-0.1.0.dmg" data-download>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 19h16"/></svg>
+      Download Binders 0.1.0, free
+    </a>
+    <ol class="steps">
+      <li><span>1</span>Open the disk image and drag Binders to Applications.</li>
+      <li><span>2</span>Allow Microphone and Accessibility when Binders asks. Accessibility is how it sees your shortcut and types for you.</li>
+      <li><span>3</span>For AI formatting, notes and to-dos, Binders uses <a href="https://ollama.com" rel="noopener">Ollama</a>, the free software that runs the language model on your Mac. If you don’t have it, Binders can install it for you, then download a model that fits your Mac’s memory, from 8 GB up. Dictation works without any of this.</li>
+    </ol>
+    <p class="fineprint">Version 0.1.0, a preview. Requires macOS 14.2 or later. Apple silicon recommended. Updates arrive inside the app, signed, and only once you allow it to check.</p>
+    <p class="fineprint sum">SHA-256 <code>f76a97c2b430a4138b49bc4ada05d45d323bd07ab2709f69d139791755ac65ca</code></p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-row">
+    <p>© 2026 Binders. Free, private, on your Mac.</p>
+    <p><a href="mailto:hello@binders.io">hello@binders.io</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="licenses.html">Licences</a></p>
+    <p class="marks">Zoom, Microsoft Teams, Outlook, Slack, Google Meet, Dropbox and the other product names are trademarks of their owners. Mac, macOS and Apple silicon are trademarks of Apple Inc. The people and projects in the screenshots are fictional.</p>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

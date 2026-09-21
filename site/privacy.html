@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Privacy · Binders</title>
+<meta name="description" content="Where Binders keeps your data, what leaves your Mac, and when.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav">
+  <div class="wrap nav-row">
+    <a class="brand" href="index.html"><img src="assets/icon-512.png" width="60" height="60" alt=""><span>Binders</span></a>
+    <a class="button small" href="index.html#download" style="margin-left:auto">Download</a>
+  </div>
+</header>
+<main class="page">
+  <div class="wrap">
+    <p class="tab" style="--spine: var(--b-indigo)">Privacy</p>
+    <h1>Where your data lives</h1>
+    <p>Binders is a local-first Mac app. It has no account system, no analytics and no server of its own. This page describes what the app does as of version 0.1.0.</p>
+
+    <h2>What stays on your Mac</h2>
+    <ul>
+      <li>Recordings, transcripts, meeting notes, notes, captured writing, to-dos, your dictionary and snippets. They live in the Binders folder inside your user Library, which you can open from Settings.</li>
+      <li>Speech recognition. Audio is transcribed on your Mac by the Parakeet or Whisper model you choose. Audio is never sent anywhere for transcription.</li>
+      <li>The search index and the knowledge graph.</li>
+    </ul>
+
+    <h2>What leaves your Mac, and only when</h2>
+    <ul>
+      <li><strong>Your language model.</strong> Formatting, meeting notes, note digests, answers and to-do detection send text to the language model you configure. By default that is Ollama running on your own Mac. If you point Binders at another server, that text goes to that server and is covered by its terms.</li>
+      <li><strong>Team sharing.</strong> When you share a binder, its notes and meeting notes are written to the folder you picked inside your own cloud drive. Your drive provider syncs them to your teammates.</li>
+      <li><strong>Model downloads.</strong> The speech models are downloaded once, on first use, from their public hosts.</li>
+      <li><strong>Ollama, if you ask for it.</strong> When you click Install Ollama, Binders downloads it from ollama.com, checks that it was signed by its makers and notarized by Apple, and puts it in your Applications folder. Ollama is separate software with its own terms and its own updates. The language model you choose is then downloaded by Ollama from its library.</li>
+      <li><strong>Things you ask for.</strong> A voice command such as “search the web for…” opens your browser with that query.</li>
+    </ul>
+
+    <h2>Updates</h2>
+    <p>On its second launch Binders asks whether it may check for updates. If you agree, it fetches one small file from binders.io, at most once a day, to see whether a newer version exists. That request carries what any web request does (your IP address, the app’s version and your macOS version) and nothing about you or your data. No system profile is sent. Updates are verified against a signing key built into the app before they are installed, and you can switch the checks off in Settings.</p>
+
+    <h2>Writing capture</h2>
+    <ul>
+      <li>It is off until you switch it on, and it shows in the menu bar while it is on.</li>
+      <li>It reads the text field you are writing in through macOS Accessibility, and keeps the text only when you send or save it. It never records keystrokes and never reads secure fields.</li>
+      <li>Password managers, terminals, and pages whose address mentions login, sign-in, checkout, payment, banking or wallets are always skipped.</li>
+      <li>Labelled passwords, card numbers, social security numbers, IBANs and long keys are redacted before anything is stored.</li>
+      <li>Captured writing is deleted after the period you set, 90 days by default, and you can delete any of it at any time.</li>
+    </ul>
+
+    <h2>Recording other people</h2>
+    <p>Meeting notes record what the other people on a call say. Many places require everyone’s consent before a conversation is recorded. Binders reminds you of this before your first recording; telling people, and not recording when someone objects, is your responsibility.</p>
+
+    <h2>How your data is stored</h2>
+    <p>Your data sits in ordinary files in your user Library. Binders does not add its own encryption, so it is protected the way the rest of your Mac is: by your login and, when you have it switched on, FileVault. The API key for a language model server, if you use one, is kept in the macOS Keychain.</p>
+
+    <h2>Permissions</h2>
+    <ul>
+      <li><strong>Microphone</strong> to hear you while you hold the shortcut or record a meeting.</li>
+      <li><strong>Accessibility</strong> to notice your shortcut in any app, type the result for you, and read the field you are writing in when capture is on.</li>
+      <li><strong>Audio capture</strong> to record the other side of a call for meeting notes.</li>
+      <li><strong>Calendar</strong>, optional, to title meetings and name attendees.</li>
+      <li><strong>Notifications</strong>, optional, to remind you when something you promised is due.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>Questions about any of this: <a href="mailto:hello@binders.io">hello@binders.io</a>. If you have found a security problem, please write to <a href="mailto:security@binders.io">security@binders.io</a> before making it public, and give us a chance to fix it. Mail to those addresses is delivered through Amazon SES to the publisher’s inbox.</p>
+
+    <h2>This website</h2>
+    <p>The site is static. It sets no cookies, runs no analytics and loads nothing from other companies: even the fonts are served from here. Like any website, the host that delivers the page (Amazon CloudFront) sees your IP address in order to send it to you.</p>
+  </div>
+</main>
+<footer class="foot"><div class="wrap foot-row"><p>© 2026 Binders.</p><p><a href="index.html">Home</a> · <a href="terms.html">Terms</a> · <a href="licenses.html">Licences</a></p></div></footer>
+</body>
+</html>

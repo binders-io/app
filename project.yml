@@ -1,0 +1,69 @@
+name: Binders
+options:
+  bundleIdPrefix: io.binders
+  deploymentTarget:
+    macOS: "14.2"
+  createIntermediateGroups: true
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: 0.15.7
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    from: 1.1.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: 2.6.4
+  BindersKit:
+    path: Packages/BindersKit
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.2"
+    DEVELOPMENT_TEAM: 87LFD98HJU
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "2"
+targets:
+  Binders:
+    type: application
+    platform: macOS
+    sources:
+      - path: Binders
+    info:
+      path: Binders/Resources/Info.plist
+      properties:
+        CFBundleName: Binders
+        CFBundleDisplayName: Binders
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.productivity
+        NSMicrophoneUsageDescription: Binders listens only while you hold your dictation shortcut or record a meeting, and transcribes on this Mac.
+        NSAudioCaptureUsageDescription: Binders records what other meeting participants say so it can take notes on this Mac.
+        NSCalendarsFullAccessUsageDescription: Binders uses your calendar to title meetings and name attendees in meeting notes.
+        NSHumanReadableCopyright: © 2026 Helder Feixas
+        SUFeedURL: https://binders.io/appcast.xml
+        SUPublicEDKey: C/rZOrAgEm5p5fW21qnUggPEQxu3edbA42Qn7qd3BfE=
+        SUScheduledCheckInterval: 86400
+        SUEnableSystemProfiling: false
+    entitlements:
+      path: Binders/Resources/Binders.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.binders.mac
+        PRODUCT_NAME: Binders
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: FluidAudio
+      - package: WhisperKit
+        product: WhisperKit
+      - package: Sparkle
+      - package: BindersKit
