@@ -8,6 +8,7 @@ memory you can ask questions. The speech models, the language model and your dat
 [![Tests](https://github.com/binders-io/mac-app/actions/workflows/tests.yml/badge.svg)](https://github.com/binders-io/mac-app/actions/workflows/tests.yml)
 [![Latest release](https://img.shields.io/github/v/release/binders-io/mac-app?label=download)](https://github.com/binders-io/mac-app/releases/latest)
 ![macOS 14.2 or later](https://img.shields.io/badge/macOS-14.2%2B-604CF4)
+[![Licence: GPL v3](https://img.shields.io/badge/licence-GPLv3-604CF4)](LICENSE)
 
 **Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/mac-app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple
 
@@ -223,6 +224,11 @@ hello@binders.io. Security reports: security@binders.io.
 
 ## Licence
 
-Binders is free to use. A licence for the source code has not been chosen yet; until one is, all rights are reserved.
+Copyright © 2026 Helder Feixas.
+
+Binders is free software: you can redistribute it and modify it under the terms of the
+[GNU General Public License, version 3](LICENSE). It comes with no warranty. If you distribute a modified version, you must
+publish its source under the same licence, and you must give it its own name and icon: see [TRADEMARKS.md](TRADEMARKS.md).
+
 The open-source software and models Binders is built with are listed in `Binders/Resources/Acknowledgements.txt` and on the
-site's licences page.
+site's licences page. Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md).

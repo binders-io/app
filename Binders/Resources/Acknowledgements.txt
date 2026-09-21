@@ -1,4 +1,12 @@
-BINDERS — ACKNOWLEDGEMENTS
+BINDERS — LICENCE AND ACKNOWLEDGEMENTS
+
+Binders is free software. Copyright © 2026 Helder Feixas. You may redistribute it and modify it under the terms of the
+GNU General Public License, version 3, as published by the Free Software Foundation. It is distributed in the hope that it
+will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. The full licence text is at https://www.gnu.org/licenses/gpl-3.0.html and the complete source code is at
+https://github.com/binders-io/mac-app. The name "Binders" and the app icon are not covered by that licence.
+
+ACKNOWLEDGEMENTS
 
 Binders is built with the open-source software and models below. Thank you to their authors.
 
