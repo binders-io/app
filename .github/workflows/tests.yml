@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  binderskit:
+    name: BindersKit tests and coverage
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Tests with coverage (fails under 85% of lines)
+        run: scripts/coverage.sh 85 | tee coverage.md
+      - name: Publish the coverage table
+        if: always()
+        run: if [ -f coverage.md ]; then cat coverage.md >> "$GITHUB_STEP_SUMMARY"; fi

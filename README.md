@@ -5,7 +5,23 @@
 Binders is a free Mac app that turns what you say, what you hear in meetings and what you write into notes, to-dos and a
 memory you can ask questions. The speech models, the language model and your data all stay on your Mac.
 
-Download: [binders.io](https://binders.io) · macOS 14.2 or later · signed and notarized
+[![Tests](https://github.com/binders-io/mac-app/actions/workflows/tests.yml/badge.svg)](https://github.com/binders-io/mac-app/actions/workflows/tests.yml)
+[![Latest release](https://img.shields.io/github/v/release/binders-io/mac-app?label=download)](https://github.com/binders-io/mac-app/releases/latest)
+![macOS 14.2 or later](https://img.shields.io/badge/macOS-14.2%2B-604CF4)
+
+**Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/mac-app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple
+
+![The Binders home screen: binders, open to-dos with owners and deadlines, and two weeks of dictation activity](site/assets/shot-home.webp)
+
+| Meeting notes that know who owes what | Promises caught in the messages you send |
+|---|---|
+| ![Meeting notes with a summary, key points, decisions and action items by owner](site/assets/shot-meeting.webp) | ![Two sent messages with the to-dos and deadlines found in them](site/assets/detail-writing.webp) |
+
+| A memory with connections | One binder per thing you are working on |
+|---|---|
+| ![A knowledge graph linking people, meetings, messages and topics](site/assets/shot-graph.webp) | ![A binder with its meetings, notes, open to-dos and the people in it](site/assets/shot-binder.webp) |
+
+<sub>Every person and project in these screenshots is fictional. The app renders them from demo data in a throwaway folder.</sub>
 
 ## What it does
 
@@ -87,6 +103,52 @@ The pure logic lives in a Swift package with its own tests:
 cd Packages/BindersKit && swift test
 ```
 
+### Test coverage
+
+The logic that can be tested without a microphone or a model lives in the `BindersKit` package: the hotkey state machine, the
+dictation and command pipelines, meeting and note parsing, knowledge ranking, promise detection and deadline parsing, redaction,
+team sync decisions. Executed 127 tests, with 0 failures. **90.4% of lines** (2652/2935) and **84.1% of functions** (428/509) across 24 source files. Measured on 20 September 2026; every push and pull request runs
+the same script, publishes the table in the run summary and fails under 85% of lines.
+
+```sh
+scripts/coverage.sh        # tests, then this table
+```
+
+<details>
+<summary>Coverage by file</summary>
+
+| File | Lines | Covered |
+|---|---:|---:|
+| `Styles.swift` | 94 | 54.3% |
+| `Hotkey.swift` | 246 | 80.9% |
+| `PromptBuilder.swift` | 86 | 83.7% |
+| `Team.swift` | 235 | 86.0% |
+| `VoiceCommands.swift` | 51 | 86.3% |
+| `Commitments.swift` | 275 | 87.3% |
+| `Pipelines.swift` | 100 | 89.0% |
+| `AudioMath.swift` | 100 | 91.0% |
+| `Knowledge.swift` | 518 | 91.1% |
+| `ModelAdvisor.swift` | 15 | 93.3% |
+| `FillerCleaner.swift` | 35 | 94.3% |
+| `Meetings.swift` | 510 | 94.9% |
+| `TextNorm.swift` | 85 | 95.3% |
+| `EditLearner.swift` | 106 | 97.2% |
+| `WritingCleanup.swift` | 40 | 97.5% |
+| `OutputGuard.swift` | 52 | 98.1% |
+| `AudioAlign.swift` | 94 | 100.0% |
+| `DictionaryMatcher.swift` | 53 | 100.0% |
+| `LoopGuard.swift` | 28 | 100.0% |
+| `Notes.swift` | 29 | 100.0% |
+| `NotesEditing.swift` | 37 | 100.0% |
+| `Redactor.swift` | 83 | 100.0% |
+| `SmartSpacing.swift` | 13 | 100.0% |
+| `SnippetExpander.swift` | 50 | 100.0% |
+
+</details>
+
+The app layer (audio, Accessibility, speech engines, the language model) is exercised by the headless self-tests below, which run
+the real engines, rather than by unit tests.
+
 ### Headless self-tests
 
 The app binary can run the real engines without any UI, which is handy after changing prompts or models:
@@ -114,7 +176,7 @@ started from a terminal they inherit the terminal's permissions.
 
 `scripts/release.sh` archives, signs with Developer ID, notarizes, staples, packs the DMG and zip, and writes the signed update
 feed. `scripts/deploy-site.sh` publishes the website in `site/` together with the download and the feed. See
-[docs/RELEASE.md](docs/RELEASE.md) and [docs/SITE.md](docs/SITE.md).
+[docs/RELEASE.md](docs/RELEASE.md) and [docs/SITE.md](docs/SITE.md). Team sharing is described in [docs/TEAM-SPACE.md](docs/TEAM-SPACE.md).
 
 Website screenshots are rendered by the app from fictional data in a throwaway folder; the seeder refuses to run anywhere else.
 

@@ -27,22 +27,19 @@ then run `scripts/deploy-site.sh`.
 
 ## Hosting
 
-Live since 20 September 2026 at https://binders.io and https://www.binders.io.
+Live at https://binders.io and https://www.binders.io.
 
-- A private, encrypted S3 bucket in us-east-1 (`binders-io-site-<account id>`), readable only by the CloudFront distribution
-  through an origin access control. Requests straight to the bucket get 403.
-- CloudFront distribution `EMGC0DEKAPT5G`: HTTPS only (HTTP redirects), HTTP/2 and 3, Brotli, the managed security headers policy
-  (HSTS, nosniff, frame options, referrer policy), 403 and 404 mapped to `/404.html`, a free ACM certificate for both names.
-- Route 53: alias A and AAAA records for the apex and `www`. `www` used to be a CNAME to another project; the old record is
-  saved in `docs/internal/www-record-before-launch.json`.
-- Bucket and distribution are named in `site/.deploy.env` (git-ignored). `scripts/deploy-site.sh` uploads pages with a 5-minute
-  cache, assets with a week, downloads as immutable, the update archive before the feed, then invalidates the pages.
-- Cost: storage is about 50 MB and CloudFront's free tier covers a terabyte a month, so roughly a cent a month at this size.
+- A private, encrypted S3 bucket, readable only by a CloudFront distribution through an origin access control. Requests straight
+  to the bucket are refused.
+- CloudFront: HTTPS only (HTTP redirects), HTTP/2 and 3, Brotli, the managed security headers policy (HSTS, nosniff, frame
+  options, referrer policy), 403 and 404 mapped to `/404.html`, a free ACM certificate for both names.
+- Route 53: alias A and AAAA records for the apex and `www`.
+- The bucket and the distribution are named in `site/.deploy.env`, which is not committed. `scripts/deploy-site.sh` uploads
+  pages with a 5-minute cache, assets with a week, downloads as immutable, the update archive before the feed, then invalidates
+  the pages.
 
 ## Contact addresses
 
-`hello@binders.io` and `security@binders.io` forward to the publisher's inbox through Amazon SES in us-east-1: the receive rule
-`store-and-forward` (rule set `inbound-email-rule-set`) stores mail in S3 and calls the Lambda `ses-email-forwarder`, which
-re-sends it from `no-reply@binders.io` with the original sender in Reply-To. Addresses live in the Lambda's `FORWARD_MAPPING`
-setting; add an entry there to create another one. DNS for it (MX, SPF, DMARC, three DKIM records) is in the binders.io zone.
-The same Lambda carries mail for other domains, so edit its settings additively and keep a copy first.
+`hello@binders.io` and `security@binders.io` are forwarded to the publisher's inbox by Amazon SES: a receive rule stores each
+message and a small Lambda re-sends it, with the original sender in Reply-To. DNS for it (MX, SPF, DMARC, DKIM) is in the
+binders.io zone.
