@@ -68,7 +68,10 @@ struct WritingView: View {
                     Spacer()
                     TextField("Search", text: $search).textFieldStyle(.roundedBorder).frame(width: 240)
                     Menu {
-                        Button("Capture settings…") { navigation.selection = .settings }
+                        Button("Capture settings…") {
+                            navigation.pendingSettingsPage = .writing
+                            navigation.selection = .settings
+                        }
                         Divider()
                         Button("Delete Everything Captured…", role: .destructive) { confirmDeleteAll = true }
                             .disabled(records.isEmpty)

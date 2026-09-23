@@ -47,6 +47,8 @@ final class HubNavigation {
     var pendingHistorySearch: String?
     var pendingWritingSearch: String?
     var pendingKnowledgeQuery: String?
+    /// The Settings page to open next, consumed by Settings when it appears.
+    var pendingSettingsPage: SettingsPage?
 }
 
 @MainActor
