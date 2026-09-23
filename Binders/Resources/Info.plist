@@ -27,7 +27,7 @@
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Binders records what other meeting participants say so it can take notes on this Mac.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Binders uses your calendar to title meetings and name attendees in meeting notes.</string>
+	<string>Binders uses your calendar to title meetings and name attendees in meeting notes, and to add the events you ask for out loud.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Helder Feixas</string>
 	<key>NSMicrophoneUsageDescription</key>

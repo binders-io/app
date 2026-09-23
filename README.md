@@ -28,7 +28,8 @@ memory you can ask questions. The speech models, the language model and your dat
 
 - **Dictation anywhere.** Hold **fn**, talk, let go. The text lands in whatever app has the cursor, cleaned up: no ums, no false
   starts, and a correction made mid-sentence is the one that sticks. It learns names and jargon from the edits you make, expands
-  snippets, and matches the tone of the app you are in. Command Mode (hold **fn ⌃**) rewrites the selected text or answers a question.
+  snippets, and matches the tone of the app you are in. Command Mode (hold **fn ⌃**) rewrites the selected text, answers a question,
+  adds a to-do ("add to-do call Sam tomorrow") or puts something on your calendar ("add it to my calendar").
 - **Meeting notes.** Records your microphone and the other side of a call in any meeting app, or a recording you import, then
   writes a summary, decisions and action items with their owners. Full transcript with speakers, and an Ask tab per meeting.
 - **Writing capture.** Switch it on (**fn W**) and Binders keeps what you send in Teams, Outlook, Mail, Slack and your browser,
@@ -77,7 +78,7 @@ The full breakdown is on the site's privacy page (`site/privacy.html`).
 |---|---|
 | Hold **fn** | Dictate, release to insert |
 | Double-tap **fn** | Hands-free; tap fn again to finish |
-| Hold **fn ⌃** | Command Mode: rewrite the selection, or ask a question out loud |
+| Hold **fn ⌃** | Command Mode: rewrite the selection, ask a question, add a to-do, or add an event to your calendar |
 | **fn W** | Writing capture on or off |
 | **⌥M** | Start or stop meeting notes |
 | **⌥S** | Scratchpad |

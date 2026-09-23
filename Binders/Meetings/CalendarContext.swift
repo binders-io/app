@@ -1,7 +1,8 @@
+import BindersKit
 import EventKit
 import Foundation
 
-/// Finds the calendar event for a meeting so notes get a real title and attendee names.
+/// The calendar: the event behind a meeting, so notes get a real title and attendees, and events added by voice.
 @MainActor
 enum CalendarContext {
     private static let store = EKEventStore()
@@ -9,6 +10,18 @@ enum CalendarContext {
     struct Event {
         let title: String
         let attendees: [String]
+    }
+
+    enum CalendarError: LocalizedError {
+        case accessDenied
+        case noCalendar
+
+        var errorDescription: String? {
+            switch self {
+            case .accessDenied: "Calendar access is off. Allow it in System Settings → Privacy & Security → Calendars."
+            case .noCalendar: "There is no calendar to add to. Open Calendar and add an account first."
+            }
+        }
     }
 
     static var isAuthorized: Bool {
@@ -35,5 +48,22 @@ enum CalendarContext {
             return participant.url.absoluteString.replacingOccurrences(of: "mailto:", with: "")
         }
         return Event(title: event.title ?? "", attendees: attendees)
+    }
+
+    /// Adds the event to the default calendar, asking for access first if needed. Returns the calendar it went into.
+    static func add(_ draft: DraftEvent) async throws -> String {
+        if !isAuthorized, !(await requestAccess()) { throw CalendarError.accessDenied }
+        guard let calendar = store.defaultCalendarForNewEvents ?? store.calendars(for: .event).first(where: { $0.allowsContentModifications }) else {
+            throw CalendarError.noCalendar
+        }
+        let event = EKEvent(eventStore: store)
+        event.calendar = calendar
+        event.title = draft.title
+        event.isAllDay = draft.allDay
+        event.startDate = draft.start
+        event.endDate = draft.allDay ? draft.start : draft.end
+        event.location = draft.location
+        try store.save(event, span: .thisEvent, commit: true)
+        return calendar.title
     }
 }

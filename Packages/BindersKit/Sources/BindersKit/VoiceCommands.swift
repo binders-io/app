@@ -61,4 +61,54 @@ public enum VoiceCommands {
         }
         return nil
     }
+
+    // MARK: To-dos and calendar
+
+    /// "Add to-do call Sam tomorrow", "remind me to send the deck by Friday", "add buy milk to my to-do list".
+    /// Returns the to-do as spoken; `CommitmentDetection.splitDue` takes the time off the end.
+    public static func parseTodo(_ instruction: String) -> String? {
+        let todo = "(?:to[- ]?do|task|reminder)"
+        return firstCapture(in: trimmed(instruction), patterns: [
+            "(?i)^(?:hey\\s+)?(?:add|create|make|new)\\s+(?:a\\s+|another\\s+|new\\s+)?\(todo)(?:\\s+(?:to|on|in)\\s+(?:my\\s+|the\\s+)?(?:\(todo)\\s+)?list)?[,:]?\\s+(?:to\\s+)?(.+)$",
+            "(?i)^(?:hey\\s+)?(?:add|put)\\s+(.+?)\\s+(?:to|on|in)\\s+(?:my\\s+|the\\s+)?\(todo)\\s+list$",
+            "(?i)^(?:hey\\s+)?remind me to\\s+(.+)$",
+            "(?i)^(?:hey\\s+)?note to self[,:]?\\s+(.+)$",
+        ])
+    }
+
+    public enum CalendarRequest: Equatable, Sendable {
+        /// "Add it to my calendar": the event is in what was just dictated, or in the selected text.
+        case fromContext
+        /// "Add lunch with Sam tomorrow at noon to my calendar".
+        case described(String)
+    }
+
+    /// "Add it to my calendar", "put lunch with Sam tomorrow at noon on my calendar", "schedule a call with Noah Friday at 2".
+    public static func parseCalendarAdd(_ instruction: String) -> CalendarRequest? {
+        let text = trimmed(instruction)
+        let calendar = "(?:to|on|in|into|onto)\\s+(?:my\\s+|the\\s+)?calendar"
+        if text.range(of: "(?i)^(?:hey\\s+)?(?:add|put|save|stick)\\s+(?:it|that|this|these|those)\\s+\(calendar)$", options: .regularExpression) != nil {
+            return .fromContext
+        }
+        return firstCapture(in: text, patterns: [
+            "(?i)^(?:hey\\s+)?(?:add|put|create|schedule)\\s+\(calendar)[,:]?\\s+(.+)$",
+            "(?i)^(?:hey\\s+)?(?:add|put)\\s+(.+?)\\s+\(calendar)$",
+            "(?i)^(?:hey\\s+)?(?:schedule|calendar)[,:]?\\s+(.+)$",
+        ]).map { .described($0) }
+    }
+
+    private static func trimmed(_ instruction: String) -> String {
+        instruction.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?")))
+    }
+
+    /// The first pattern's capture group 1, trimmed; nil when nothing matches or the capture is empty.
+    private static func firstCapture(in text: String, patterns: [String]) -> String? {
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), match.numberOfRanges > 1 else { continue }
+            let capture = (text as NSString).substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !capture.isEmpty { return capture }
+        }
+        return nil
+    }
 }

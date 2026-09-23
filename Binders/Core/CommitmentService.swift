@@ -111,6 +111,26 @@ final class CommitmentService {
         Log.app.notice("Commitments: \(noted.count) from \(record.appName ?? "app", privacy: .public)")
     }
 
+    // MARK: Spoken to-dos
+
+    /// "Add to-do call Sam tomorrow": a to-do of your own, with the time split off the end. Returns the line shown.
+    func addSpoken(_ phrase: String) -> String {
+        let split = CommitmentDetection.splitDue(phrase, relativeTo: Date())
+        let task = split.task.prefix(1).uppercased() + split.task.dropFirst()
+        let commitment = CommitmentRecord(task: task, kind: "todo", owner: TranscriptSegment.you)
+        commitment.dueText = split.due
+        commitment.dueAt = split.dueAt
+        commitment.binderID = settings.currentBinderID
+        Store.shared.insert(commitment)
+        scheduleReminder(commitment)
+        Store.shared.save()
+        let due = commitment.dueAt.map { " · \(Self.dueLabel($0))" } ?? ""
+        let line = "To-do added: \(task)\(due)"
+        flowBar.toast(line, symbol: "checklist", duration: 4)
+        Log.app.notice("To-do added by voice")
+        return line
+    }
+
     // MARK: Status
 
     func setStatus(_ commitment: CommitmentRecord, _ status: String) {
@@ -164,7 +184,7 @@ final class CommitmentService {
     private func scheduleReminder(_ commitment: CommitmentRecord) {
         guard settings.commitmentReminders, let due = commitment.dueAt, let fireAt = Self.reminderTime(for: due) else { return }
         let identifier = "commitment-\(commitment.id.uuidString)"
-        let title = commitment.isPromise ? "You promised \(commitment.to ?? "someone")" : "You asked \(commitment.to ?? "someone")"
+        let title = commitment.isTodo ? "To-do" : (commitment.isPromise ? "You promised \(commitment.to ?? "someone")" : "You asked \(commitment.to ?? "someone")")
         let body = commitment.task + (commitment.dueText.map { " · due \($0)" } ?? "")
         let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireAt)
         let center = UNUserNotificationCenter.current()

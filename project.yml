@@ -23,7 +23,7 @@ settings:
     DEVELOPMENT_TEAM: 87LFD98HJU
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
-    MARKETING_VERSION: "0.1.1"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "3"
 targets:
   Binders:
@@ -42,7 +42,7 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Binders listens only while you hold your dictation shortcut or record a meeting, and transcribes on this Mac.
         NSAudioCaptureUsageDescription: Binders records what other meeting participants say so it can take notes on this Mac.
-        NSCalendarsFullAccessUsageDescription: Binders uses your calendar to title meetings and name attendees in meeting notes.
+        NSCalendarsFullAccessUsageDescription: Binders uses your calendar to title meetings and name attendees in meeting notes, and to add the events you ask for out loud.
         NSHumanReadableCopyright: © 2026 Helder Feixas
         SUFeedURL: https://binders.io/appcast.xml
         SUPublicEDKey: C/rZOrAgEm5p5fW21qnUggPEQxu3edbA42Qn7qd3BfE=

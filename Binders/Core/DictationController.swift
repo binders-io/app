@@ -338,6 +338,24 @@ final class DictationController {
 
     private func deliverCommand(instruction: String, snapshot: FocusSnapshot, vocabulary: [VocabularyTerm], duration: Double,
                                 asrMillis: Int, audioFileName: String?, processing id: UUID) async {
+        // "Add to-do call Sam tomorrow" and "add it to my calendar" act on their own; the model rewrites nothing.
+        if let phrase = VoiceCommands.parseTodo(instruction) {
+            let line = commitments.addSpoken(phrase)
+            flowBar.hide()
+            recordHistory(mode: .command, raw: instruction, final: line, snapshot: snapshot, duration: duration, asrMillis: asrMillis,
+                          llmMillis: 0, usedLLM: false, fallback: nil, audioFileName: audioFileName, status: "answered")
+            return
+        }
+        if let request = VoiceCommands.parseCalendarAdd(instruction) {
+            let llmStart = Date()
+            let result = await addToCalendar(request, snapshot: snapshot)
+            guard processingID == id else { return }
+            recordHistory(mode: .command, raw: instruction, final: result.line, snapshot: snapshot, duration: duration, asrMillis: asrMillis,
+                          llmMillis: Int(Date().timeIntervalSince(llmStart) * 1000), usedLLM: result.usedLLM, fallback: nil,
+                          audioFileName: audioFileName, status: result.added ? "answered" : "failed", error: result.added ? nil : result.line)
+            return
+        }
+
         // "What did we decide about pricing?" / "look up the beta list": answer from meetings, notes and dictations.
         var lookup = KnowledgeQueryIntent.query(from: instruction)
         if lookup == nil, snapshot.context.selectedText == nil, KnowledgeQueryIntent.isQuestion(instruction),
@@ -390,6 +408,56 @@ final class DictationController {
         recordHistory(mode: .command, raw: instruction, final: final, snapshot: snapshot, duration: duration, asrMillis: asrMillis,
                       llmMillis: llmMillis, usedLLM: client != nil, fallback: nil, audioFileName: audioFileName,
                       status: failure == nil ? "inserted" : "failed", error: failure)
+    }
+
+    /// The event named in the command, or found in what was just dictated or is selected. The model reads it when
+    /// there is one; otherwise the time phrase at the end says when. Returns the line shown.
+    private func addToCalendar(_ request: VoiceCommands.CalendarRequest, snapshot: FocusSnapshot) async -> (line: String, added: Bool, usedLLM: Bool) {
+        func fail(_ message: String) -> (String, Bool, Bool) {
+            Sounds.error()
+            flowBar.toast(message, symbol: "calendar.badge.exclamationmark", duration: 5)
+            return (message, false, false)
+        }
+        let source: String?
+        switch request {
+        case .described(let text):
+            source = text
+        case .fromContext:
+            let selected = snapshot.context.selectedText?.trimmed ?? ""
+            source = selected.isEmpty
+                ? Store.shared.recentTranscripts(limit: 5).first { $0.mode == "dictation" && !$0.finalText.trimmed.isEmpty }?.finalText
+                : selected
+        }
+        guard let source, !source.trimmed.isEmpty else {
+            return fail("Nothing to add yet: dictate or select the text, then say “add it to my calendar”.")
+        }
+        let now = Date()
+        var draft: DraftEvent?
+        var usedLLM = false
+        if let client = settings.makeLLMClient() {
+            do {
+                let output = try await client.complete(system: CalendarEventExtraction.systemPrompt(),
+                                                       user: CalendarEventExtraction.userPrompt(text: String(source.prefix(2_000)), now: now),
+                                                       maxTokens: 200, temperature: 0, timeout: 60)
+                draft = CalendarEventExtraction.parse(output, now: now)
+                usedLLM = true
+            } catch {
+                Log.llm.error("Calendar event extraction failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if draft == nil { draft = CalendarEventExtraction.fallback(source, now: now) }
+        guard let draft else {
+            return fail("Couldn't find a day or time in that. Say when, for example “tomorrow at 3 pm”.")
+        }
+        do {
+            let calendar = try await CalendarContext.add(draft)
+            let when = draft.allDay ? draft.start.formatted(date: .abbreviated, time: .omitted) : draft.start.formatted(date: .abbreviated, time: .shortened)
+            let line = "Added to \(calendar): \(draft.title) · \(when)"
+            flowBar.toast(line, symbol: "calendar.badge.plus", duration: 5)
+            return (line, true, usedLLM)
+        } catch {
+            return fail(error.localizedDescription)
+        }
     }
 
     /// Pastes into the app that was focused when the session started. If the user moved to another app

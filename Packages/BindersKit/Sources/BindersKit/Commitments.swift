@@ -195,6 +195,48 @@ public enum CommitmentDetection {
         return nil
     }
 
+    /// Splits the time off the end of a to-do said aloud: "call Sam tomorrow at 3 pm" → ("call Sam", "tomorrow at 3 pm", the date).
+    /// Only a suffix made entirely of time words counts, so "book the flight to Boston Friday" keeps its destination.
+    public static func splitDue(_ text: String, relativeTo now: Date, calendar: Calendar = .current) -> (task: String, due: String?, dueAt: Date?) {
+        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 2 else { return (text, nil, nil) }
+        for count in stride(from: min(7, words.count - 1), through: 1, by: -1) {
+            let suffix = Array(words.suffix(count))
+            guard suffix.allSatisfy(isTimeWord) else { continue }
+            let phrase = suffix.joined(separator: " ")
+            guard let date = dueDate(from: phrase, relativeTo: now, calendar: calendar) else { continue }
+            let task = words.dropLast(count).joined(separator: " ")
+                .replacingOccurrences(of: #"(?i)[\s,]*\b(by|on|at|before|due|until|till|for|around)\s*$"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ",;:")))
+            guard !task.isEmpty else { continue }
+            return (task, phrase, date)
+        }
+        return (text, nil, nil)
+    }
+
+    /// Whether a time phrase names a moment in the day ("3 pm", "noon", "tomorrow morning") rather than just a day.
+    public static func mentionsTimeOfDay(_ phrase: String) -> Bool {
+        let text = phrase.lowercased()
+        return timeOfDay(in: text) != nil
+            || text.range(of: #"\b(morning|afternoon|evening|tonight|night|eod|cob|end of (the )?day)\b"#, options: .regularExpression) != nil
+    }
+
+    private static let timeWords: Set<String> = [
+        "by", "on", "at", "before", "due", "until", "till", "for", "around", "the", "this", "next", "coming", "in", "a", "an", "of",
+        "end", "early", "beginning", "start", "later", "today", "tomorrow", "tonight", "eod", "cob", "eow", "eom", "noon", "midday",
+        "midnight", "morning", "afternoon", "evening", "night", "week", "weeks", "day", "days", "month", "months", "hour", "hours",
+        "minute", "minutes", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "am", "pm", "a.m", "p.m",
+        "sunday", "sun", "monday", "mon", "tuesday", "tue", "tues", "wednesday", "wed", "thursday", "thu", "thur", "thurs", "friday",
+        "fri", "saturday", "sat", "january", "jan", "february", "feb", "march", "mar", "april", "apr", "may", "june", "jun", "july",
+        "jul", "august", "aug", "september", "sep", "sept", "october", "oct", "november", "nov", "december", "dec",
+    ]
+
+    private static func isTimeWord(_ raw: String) -> Bool {
+        let word = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".,!?"))
+        if word.isEmpty || timeWords.contains(word) { return true }
+        return word.range(of: #"^(\d{1,2}(:\d{2})?(am|pm)?|\d{1,2}(st|nd|rd|th)|\d{1,2}/\d{1,2}(/\d{2,4})?|\d{4})$"#, options: .regularExpression) != nil
+    }
+
     private static func timeOfDay(in text: String) -> (hour: Int, minute: Int)? {
         if text.range(of: #"\b(noon|midday)\b"#, options: .regularExpression) != nil { return (12, 0) }
         if text.range(of: #"\bmidnight\b"#, options: .regularExpression) != nil { return (23, 59) }

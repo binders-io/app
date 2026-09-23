@@ -75,6 +75,28 @@ final class FillerAndCommandTests: XCTestCase {
         XCTAssertEqual(VoiceCommands.parseWebSearch("Ask ChatGPT about swift actors")?.host, "chatgpt.com")
         XCTAssertNil(VoiceCommands.parseWebSearch("make this more concise"))
     }
+
+    func testTodoParsing() {
+        XCTAssertEqual(VoiceCommands.parseTodo("Add to do call Sam tomorrow."), "call Sam tomorrow")
+        XCTAssertEqual(VoiceCommands.parseTodo("add a to-do: send the deck by Friday"), "send the deck by Friday")
+        XCTAssertEqual(VoiceCommands.parseTodo("Add task to book the hotel"), "book the hotel")
+        XCTAssertEqual(VoiceCommands.parseTodo("remind me to water the plants tonight"), "water the plants tonight")
+        XCTAssertEqual(VoiceCommands.parseTodo("add buy milk to my to-do list"), "buy milk")
+        XCTAssertEqual(VoiceCommands.parseTodo("New reminder call the dentist"), "call the dentist")
+        XCTAssertNil(VoiceCommands.parseTodo("add it to my calendar"))
+        XCTAssertNil(VoiceCommands.parseTodo("make this more concise"))
+        XCTAssertNil(VoiceCommands.parseTodo("add to do"))
+    }
+
+    func testCalendarParsing() {
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("Add it to my calendar."), .fromContext)
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("put that on the calendar"), .fromContext)
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("add to my calendar lunch with Sam tomorrow at noon"), .described("lunch with Sam tomorrow at noon"))
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("put dentist Friday at 9 am on my calendar"), .described("dentist Friday at 9 am"))
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("schedule a call with Noah Friday at 2 pm"), .described("a call with Noah Friday at 2 pm"))
+        XCTAssertNil(VoiceCommands.parseCalendarAdd("add to do call Sam"))
+        XCTAssertNil(VoiceCommands.parseCalendarAdd("what's on my calendar"))
+    }
 }
 
 final class OutputGuardTests: XCTestCase {

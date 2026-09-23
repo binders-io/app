@@ -216,8 +216,11 @@ final class CommitmentRecord {
     }
 
     var isPromise: Bool { kind != "ask" }
+    /// Added by voice ("add to-do…"), so it came from nobody's message.
+    var isTodo: Bool { kind == "todo" }
 
     var sourceTitle: String {
+        if isTodo { return "Added by voice" }
         let who = to.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } ?? "someone"
         let place = sourceApp.map { " in \($0)" } ?? ""
         return isPromise ? "Promised to \(who)\(place)" : "Asked of \(who)\(place)"
