@@ -3,37 +3,49 @@ import ApplicationServices
 import BindersKit
 
 /// Global keyboard listener built on a CGEventTap. Requires Accessibility permission.
+///
+/// macOS holds every keystroke until the tap callback returns, so the tap is serviced on its own thread and never
+/// waits for the main thread (a SwiftUI render, a database save). Only the resulting actions hop to the main thread.
 @MainActor
+@Observable
 final class HotkeyMonitor {
     /// Marks events Binders posts itself (paste, return) so the tap ignores them.
     static let syntheticEventMarker: Int64 = 0x5749_5350
 
-    private(set) var machine: HotkeyStateMachine
-    var onAction: ((HotkeyAction) -> Void)?
-    /// Consulted for Esc when no recording is active (e.g. while formatting). Return true to swallow the key.
-    var interceptEscape: (() -> Bool)?
-    /// Suspends handling, e.g. while recording a new shortcut in Settings.
-    var isPaused = false {
-        didSet { if isPaused { machine.reset() } }
-    }
+    /// Whether the tap is installed and enabled; refreshed by the health check.
+    private(set) var isRunning = false
+    @ObservationIgnored var onAction: ((HotkeyAction) -> Void)?
+    /// Called for Esc when no recording is active and `interceptsEscape` is set (e.g. while formatting); the key is swallowed.
+    @ObservationIgnored var onEscape: (() -> Void)?
 
-    private var tap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
-    private var retryTimer: Timer?
-    private var healthTimer: Timer?
-    private var fnDown = false
+    @ObservationIgnored private let core: HotkeyCore
+    @ObservationIgnored private var retryTimer: Timer?
+    @ObservationIgnored private var healthTimer: Timer?
 
     init(bindings: HotkeyBindings) {
-        machine = HotkeyStateMachine(bindings: bindings)
+        core = HotkeyCore(machine: HotkeyStateMachine(bindings: bindings))
+        core.onActions = { [weak self] actions in
+            DispatchQueue.main.async { MainActor.assumeIsolated { actions.forEach { self?.onAction?($0) } } }
+        }
+        core.onEscape = { [weak self] in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.onEscape?() } }
+        }
     }
 
-    var isRunning: Bool {
-        guard let tap else { return false }
-        return CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
+    /// Suspends handling, e.g. while recording a new shortcut in Settings.
+    var isPaused: Bool {
+        get { core.isPaused }
+        set { core.isPaused = newValue }
+    }
+
+    /// While set, Esc outside a recording is swallowed and reported through `onEscape`.
+    var interceptsEscape: Bool {
+        get { core.interceptsEscape }
+        set { core.interceptsEscape = newValue }
     }
 
     func start() {
-        guard tap == nil, !installTap(), retryTimer == nil else { return }
+        guard !installTap(), retryTimer == nil else { return }
         retryTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.installTap() else { return }
@@ -44,123 +56,224 @@ final class HotkeyMonitor {
     }
 
     func updateBindings(_ bindings: HotkeyBindings) {
-        machine.bindings = bindings
-        machine.reset()
+        core.updateBindings(bindings)
     }
 
     /// The app ended a session on its own (UI button, max duration, error, rejected start).
     func sessionEnded() {
-        machine.sessionEnded()
+        core.sessionEnded()
     }
 
     private func installTap() -> Bool {
-        guard tap == nil else { return true }
+        guard !core.hasTap else { return true }
         guard AXIsProcessTrusted() else { return false }
-        let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
-        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                          eventsOfInterest: CGEventMask(mask), callback: hotkeyTapCallback,
-                                          userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
+        guard core.install() else {
             Log.hotkey.error("Event tap creation failed")
             return false
         }
-        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        self.tap = tap
-        runLoopSource = source
         healthTimer?.invalidate()
         healthTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkHealth() }
         }
+        isRunning = true
         Log.hotkey.info("Keyboard monitor active")
         return true
     }
 
     /// Recovers a tap macOS disabled or invalidated (e.g. Accessibility revoked and granted again).
     private func checkHealth() {
-        guard let tap else { return }
-        if CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) { return }
-        Log.hotkey.error("Keyboard monitor was disabled; recovering")
-        if CFMachPortIsValid(tap), AXIsProcessTrusted() {
-            CGEvent.tapEnable(tap: tap, enable: true)
+        guard core.hasTap else { return }
+        if core.isHealthy {
+            isRunning = true
+            return
         }
-        if !CFMachPortIsValid(tap) || !CGEvent.tapIsEnabled(tap: tap) {
+        Log.hotkey.error("Keyboard monitor was disabled; recovering")
+        if !core.reenable(trusted: AXIsProcessTrusted()) {
             removeTap()
             start()
         }
-        resync()
+        core.resync()
     }
 
     private func removeTap() {
         healthTimer?.invalidate()
         healthTimer = nil
+        core.uninstall()
+        isRunning = false
+    }
+}
+
+/// Everything the tap thread touches, behind a lock: the main thread changes bindings, pause and Esc handling.
+private final class HotkeyCore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var machine: HotkeyStateMachine
+    private var fnDown = false
+    private var paused = false
+    private var escapeIntercepted = false
+    private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
+    private var runLoop: CFRunLoop?
+    /// Called on the tap thread with whatever a key event produced.
+    var onActions: (@Sendable ([HotkeyAction]) -> Void)?
+    var onEscape: (@Sendable () -> Void)?
+
+    init(machine: HotkeyStateMachine) {
+        self.machine = machine
+    }
+
+    var isPaused: Bool {
+        get { lock.withLock { paused } }
+        set {
+            lock.withLock {
+                paused = newValue
+                if newValue { machine.reset() }
+            }
+        }
+    }
+
+    var interceptsEscape: Bool {
+        get { lock.withLock { escapeIntercepted } }
+        set { lock.withLock { escapeIntercepted = newValue } }
+    }
+
+    var hasTap: Bool { lock.withLock { tap != nil } }
+
+    var isHealthy: Bool {
+        lock.withLock {
+            guard let tap else { return false }
+            return CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
+        }
+    }
+
+    func updateBindings(_ bindings: HotkeyBindings) {
+        lock.withLock {
+            machine.bindings = bindings
+            machine.reset()
+        }
+    }
+
+    func sessionEnded() {
+        lock.withLock { machine.sessionEnded() }
+    }
+
+    /// Creates the tap and a thread whose run loop services it. Returns once the thread is listening.
+    func install() -> Bool {
+        let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                          eventsOfInterest: CGEventMask(mask), callback: hotkeyTapCallback,
+                                          userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
+        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        lock.withLock {
+            self.tap = tap
+            self.source = source
+        }
+        let listening = DispatchSemaphore(value: 0)
+        let thread = Thread { [self] in
+            let runLoop = CFRunLoopGetCurrent()
+            let (tap, source) = lock.withLock {
+                self.runLoop = runLoop
+                return (self.tap, self.source)
+            }
+            guard let tap, let source else { return }
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            listening.signal()
+            CFRunLoopRun()
+        }
+        thread.name = "io.binders.mac.hotkeys"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        _ = listening.wait(timeout: .now() + 1)
+        return true
+    }
+
+    /// Re-enables a tap macOS switched off; true when it is listening again.
+    func reenable(trusted: Bool) -> Bool {
+        lock.withLock {
+            guard let tap, CFMachPortIsValid(tap) else { return false }
+            if trusted { CGEvent.tapEnable(tap: tap, enable: true) }
+            return CGEvent.tapIsEnabled(tap: tap)
+        }
+    }
+
+    func uninstall() {
+        let (tap, source, runLoop) = lock.withLock {
+            defer {
+                self.tap = nil
+                self.source = nil
+                self.runLoop = nil
+            }
+            return (self.tap, self.source, self.runLoop)
+        }
         if let tap {
             if CFMachPortIsValid(tap) { CGEvent.tapEnable(tap: tap, enable: false) }
             CFMachPortInvalidate(tap)
         }
-        if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
-        tap = nil
-        runLoopSource = nil
+        if let runLoop {
+            if let source { CFRunLoopRemoveSource(runLoop, source, .commonModes) }
+            CFRunLoopStop(runLoop)
+        }
     }
 
     /// Key releases may have been missed while the tap was disabled, so re-read the real modifier state.
-    private func resync() {
+    func resync() {
         let flags = CGEventSource.flagsState(.combinedSessionState)
-        fnDown = flags.contains(.maskSecondaryFn)
-        var modifiers = Self.modifiers(from: flags)
-        if fnDown { modifiers.insert(.function) }
-        dispatch(machine.handle(.resync(modifiers), at: ProcessInfo.processInfo.systemUptime).actions)
+        let actions: [HotkeyAction] = lock.withLock {
+            fnDown = flags.contains(.maskSecondaryFn)
+            var modifiers = Self.modifiers(from: flags)
+            if fnDown { modifiers.insert(.function) }
+            return machine.handle(.resync(modifiers), at: ProcessInfo.processInfo.systemUptime).actions
+        }
+        if !actions.isEmpty { onActions?(actions) }
     }
 
+    /// Runs on the tap thread. Never does real work here; it would stall input system-wide.
     fileprivate func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         let passThrough = Unmanaged.passUnretained(event)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            lock.withLock { if let tap { CGEvent.tapEnable(tap: tap, enable: true) } }
             resync()
             return passThrough
         }
-        guard !isPaused, event.getIntegerValueField(.eventSourceUserData) != Self.syntheticEventMarker else { return passThrough }
+        guard event.getIntegerValueField(.eventSourceUserData) != HotkeyMonitor.syntheticEventMarker else { return passThrough }
 
         let flags = event.flags
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        var modifiers = Self.modifiers(from: flags)
+        let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        let now = ProcessInfo.processInfo.systemUptime
 
-        let input: HotkeyInput
-        switch type {
-        case .flagsChanged:
-            // Only the fn/globe key itself may set fn; other keys can carry a stale fn flag.
-            if keyCode == 63 || keyCode == 179 {
-                fnDown = flags.contains(.maskSecondaryFn)
-            } else if !flags.contains(.maskSecondaryFn) {
-                fnDown = false
+        let (actions, consume, escape): ([HotkeyAction], Bool, Bool) = lock.withLock {
+            guard !paused else { return ([], false, false) }
+            var modifiers = Self.modifiers(from: flags)
+            let input: HotkeyInput
+            switch type {
+            case .flagsChanged:
+                // Only the fn/globe key itself may set fn; other keys can carry a stale fn flag.
+                if keyCode == 63 || keyCode == 179 {
+                    fnDown = flags.contains(.maskSecondaryFn)
+                } else if !flags.contains(.maskSecondaryFn) {
+                    fnDown = false
+                }
+                if fnDown { modifiers.insert(.function) }
+                input = .flagsChanged(modifiers)
+            case .keyDown:
+                if flags.contains(.maskSecondaryFn) { modifiers.insert(.function) }
+                input = .keyDown(keyCode: keyCode, modifiers: modifiers, isRepeat: isRepeat)
+            case .keyUp:
+                if flags.contains(.maskSecondaryFn) { modifiers.insert(.function) }
+                input = .keyUp(keyCode: keyCode, modifiers: modifiers)
+            default:
+                return ([], false, false)
             }
-            if fnDown { modifiers.insert(.function) }
-            input = .flagsChanged(modifiers)
-        case .keyDown:
-            if flags.contains(.maskSecondaryFn) { modifiers.insert(.function) }
-            input = .keyDown(keyCode: keyCode, modifiers: modifiers, isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
-        case .keyUp:
-            if flags.contains(.maskSecondaryFn) { modifiers.insert(.function) }
-            input = .keyUp(keyCode: keyCode, modifiers: modifiers)
-        default:
-            return passThrough
+            if type == .keyDown, keyCode == KeyCode.escape, !machine.isSessionActive, escapeIntercepted {
+                return ([], true, true)
+            }
+            let result = machine.handle(input, at: now)
+            return (result.actions, result.consume, false)
         }
-
-        if type == .keyDown, keyCode == KeyCode.escape, !machine.isSessionActive, interceptEscape?() == true {
-            return nil
-        }
-
-        let result = machine.handle(input, at: ProcessInfo.processInfo.systemUptime)
-        dispatch(result.actions)
-        return result.consume ? nil : passThrough
-    }
-
-    /// Never do real work inside the tap callback; it would stall system-wide input.
-    private func dispatch(_ actions: [HotkeyAction]) {
-        guard !actions.isEmpty else { return }
-        DispatchQueue.main.async { [weak self] in
-            actions.forEach { self?.onAction?($0) }
-        }
+        if escape { onEscape?() }
+        if !actions.isEmpty { onActions?(actions) }
+        return consume ? nil : passThrough
     }
 
     private static func modifiers(from flags: CGEventFlags) -> ModifierSet {
@@ -175,6 +288,5 @@ final class HotkeyMonitor {
 
 private func hotkeyTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     guard let refcon else { return Unmanaged.passUnretained(event) }
-    let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-    return MainActor.assumeIsolated { monitor.handle(type: type, event: event) }
+    return Unmanaged<HotkeyCore>.fromOpaque(refcon).takeUnretainedValue().handle(type: type, event: event)
 }

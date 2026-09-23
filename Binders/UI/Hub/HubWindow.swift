@@ -93,6 +93,9 @@ final class HubWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // The views go with the window. Kept alive, they would carry on observing, polling and rendering unseen.
+        window?.contentView = nil
+        window = nil
     }
 }
 

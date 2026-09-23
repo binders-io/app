@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 import BindersKit
 
@@ -21,7 +22,12 @@ struct SettingsView: View {
     @State private var unloading = false
     @State private var confirmDelete = false
     @State private var devices: [AudioDevices.Device] = []
-    @State private var tick = 0
+    // Read once when the view appears: asking launchd and Sparkle on every render blocks the main thread.
+    @State private var launchAtLogin = false
+    @State private var automaticChecks = false
+    @State private var automaticDownloads = false
+    /// Bumped when Binders comes to the front, e.g. back from System Settings, so permission labels catch up.
+    @State private var permissionsRevision = 0
 
     private static let languages: [(String, String)] = [
         ("auto", "Auto-detect"), ("en", "English"), ("pt", "Portuguese"), ("es", "Spanish"), ("fr", "French"), ("de", "German"),
@@ -42,8 +48,8 @@ struct SettingsView: View {
                     Text("Match system").tag("system")
                 }
                 .onChange(of: settings.appearance) { AppAppearance.apply(settings.appearance) }
-                Toggle("Launch at login", isOn: Binding(get: { _ = tick; return settings.launchAtLogin },
-                                                        set: { settings.launchAtLogin = $0; tick += 1 }))
+                Toggle("Launch at login", isOn: Binding(get: { launchAtLogin },
+                                                        set: { settings.launchAtLogin = $0; launchAtLogin = settings.launchAtLogin }))
                 Toggle("Play sounds", isOn: $settings.playSounds)
                 Toggle("Mute other audio while dictating", isOn: $settings.muteAudioWhileDictating)
                 Toggle("Show live transcript while speaking", isOn: $settings.livePreview)
@@ -51,11 +57,11 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Check for updates automatically", isOn: Binding(get: { _ = tick; return UpdateService.shared.automaticChecks },
-                                                                        set: { UpdateService.shared.automaticChecks = $0; tick += 1 }))
-                Toggle("Download and install updates automatically", isOn: Binding(get: { _ = tick; return UpdateService.shared.automaticDownloads },
-                                                                                   set: { UpdateService.shared.automaticDownloads = $0; tick += 1 }))
-                    .disabled(!UpdateService.shared.automaticChecks)
+                Toggle("Check for updates automatically", isOn: Binding(get: { automaticChecks },
+                                                                        set: { UpdateService.shared.automaticChecks = $0; automaticChecks = $0 }))
+                Toggle("Download and install updates automatically", isOn: Binding(get: { automaticDownloads },
+                                                                                   set: { UpdateService.shared.automaticDownloads = $0; automaticDownloads = $0 }))
+                    .disabled(!automaticChecks)
                 HStack {
                     Text(UpdateService.versionLine).foregroundStyle(.secondary)
                     Spacer()
@@ -314,7 +320,12 @@ struct SettingsView: View {
         } message: {
             Text("Teammates' meetings and notes are removed from this Mac. What you already shared stays in the team folder.")
         }
-        .task { devices = AudioDevices.inputDevices() }
+        .task {
+            devices = AudioDevices.inputDevices()
+            automaticChecks = UpdateService.shared.automaticChecks
+            automaticDownloads = UpdateService.shared.automaticDownloads
+            launchAtLogin = await Task.detached { SMAppService.mainApp.status == .enabled }.value
+        }
         .task(id: settings.ollamaModel + settings.ollamaURL) {
             while !Task.isCancelled {
                 await refreshResidency()
@@ -322,12 +333,7 @@ struct SettingsView: View {
             }
         }
         .task(id: "\(settings.llmProvider.rawValue)|\(settings.ollamaURL)|\(settings.openAIBaseURL)") { await loadModels() }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                tick += 1
-            }
-        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in permissionsRevision += 1 }
     }
 
     private var teamSection: some View {
@@ -410,7 +416,6 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var speechStatus: some View {
-        let _ = tick
         switch controller.speech.state {
         case .ready:
             Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -549,7 +554,7 @@ struct SettingsView: View {
 
     private func permissionStatus(_ granted: Bool, open: @escaping () -> Void) -> some View {
         HStack {
-            let _ = tick
+            let _ = permissionsRevision
             if granted {
                 Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else {

@@ -22,7 +22,10 @@ final class DictationController {
         var previewTask: Task<Void, Never>?
     }
 
-    private(set) var phase: Phase = .idle
+    private(set) var phase: Phase = .idle {
+        // Esc cancels formatting; the tap thread decides on its own, so it is told rather than asked.
+        didSet { hotkeys.interceptsEscape = { if case .processing = phase { true } else { false } }() }
+    }
     private(set) var lastError: String?
 
     let settings = AppSettings.shared
@@ -44,11 +47,7 @@ final class DictationController {
     init() {
         hotkeys = HotkeyMonitor(bindings: AppSettings.shared.hotkeys)
         hotkeys.onAction = { [weak self] action in self?.handle(action) }
-        hotkeys.interceptEscape = { [weak self] in
-            guard let self, case .processing = self.phase else { return false }
-            DispatchQueue.main.async { self.cancelProcessing() }
-            return true
-        }
+        hotkeys.onEscape = { [weak self] in self?.cancelProcessing() }
         recorder.onLevel = { [weak self] level in self?.flowBar.model.push(level) }
         flowBar.onStop = { [weak self] in self?.stopFromUI() }
         flowBar.onCancel = { [weak self] in self?.cancel(silent: false, fromHotkey: false) }
