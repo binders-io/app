@@ -123,6 +123,7 @@ public enum CommitmentDetection {
     /// Day-level deadlines land at 5 pm. Returns nil when the phrase isn't a time at all.
     public static func dueDate(from phrase: String?, relativeTo now: Date, calendar: Calendar = .current) -> Date? {
         guard var text = phrase?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        text = normalizeSpokenTime(text)
         text = text.replacingOccurrences(of: #"^(by|on|before|until|till|for|due|around|at)\s+"#, with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: #"\b(the|this coming|coming)\s+"#, with: "", options: .regularExpression)
         text = text.trimmingCharacters(in: CharacterSet(charactersIn: ".,!"))
@@ -198,7 +199,8 @@ public enum CommitmentDetection {
     /// Splits the time off the end of a to-do said aloud: "call Sam tomorrow at 3 pm" → ("call Sam", "tomorrow at 3 pm", the date).
     /// Only a suffix made entirely of time words counts, so "book the flight to Boston Friday" keeps its destination.
     public static func splitDue(_ text: String, relativeTo now: Date, calendar: Calendar = .current) -> (task: String, due: String?, dueAt: Date?) {
-        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        let normalized = normalizeSpokenTime(text)
+        let words = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
         guard words.count >= 2 else { return (text, nil, nil) }
         for count in stride(from: min(7, words.count - 1), through: 1, by: -1) {
             let suffix = Array(words.suffix(count))
@@ -206,7 +208,7 @@ public enum CommitmentDetection {
             let phrase = suffix.joined(separator: " ")
             guard let date = dueDate(from: phrase, relativeTo: now, calendar: calendar) else { continue }
             let task = words.dropLast(count).joined(separator: " ")
-                .replacingOccurrences(of: #"(?i)[\s,]*\b(by|on|at|before|due|until|till|for|around)\s*$"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"(?i)[\s,]*\b(by|on|at|before|due|until|till|for|around|and)\s*$"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: ",;:")))
             guard !task.isEmpty else { continue }
             return (task, phrase, date)
@@ -216,16 +218,54 @@ public enum CommitmentDetection {
 
     /// Whether a time phrase names a moment in the day ("3 pm", "noon", "tomorrow morning") rather than just a day.
     public static func mentionsTimeOfDay(_ phrase: String) -> Bool {
-        let text = phrase.lowercased()
+        let text = normalizeSpokenTime(phrase.lowercased())
         return timeOfDay(in: text) != nil
             || text.range(of: #"\b(morning|afternoon|evening|tonight|night|eod|cob|end of (the )?day)\b"#, options: .regularExpression) != nil
+    }
+
+    /// Speech writes times as words. "eleven a.m." → "11 am", "half past ten" → "10:30", "quarter to eleven" → "10:45",
+    /// "ten o'clock" → "10:00", "at three" → "at 3". Case is kept; only the time words change.
+    public static func normalizeSpokenTime(_ input: String) -> String {
+        let hour = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\\d{1,2})"
+        var text = input.replacingOccurrences(of: #"(?i)\b([ap])\.\s?m\.?(?=\s|$|[,;:!?])"#, with: "$1m", options: .regularExpression)
+        text = replacing(#"(?i)\b(?:a\s+)?quarter\s+past\s+"# + hour + #"\b"#, in: text) { "\(hourNumber($0[1])):15" }
+        text = replacing(#"(?i)\bhalf\s+past\s+"# + hour + #"\b"#, in: text) { "\(hourNumber($0[1])):30" }
+        text = replacing(#"(?i)\b(?:a\s+)?quarter\s+to\s+"# + hour + #"\b"#, in: text) { "\(hourNumber($0[1]) == 1 ? 12 : hourNumber($0[1]) - 1):45" }
+        text = replacing(#"(?i)\b"# + hour + #"\s+(fifteen|thirty|forty[-\s]?five)\b"#, in: text) { groups in
+            let minutes = groups[2].lowercased().hasPrefix("fif") ? 15 : (groups[2].lowercased().hasPrefix("thirty") ? 30 : 45)
+            return "\(hourNumber(groups[1])):\(minutes)"
+        }
+        text = replacing(#"(?i)\b"# + hour + #"\s*o'?clock\b"#, in: text) { "\(hourNumber($0[1])):00" }
+        text = replacing(#"(?i)\b"# + hour + #"(\s*)(am|pm)\b"#, in: text) { "\(hourNumber($0[1]))\($0[2])\($0[3])" }
+        text = replacing(#"(?i)\b(at\s+)"# + hour + #"\b"#, in: text) { "\($0[1])\(hourNumber($0[2]))" }
+        return text
+    }
+
+    private static let hourWords = ["one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                                    "ten": 10, "eleven": 11, "twelve": 12]
+
+    private static func hourNumber(_ word: String) -> Int {
+        Int(word) ?? hourWords[word.lowercased()] ?? 0
+    }
+
+    /// Replaces each match with what the closure makes of its groups (group 0 is the whole match).
+    private static func replacing(_ pattern: String, in text: String, with replacement: ([String]) -> String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let ns = text as NSString
+        var result = text
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let groups = (0..<match.numberOfRanges).map { match.range(at: $0).location == NSNotFound ? "" : ns.substring(with: match.range(at: $0)) }
+            result = (result as NSString).replacingCharacters(in: match.range, with: replacement(groups))
+        }
+        return result
     }
 
     private static let timeWords: Set<String> = [
         "by", "on", "at", "before", "due", "until", "till", "for", "around", "the", "this", "next", "coming", "in", "a", "an", "of",
         "end", "early", "beginning", "start", "later", "today", "tomorrow", "tonight", "eod", "cob", "eow", "eom", "noon", "midday",
         "midnight", "morning", "afternoon", "evening", "night", "week", "weeks", "day", "days", "month", "months", "hour", "hours",
-        "minute", "minutes", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "am", "pm", "a.m", "p.m",
+        "minute", "minutes", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+        "fifteen", "thirty", "forty", "forty-five", "half", "quarter", "past", "o'clock", "oclock", "am", "pm", "a.m", "p.m",
         "sunday", "sun", "monday", "mon", "tuesday", "tue", "tues", "wednesday", "wed", "thursday", "thu", "thur", "thurs", "friday",
         "fri", "saturday", "sat", "january", "jan", "february", "feb", "march", "mar", "april", "apr", "may", "june", "jun", "july",
         "jul", "august", "aug", "september", "sep", "sept", "october", "oct", "november", "nov", "december", "dec",
@@ -240,19 +280,24 @@ public enum CommitmentDetection {
     private static func timeOfDay(in text: String) -> (hour: Int, minute: Int)? {
         if text.range(of: #"\b(noon|midday)\b"#, options: .regularExpression) != nil { return (12, 0) }
         if text.range(of: #"\bmidnight\b"#, options: .regularExpression) != nil { return (23, 59) }
-        guard let regex = try? NSRegularExpression(pattern: #"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b"#),
-              let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: #"\b(at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b"#) else { return nil }
         let ns = text as NSString
-        guard var hour = Int(ns.substring(with: match.range(at: 1))) else { return nil }
-        let minute = match.range(at: 2).location != NSNotFound ? Int(ns.substring(with: match.range(at: 2))) ?? 0 : 0
-        let suffix = match.range(at: 3).location != NSNotFound ? ns.substring(with: match.range(at: 3)) : ""
-        let hasColon = match.range(at: 2).location != NSNotFound
-        // A bare number is a time only with am/pm or minutes; "Sept 20" or "9/20" must not become 9 o'clock.
-        guard !suffix.isEmpty || hasColon else { return nil }
-        if suffix.hasPrefix("p"), hour < 12 { hour += 12 }
-        if suffix.hasPrefix("a"), hour == 12 { hour = 0 }
-        guard (0...23).contains(hour), (0...59).contains(minute) else { return nil }
-        return (hour, minute)
+        // The first number that is a time, not the first number: "September 15 at 10:00 am" is 10 o'clock, not 15.
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard var hour = Int(ns.substring(with: match.range(at: 2))) else { continue }
+            let minute = match.range(at: 3).location != NSNotFound ? Int(ns.substring(with: match.range(at: 3))) ?? 0 : 0
+            let suffix = match.range(at: 4).location != NSNotFound ? ns.substring(with: match.range(at: 4)) : ""
+            let hasColon = match.range(at: 3).location != NSNotFound
+            let afterAt = match.range(at: 1).location != NSNotFound
+            // A bare number is a time only with am/pm, minutes or "at"; "Sept 20" or "9/20" must not become 9 o'clock.
+            guard !suffix.isEmpty || hasColon || afterAt else { continue }
+            if suffix.isEmpty, (1...6).contains(hour) { hour += 12 }   // Without am/pm, "3" and "three thirty" mean the afternoon; "10" the morning.
+            if suffix.hasPrefix("p"), hour < 12 { hour += 12 }
+            if suffix.hasPrefix("a"), hour == 12 { hour = 0 }
+            guard (0...23).contains(hour), (0...59).contains(minute) else { continue }
+            return (hour, minute)
+        }
+        return nil
     }
 
     private static func explicitDate(in text: String, today: Date, calendar cal: Calendar) -> Date? {

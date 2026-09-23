@@ -116,7 +116,7 @@ final class CommitmentService {
     /// "Add to-do call Sam tomorrow": a to-do of your own, with the time split off the end. Returns the line shown.
     func addSpoken(_ phrase: String) -> String {
         let split = CommitmentDetection.splitDue(phrase, relativeTo: Date())
-        let task = split.task.prefix(1).uppercased() + split.task.dropFirst()
+        let task = CalendarEventExtraction.cleanTitle(split.task)
         let commitment = CommitmentRecord(task: task, kind: "todo", owner: TranscriptSegment.you)
         commitment.dueText = split.due
         commitment.dueAt = split.dueAt

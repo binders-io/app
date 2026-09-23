@@ -66,35 +66,47 @@ public enum VoiceCommands {
 
     /// "Add to-do call Sam tomorrow", "remind me to send the deck by Friday", "add buy milk to my to-do list".
     /// Returns the to-do as spoken; `CommitmentDetection.splitDue` takes the time off the end.
-    public static func parseTodo(_ instruction: String) -> String? {
+    ///
+    /// `explicitOnly` is for plain dictation, where only the forms nobody would type into a message count: "remind me to…"
+    /// is something people write to each other, "add to-do…" is not.
+    public static func parseTodo(_ instruction: String, explicitOnly: Bool = false) -> String? {
         let todo = "(?:to[- ]?do|task|reminder)"
-        return firstCapture(in: trimmed(instruction), patterns: [
+        var patterns = [
             "(?i)^(?:hey\\s+)?(?:add|create|make|new)\\s+(?:a\\s+|another\\s+|new\\s+)?\(todo)(?:\\s+(?:to|on|in)\\s+(?:my\\s+|the\\s+)?(?:\(todo)\\s+)?list)?[,:]?\\s+(?:to\\s+)?(.+)$",
             "(?i)^(?:hey\\s+)?(?:add|put)\\s+(.+?)\\s+(?:to|on|in)\\s+(?:my\\s+|the\\s+)?\(todo)\\s+list$",
-            "(?i)^(?:hey\\s+)?remind me to\\s+(.+)$",
-            "(?i)^(?:hey\\s+)?note to self[,:]?\\s+(.+)$",
-        ])
+        ]
+        if !explicitOnly {
+            patterns += [
+                "(?i)^(?:hey\\s+)?remind me to\\s+(.+)$",
+                "(?i)^(?:hey\\s+)?note to self[,:]?\\s+(.+)$",
+            ]
+        }
+        return firstCapture(in: trimmed(instruction), patterns: patterns)
     }
 
     public enum CalendarRequest: Equatable, Sendable {
-        /// "Add it to my calendar": the event is in what was just dictated, or in the selected text.
+        /// "Add it to my calendar", or just "add to my calendar": the event is in what was just dictated, or in the selected text.
         case fromContext
         /// "Add lunch with Sam tomorrow at noon to my calendar".
         case described(String)
     }
 
     /// "Add it to my calendar", "put lunch with Sam tomorrow at noon on my calendar", "schedule a call with Noah Friday at 2".
-    public static func parseCalendarAdd(_ instruction: String) -> CalendarRequest? {
+    /// With `explicitOnly` (plain dictation) "schedule…" and "calendar:…" don't count; they could be the start of a sentence.
+    public static func parseCalendarAdd(_ instruction: String, explicitOnly: Bool = false) -> CalendarRequest? {
         let text = trimmed(instruction)
         let calendar = "(?:to|on|in|into|onto)\\s+(?:my\\s+|the\\s+)?calendar"
-        if text.range(of: "(?i)^(?:hey\\s+)?(?:add|put|save|stick)\\s+(?:it|that|this|these|those)\\s+\(calendar)$", options: .regularExpression) != nil {
+        if text.range(of: "(?i)^(?:hey\\s+)?(?:add|put|save|stick)\\s+(?:(?:it|that|this|these|those)\\s+)?\(calendar)$", options: .regularExpression) != nil {
             return .fromContext
         }
-        return firstCapture(in: text, patterns: [
+        var patterns = [
             "(?i)^(?:hey\\s+)?(?:add|put|create|schedule)\\s+\(calendar)[,:]?\\s+(.+)$",
             "(?i)^(?:hey\\s+)?(?:add|put)\\s+(.+?)\\s+\(calendar)$",
-            "(?i)^(?:hey\\s+)?(?:schedule|calendar)[,:]?\\s+(.+)$",
-        ]).map { .described($0) }
+        ]
+        if !explicitOnly {
+            patterns.append("(?i)^(?:hey\\s+)?(?:schedule|calendar)[,:]?\\s+(.+)$")
+        }
+        return firstCapture(in: text, patterns: patterns).map { .described($0) }
     }
 
     private static func trimmed(_ instruction: String) -> String {

@@ -48,9 +48,28 @@ final class VoiceTodoTests: XCTestCase {
         XCTAssertNil(single.dueAt)
     }
 
+    func testTimesSaidAsWords() {
+        // Speech recognition writes "eleven a.m.", not "11 am".
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("Monday, eleven a.m."), "Monday, 11 am")
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("half past ten"), "10:30")
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("a quarter to eleven"), "10:45")
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("ten o'clock"), "10:00")
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("at three"), "at 3")
+        XCTAssertEqual(CommitmentDetection.normalizeSpokenTime("in two days"), "in two days")
+
+        let appointment = CommitmentDetection.splitDue("doctor 's appointment and Monday, eleven a.m.", relativeTo: now)
+        XCTAssertEqual(stamp(appointment.dueAt), "2026-09-21 11:00")
+        XCTAssertEqual(CalendarEventExtraction.cleanTitle(appointment.task), "Doctor's appointment")
+
+        XCTAssertEqual(stamp(CommitmentDetection.dueDate(from: "Thursday at 10", relativeTo: now)), "2026-09-17 10:00")
+        XCTAssertEqual(stamp(CommitmentDetection.dueDate(from: "Thursday at 3", relativeTo: now)), "2026-09-17 15:00")
+        XCTAssertEqual(stamp(CommitmentDetection.dueDate(from: "tomorrow three thirty", relativeTo: now)), "2026-09-16 15:30")
+        XCTAssertEqual(stamp(CommitmentDetection.dueDate(from: "Sept 20", relativeTo: now)), "2026-09-20 17:00")
+    }
+
     func testEventParsedFromModelReply() {
         let reply = """
-        Here you go: {"title":"Lunch with Sam","start":"2026-09-16T12:00","end":"2026-09-16T13:30","all_day":false,"location":"Tasca"}
+        Here you go: {"title":"Lunch with Sam","when":"tomorrow at noon","duration_minutes":90,"location":"Tasca"}
         """
         let event = CalendarEventExtraction.parse(reply, now: now)
         XCTAssertEqual(event?.title, "Lunch with Sam")
@@ -58,33 +77,43 @@ final class VoiceTodoTests: XCTestCase {
         XCTAssertEqual(stamp(event?.end), "2026-09-16 13:30")
         XCTAssertEqual(event?.location, "Tasca")
         XCTAssertEqual(event?.allDay, false)
+
+        let dayOnly = CalendarEventExtraction.parse(#"{"title":"Offsite","when":"next Tuesday","duration_minutes":null,"location":null}"#, now: now)
+        XCTAssertEqual(dayOnly?.allDay, true)
+        XCTAssertEqual(stamp(dayOnly?.start), "2026-09-22 00:00")
+
+        let spoken = CalendarEventExtraction.parse(#"{"title":"doctor 's appointment","when":"Monday, eleven a.m.","duration_minutes":null,"location":null}"#, now: now)
+        XCTAssertEqual(spoken?.title, "Doctor's appointment")
+        XCTAssertEqual(stamp(spoken?.start), "2026-09-21 11:00")
     }
 
-    func testEventParsedWithDefaultsAndAllDay() {
-        let noEnd = CalendarEventExtraction.parse(#"{"title":"Dentist","start":"2026-09-18T09:00","end":null,"all_day":false,"location":null}"#, now: now)
-        XCTAssertEqual(stamp(noEnd?.end), "2026-09-18 10:00")
-        XCTAssertNil(noEnd?.location)
-
-        let allDay = CalendarEventExtraction.parse(#"{"title":"Offsite","start":"2026-09-22","end":null,"all_day":true,"location":null}"#, now: now)
-        XCTAssertEqual(allDay?.allDay, true)
-        XCTAssertEqual(stamp(allDay?.start), "2026-09-22 00:00")
-
+    func testModelAnswersThatAreNotTimesAreRejected() {
+        // A model given no time answers with the present, or a date it made up that has passed.
+        let present = "{\"title\":\"Send the invoice\",\"when\":\"\(now.formatted(date: .complete, time: .shortened))\",\"duration_minutes\":null,\"location\":null}"
+        XCTAssertNil(CalendarEventExtraction.parse(present, now: now))
+        XCTAssertNil(CalendarEventExtraction.parse(#"{"title":"Call","when":"yesterday at noon","duration_minutes":null,"location":null}"#, now: now))
+        XCTAssertNil(CalendarEventExtraction.parse(#"{"title":"Call","when":null,"duration_minutes":null,"location":null}"#, now: now))
         XCTAssertNil(CalendarEventExtraction.parse(#"{"title":null}"#, now: now))
         XCTAssertNil(CalendarEventExtraction.parse("no json here", now: now))
     }
 
-    func testFallbackWithoutAModel() {
-        let lunch = CalendarEventExtraction.fallback("a lunch with Sam tomorrow at noon", now: now)
+    func testDeterministicWithoutAModel() {
+        let lunch = CalendarEventExtraction.deterministic("a lunch with Sam tomorrow at noon", now: now)
         XCTAssertEqual(lunch?.title, "Lunch with Sam")
         XCTAssertEqual(stamp(lunch?.start), "2026-09-16 12:00")
         XCTAssertEqual(stamp(lunch?.end), "2026-09-16 13:00")
         XCTAssertEqual(lunch?.allDay, false)
 
-        let dentist = CalendarEventExtraction.fallback("dentist Friday", now: now)
+        let dentist = CalendarEventExtraction.deterministic("dentist Friday", now: now)
         XCTAssertEqual(dentist?.title, "Dentist")
         XCTAssertEqual(dentist?.allDay, true)
         XCTAssertEqual(stamp(dentist?.start), "2026-09-18 00:00")
 
-        XCTAssertNil(CalendarEventExtraction.fallback("lunch with Sam", now: now))
+        let appointment = CalendarEventExtraction.deterministic("Doctor 's appointment on Monday, eleven a.m.", now: now)
+        XCTAssertEqual(appointment?.title, "Doctor's appointment")
+        XCTAssertEqual(stamp(appointment?.start), "2026-09-21 11:00")
+
+        XCTAssertNil(CalendarEventExtraction.deterministic("lunch with Sam", now: now))
+        XCTAssertNil(CalendarEventExtraction.deterministic("let's meet Thursday at 10 to go over the plan", now: now))
     }
 }

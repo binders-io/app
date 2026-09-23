@@ -94,8 +94,18 @@ final class FillerAndCommandTests: XCTestCase {
         XCTAssertEqual(VoiceCommands.parseCalendarAdd("add to my calendar lunch with Sam tomorrow at noon"), .described("lunch with Sam tomorrow at noon"))
         XCTAssertEqual(VoiceCommands.parseCalendarAdd("put dentist Friday at 9 am on my calendar"), .described("dentist Friday at 9 am"))
         XCTAssertEqual(VoiceCommands.parseCalendarAdd("schedule a call with Noah Friday at 2 pm"), .described("a call with Noah Friday at 2 pm"))
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("Add to my calendar."), .fromContext)
         XCTAssertNil(VoiceCommands.parseCalendarAdd("add to do call Sam"))
         XCTAssertNil(VoiceCommands.parseCalendarAdd("what's on my calendar"))
+    }
+
+    func testOnlyExplicitFormsCountInPlainDictation() {
+        XCTAssertEqual(VoiceCommands.parseTodo("Add to do call Sam tomorrow.", explicitOnly: true), "call Sam tomorrow")
+        XCTAssertNil(VoiceCommands.parseTodo("remind me to water the plants tonight", explicitOnly: true))
+        XCTAssertNil(VoiceCommands.parseTodo("note to self: breathe", explicitOnly: true))
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("Add it to my calendar.", explicitOnly: true), .fromContext)
+        XCTAssertEqual(VoiceCommands.parseCalendarAdd("add dentist Friday at 9 to my calendar", explicitOnly: true), .described("dentist Friday at 9"))
+        XCTAssertNil(VoiceCommands.parseCalendarAdd("schedule a call with Noah Friday", explicitOnly: true))
     }
 }
 
