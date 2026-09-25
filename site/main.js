@@ -84,7 +84,7 @@
       { kind: "hear", meeting: "31:07", owner: "Priya",
         text: "Confirm the annual discount with finance", meta: "Action item · Launch readiness review" },
       { kind: "write", toast: "Promise noted: Send Delphine the sandbox link · tomorrow",
-        text: "Send Delphine the sandbox link", due: "tomorrow", meta: "Promised in Microsoft Outlook · 8:07 AM" },
+        text: "Send Delphine the sandbox link", due: "tomorrow", meta: "Promised in Microsoft Outlook · 2:02 PM" },
       { kind: "find", ask: "What did Delphine say about the import tool?",
         text: "Delphine wants to see the import tool on her real export before deciding on a trial.", meta: "Answer · 2 sources" },
       { kind: "say", glyph: "calendar", said: "add lunch with Jonas Monday at noon to my calendar",
@@ -94,7 +94,7 @@
       { kind: "say", said: "so the pricing copy is final but the comparison table is not",
         text: "The pricing copy is final, but the comparison table is not.", meta: "Dictated into Mail" },
       { kind: "write", toast: "Ask noted: Share the beta list export · Monday",
-        text: "Share the beta list export", owner: "Jonas", due: "Monday", meta: "Asked in Microsoft Teams · 11:55 AM" },
+        text: "Share the beta list export", owner: "Jonas", due: "Monday", meta: "Asked in Microsoft Teams · 5:50 PM" },
     ];
 
     const render = (entry) => {

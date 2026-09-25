@@ -231,7 +231,7 @@ enum DemoData {
             context.insert(item)
         }
 
-        let toJonas = writing("Yes, the date holds. I'll send you the final launch checklist by Friday, and I'll loop in support on the last two emails today. Can you share the beta list export before Monday's review?",
+        let toJonas = writing("Yep, still on for the 28th. I'll send you the final launch checklist by Friday, and I'll loop in support on the last two emails today. Can you share the beta list export before Monday's review?",
                               app: "Microsoft Teams", bundle: "com.microsoft.teams2", source: "teams", to: "Jonas Lindqvist", in: harbor, hoursAgo: 1.2)
         commitment("Send Jonas the final launch checklist", to: "Jonas Lindqvist", due: next(weekday: 6), dueText: "Friday",
                    quote: "I'll send you the final launch checklist by Friday", from: toJonas)
