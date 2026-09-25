@@ -551,6 +551,26 @@ enum SelfTest {
             return 0
         }
 
+        if args.contains("--selftest-mcp-hosts") {
+            // Which tools are here and whether Binders is in them; --add <host> adds it, as the Settings button would.
+            for host in MCPHost.allCases {
+                let status = host.status
+                print("\(host.rawValue): \(status.present ? "present" : "absent"), \(status.configured ? "configured" : "not configured"), \(host.configURL.path)")
+            }
+            if let name = value("--add") {
+                guard let host = MCPHost(rawValue: name) else {
+                    print("No such host: \(name)")
+                    return 2
+                }
+                do {
+                    print(try await host.add())
+                } catch {
+                    print("FAILED: \(error.localizedDescription)")
+                    return 1
+                }
+            }
+            return 0
+        }
         if let directory = value("--selftest-demo-shots") {
             // Product screenshots from fictional data in a throwaway folder (BINDERS_DATA_DIR), never the real store.
             let controller = DictationController()

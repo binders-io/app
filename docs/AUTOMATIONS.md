@@ -109,7 +109,23 @@ claude mcp add binders -- /Applications/Binders.app/Contents/MacOS/Binders --mcp
 { "mcpServers": { "binders": { "command": "/Applications/Binders.app/Contents/MacOS/Binders", "args": ["--mcp"] } } }
 ```
 
-Settings → Automations → MCP server has both, with the path of the copy you are running, and a copy button.
+**Or let Binders do it.** Settings → Automations → MCP server lists Claude Code, Claude Desktop, Cursor, Windsurf, VS Code,
+Gemini CLI and Codex CLI, shows which are on your Mac and which already have Binders, and adds it with one click. Each
+tool keeps its servers in its own file; Binders makes a dated backup beside that file first and changes only the
+`binders` entry. The ⓘ button shows how to do it by hand, for the tool's own configuration:
+
+| Tool | Where |
+|---|---|
+| Claude Code | `claude mcp add -s user binders -- <path> --mcp` (its own command) |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json`, `mcpServers` |
+| Cursor | `~/.cursor/mcp.json`, `mcpServers` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json`, `mcpServers` |
+| VS Code | `~/Library/Application Support/Code/User/mcp.json`, `servers` (with `"type": "stdio"`) |
+| Gemini CLI | `~/.gemini/settings.json`, `mcpServers` |
+| Codex CLI | `~/.codex/config.toml`, a `[mcp_servers.binders]` table |
+
+Any other host that takes a stdio server wants the same two things: the command (the path to the Binders executable) and
+the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 
 **Tools**
 

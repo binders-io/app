@@ -851,6 +851,10 @@ private struct AutomationsSettings: View {
     private let service = AutomationService.shared
     @State private var editing: AutomationRule?
     @State private var deleting: AutomationRule?
+    @State private var hostMessages: [MCPHost: String] = [:]
+    @State private var showingInstructions: MCPHost?
+    /// Bumped after adding to a tool, so its row re-reads the configuration.
+    @State private var hostRevision = 0
 
     private static let links: [(String, String)] = [
         ("Add a to-do", "binders://todo?text=call%20Sam%20tomorrow"),
@@ -900,13 +904,10 @@ private struct AutomationsSettings: View {
             }
 
             Section {
-                LabeledContent("Claude Code") {
-                    HStack(spacing: 6) {
-                        Text(claudeCodeCommand).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                        copyButton(claudeCodeCommand)
-                    }
+                ForEach(MCPHost.allCases) { host in
+                    hostRow(host)
                 }
-                LabeledContent("Claude Desktop and others") {
+                LabeledContent("Anything else") {
                     HStack(spacing: 6) {
                         Text(mcpJSON).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                         copyButton(mcpJSON)
@@ -952,6 +953,55 @@ private struct AutomationsSettings: View {
         }
         .buttonStyle(.borderless)
         .help("Copy")
+    }
+
+    /// One tool: whether it is here, whether Binders is in it, a button to add it, and the way to do it by hand.
+    private func hostRow(_ host: MCPHost) -> some View {
+        let _ = hostRevision
+        let status = host.status
+        return LabeledContent(host.name) {
+            HStack(spacing: 8) {
+                if let message = hostMessages[host] {
+                    Text(message).font(.caption).foregroundStyle(message.hasPrefix("Added") ? Color.secondary : Color.orange).lineLimit(2)
+                } else if !status.present {
+                    Text("Not found on this Mac").font(.caption).foregroundStyle(.tertiary)
+                } else if status.configured {
+                    Label("Added", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                }
+                Button(status.configured ? "Add again" : "Add") {
+                    Task {
+                        do {
+                            hostMessages[host] = try await host.add()
+                        } catch {
+                            hostMessages[host] = error.localizedDescription
+                        }
+                        hostRevision += 1
+                    }
+                }
+                .disabled(!status.present)
+                Button {
+                    showingInstructions = host
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("How to add it by hand")
+                .popover(isPresented: Binding(get: { showingInstructions == host }, set: { if !$0 { showingInstructions = nil } })) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(host.instructions).font(.body.monospaced()).textSelection(.enabled)
+                        HStack {
+                            Spacer()
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(host.instructions, forType: .string)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .frame(width: 520)
+                }
+            }
+        }
     }
 
     static func describe(_ trigger: AutomationRule.Trigger) -> String {
