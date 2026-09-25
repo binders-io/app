@@ -126,6 +126,20 @@ cp "$OUT.zip" "dist/updates/Binders-$VERSION.zip"
 [[ -f "docs/release-notes/$VERSION.md" ]] && cp "docs/release-notes/$VERSION.md" "dist/updates/Binders-$VERSION.md"
 # Signs the archive with the EdDSA key in the login keychain (account "binders") and rewrites dist/updates/appcast.xml.
 "$SPARKLE_BIN/generate_appcast" --account binders --download-url-prefix "https://binders.io/download/" --link "https://binders.io" \
-  --embed-release-notes --maximum-versions 5 dist/updates
+  --embed-release-notes --maximum-versions 5 --maximum-deltas 0 dist/updates
 grep -q "sparkle:edSignature" dist/updates/appcast.xml || { echo "✗ The update feed is not signed. Is the 'binders' Sparkle key in this keychain? See docs/RELEASE.md."; exit 1; }
-echo "✓ $OUT.dmg, $OUT.zip and dist/updates/appcast.xml are ready to publish (version $VERSION, build $BUILD)"
+# Each archive is served from the GitHub release for its version, where every download is counted. The feed itself
+# stays on binders.io; the signature is on the file, so where it is fetched from changes nothing for the updater.
+perl -pi -e 's#https://binders\.io/download/Binders-([0-9][0-9.]*)\.zip#https://github.com/binders-io/app/releases/download/v$1/Binders-$1.zip#g' dist/updates/appcast.xml
+
+echo "→ Site"
+SUM=$(shasum -a 256 "$OUT.dmg" | cut -d' ' -f1)
+perl -pi -e "s#https://github\.com/binders-io/app/releases/download/v[0-9.]+/Binders-[0-9.]+\.dmg#https://github.com/binders-io/app/releases/download/v$VERSION/Binders-$VERSION.dmg#g; s#Download Binders [0-9.]+, free#Download Binders $VERSION, free#; s#Version [0-9.]+, a preview\.#Version $VERSION, a preview.#; s#SHA-256 <code>[0-9a-f]{64}</code>#SHA-256 <code>$SUM</code>#" site/index.html
+perl -pi -e "s#as of version [0-9.]+\.#as of version $VERSION.#" site/privacy.html
+tar -czf "$OUT.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
+(cd dist && shasum -a 256 "Binders-$VERSION.dmg" "Binders-$VERSION.zip" "Binders-$VERSION.tar.gz" > SHA256SUMS.txt)
+echo "✓ Version $VERSION (build $BUILD) is ready. Next, in this order:"
+echo "   1. gh release create v$VERSION --target main --title \"Binders $VERSION\" --notes-file docs/release-notes/$VERSION.md --latest \\"
+echo "        $OUT.dmg $OUT.zip $OUT.tar.gz dist/SHA256SUMS.txt"
+echo "   2. git commit site/ (the download button, version and checksum were updated) and push"
+echo "   3. scripts/deploy-site.sh   # site, then the update feed, once the release's archive is reachable"

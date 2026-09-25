@@ -18,12 +18,15 @@ The demo content lives in `Binders/App/DemoData.swift`. With `--ask` the run als
 
 ## Publishing
 
-`scripts/deploy-site.sh` syncs `site/` and `dist/Binders-<version>.dmg` to the S3 bucket behind CloudFront and refreshes
-the CDN. It checks that the page links to the current version and that the checksum on the page matches the disk image.
-Bucket and distribution are named in `site/.deploy.env` (not committed).
+`scripts/deploy-site.sh` syncs `site/` to the S3 bucket behind CloudFront, publishes the update feed, and refreshes the CDN.
+It checks that the page links to the current version's GitHub release asset and that the checksum on the page matches the
+disk image. Bucket and distribution are named in `site/.deploy.env` (not committed).
 
-For a new release: run `scripts/release.sh`, then update the version, the file name and the SHA-256 in `site/index.html`,
-then run `scripts/deploy-site.sh`.
+The app itself is not on the site: the download button links to the DMG on the GitHub release, where every download is
+counted, and the update feed points the updater at the zip there. The site serves only pages, images and the feed.
+
+For a new release: `scripts/release.sh` (which updates the page), the GitHub release, then `scripts/deploy-site.sh`. See
+docs/RELEASE.md.
 
 ## Hosting
 

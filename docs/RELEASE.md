@@ -7,18 +7,25 @@ the **hardened runtime**, and **notarized** by Apple. `scripts/release.sh` does 
 ## Every release
 
 1. Bump `MARKETING_VERSION` (what people see) and `CURRENT_PROJECT_VERSION` (must increase) in `project.yml`.
-2. Run `scripts/release.sh`. It runs the tests, archives a Release build, signs it for Developer ID, sends it to
+2. Write `docs/release-notes/<version>.md`.
+3. Run `scripts/release.sh`. It runs the tests, archives a Release build, signs it for Developer ID, sends it to
    Apple's notary service, waits for approval (a few minutes), checks the signature, the stapled ticket and
-   Gatekeeper's verdict, and packs the DMG and the zip.
-3. Publish the DMG. People download it, drag Binders to Applications and launch it. macOS says once that Apple
-   checked it for malicious software; then the app asks for Microphone and Accessibility as usual.
+   Gatekeeper's verdict, packs the DMG, the zip and the tarball with their checksums, writes the signed update feed, and
+   moves the site's download button, version line and checksum to the new version.
+4. Publish the GitHub release with the four files; the script prints the command. Every download of the app comes
+   from there, the site's button and the updater included, so GitHub's download counts are the whole picture.
+5. Commit the site change and push, then run `scripts/deploy-site.sh`: the site, then the feed, once the release's
+   archive is reachable. People download the DMG, drag Binders to Applications and launch it. macOS says once that
+   Apple checked it for malicious software; then the app asks for Microphone and Accessibility as usual.
 
 ## Updates (Sparkle)
 
 Installed copies update themselves through [Sparkle](https://sparkle-project.org). The app carries the feed address
 (`https://binders.io/appcast.xml`) and an EdDSA **public** key in its Info.plist. The matching **private** key is in the login
 keychain of the Mac that cuts releases, under the account `binders`. `scripts/release.sh` signs each archive with it and rewrites
-`dist/updates/appcast.xml`; `scripts/deploy-site.sh` uploads the archive first and the feed last.
+`dist/updates/appcast.xml`, pointing each archive at the GitHub release for its version; the feed itself lives at binders.io.
+`scripts/deploy-site.sh` publishes the feed only once the release's archive answers, so no installed copy is ever offered a
+file that isn't there. The signature is on the file, so where it is fetched from changes nothing for the updater.
 
 - **The private key must be backed up.** Without it you cannot ship updates that installed copies accept. The backup lives
   in AWS Systems Manager Parameter Store as an encrypted SecureString, which is free on the Standard tier
