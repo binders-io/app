@@ -555,6 +555,9 @@ final class MeetingService {
             record.errorMessage = "Your mic went silent at \(TranscriptFormatter.timestamp(silentFrom)) and stayed silent, so the notes only have the other side. If something else recorded you, use ⋯ → Replace My Mic Track…"
         }
         record.status = "ready"
+        AutomationService.shared.fire(.meetingReady, payload: AutomationPayload(
+            text: record.summary, title: record.title, date: AutomationPayload.iso(record.createdAt), app: record.appName ?? "",
+            binder: Store.shared.binder(record.binderID)?.name ?? "", summary: record.summary, link: "binders://meeting/\(record.id.uuidString)"))
         if !settings.meetingKeepAudio {
             record.audioURLs.forEach { try? FileManager.default.removeItem(at: $0) }
             record.micAudioFile = nil

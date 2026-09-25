@@ -67,6 +67,7 @@ final class DictationController {
         }
         meetings.startMonitoring()
         capture.afterCommit = { [weak self] record in self?.commitments.enqueue(record) }
+        AutomationService.shared.notify = { [weak self] text, symbol in self?.flowBar.toast(text, symbol: symbol, duration: 5) }
         knowledge.isAppBusy = { [weak self] in
             guard let self else { return false }
             return self.phase != .idle || !self.meetings.busyMeetingIDs.isEmpty
@@ -318,6 +319,9 @@ final class DictationController {
 
         let pasted = await insert(text, into: snapshot, pressEnter: result.pressEnter)
         if pasted {
+            AutomationService.shared.fire(.dictationInserted, payload: AutomationPayload(
+                text: text.trimmed, title: text.trimmed, app: snapshot.context.appName ?? "",
+                binder: Store.shared.binder(settings.currentBinderID)?.name ?? ""))
             if let reason = result.fallbackReason, settings.aiFormatting {
                 Log.llm.error("Formatting fallback: \(reason)")
                 flowBar.toast("Pasted without AI formatting", symbol: "exclamationmark.bubble")
@@ -348,6 +352,16 @@ final class DictationController {
 
     private func deliverCommand(instruction: String, snapshot: FocusSnapshot, vocabulary: [VocabularyTerm], duration: Double,
                                 asrMillis: Int, audioFileName: String?, processing id: UUID) async {
+        // The user's own rules come first: "send to Things buy milk".
+        if let match = AutomationService.shared.match(instruction) {
+            let outcome = await AutomationService.shared.run(match.rule, payload: match.payload)
+            guard processingID == id else { return }
+            recordHistory(mode: .command, raw: instruction, final: "\(match.rule.name): \(outcome.message)", snapshot: snapshot, duration: duration,
+                          asrMillis: asrMillis, llmMillis: 0, usedLLM: false, fallback: nil, audioFileName: audioFileName,
+                          status: outcome.ok ? "answered" : "failed", error: outcome.ok ? nil : outcome.message)
+            return
+        }
+
         // "Add to-do call Sam tomorrow" and "add it to my calendar" act on their own; the model rewrites nothing.
         if let phrase = VoiceCommands.parseTodo(instruction) {
             addTodo(phrase, instruction: instruction, snapshot: snapshot, duration: duration, asrMillis: asrMillis, audioFileName: audioFileName)
@@ -426,7 +440,7 @@ final class DictationController {
     private func addToCalendar(_ request: VoiceCommands.CalendarRequest, instruction: String, snapshot: FocusSnapshot, duration: Double,
                                asrMillis: Int, audioFileName: String?, processing id: UUID) async {
         let started = Date()
-        let result = await resolveCalendarEvent(request, snapshot: snapshot)
+        let result = await resolveCalendarEvent(request, selectedText: snapshot.context.selectedText)
         guard processingID == id else { return }
         if !result.added { Sounds.error() }
         flowBar.toast(result.line, symbol: result.added ? "calendar.badge.plus" : "calendar.badge.exclamationmark", duration: 5)
@@ -435,13 +449,25 @@ final class DictationController {
                       audioFileName: audioFileName, status: result.added ? "answered" : "failed", error: result.added ? nil : result.line)
     }
 
-    private func resolveCalendarEvent(_ request: VoiceCommands.CalendarRequest, snapshot: FocusSnapshot) async -> (line: String, added: Bool, usedLLM: Bool) {
+    /// binders://calendar?text=… and the MCP server's add_to_calendar.
+    func addToCalendar(described text: String) async {
+        let result = await resolveCalendarEvent(.described(text), selectedText: nil)
+        if !result.added { Sounds.error() }
+        flowBar.toast(result.line, symbol: result.added ? "calendar.badge.plus" : "calendar.badge.exclamationmark", duration: 5)
+    }
+
+    /// binders://dictate and binders://command: start hands-free, or finish what is running.
+    func toggleSession(_ mode: SessionMode) {
+        if case .idle = phase { handle(.start(mode, handsFree: true)) } else { handle(.stop) }
+    }
+
+    private func resolveCalendarEvent(_ request: VoiceCommands.CalendarRequest, selectedText: String?) async -> (line: String, added: Bool, usedLLM: Bool) {
         let source: String?
         switch request {
         case .described(let text):
             source = text
         case .fromContext:
-            let selected = snapshot.context.selectedText?.trimmed ?? ""
+            let selected = selectedText?.trimmed ?? ""
             source = selected.isEmpty
                 ? Store.shared.recentTranscripts(limit: 5).first { $0.mode == "dictation" && $0.status == "inserted" && !$0.finalText.trimmed.isEmpty }?.finalText
                 : selected

@@ -102,6 +102,7 @@ final class CommitmentService {
             Store.shared.insert(commitment)
             scheduleReminder(commitment)
             noted.append(commitment)
+            AutomationService.shared.fire(.promiseNoted, payload: Self.payload(for: commitment))
         }
         guard let first = noted.first else { return }
         let due = first.dueAt.map { " · \(Self.dueLabel($0))" } ?? ""
@@ -124,11 +125,20 @@ final class CommitmentService {
         Store.shared.insert(commitment)
         scheduleReminder(commitment)
         Store.shared.save()
+        AutomationService.shared.fire(.todoAdded, payload: Self.payload(for: commitment))
         let due = commitment.dueAt.map { " · \(Self.dueLabel($0))" } ?? ""
         let line = "To-do added: \(task)\(due)"
         flowBar.toast(line, symbol: "checklist", duration: 4)
         Log.app.notice("To-do added by voice")
         return line
+    }
+
+    /// What an automation gets when a to-do or promise appears.
+    static func payload(for commitment: CommitmentRecord) -> AutomationPayload {
+        AutomationPayload(text: commitment.task, title: commitment.task, when: commitment.dueText ?? "",
+                          date: commitment.dueAt.map(AutomationPayload.iso) ?? "", app: commitment.sourceApp ?? "",
+                          binder: Store.shared.binder(commitment.binderID)?.name ?? "", summary: commitment.quote ?? "",
+                          link: "binders://open?section=home")
     }
 
     // MARK: Status

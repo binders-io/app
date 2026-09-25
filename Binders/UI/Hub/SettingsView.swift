@@ -5,7 +5,7 @@ import BindersKit
 
 /// The categories down the left of Settings. Each is a short page rather than a stop on one long scroll.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, shortcuts, dictation, ai, meetings, knowledge, writing, team, privacy
+    case general, shortcuts, dictation, ai, meetings, knowledge, writing, automations, team, privacy
 
     var id: String { rawValue }
 
@@ -18,6 +18,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .meetings: "Meetings"
         case .knowledge: "Knowledge"
         case .writing: "Writing capture"
+        case .automations: "Automations"
         case .team: "Team"
         case .privacy: "Privacy"
         }
@@ -32,6 +33,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .meetings: "person.wave.2"
         case .knowledge: "point.3.connected.trianglepath.dotted"
         case .writing: "pencil.line"
+        case .automations: "bolt"
         case .team: "person.2"
         case .privacy: "lock.shield"
         }
@@ -47,6 +49,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .meetings: "Taking notes on calls."
         case .knowledge: "Search, the graph and note digests."
         case .writing: "What you write in messages and mail, kept once it is sent."
+        case .automations: "Rules that run Shortcuts, scripts and web hooks; links from other apps; the MCP server."
         case .team: "Sharing binders through a folder you already sync."
         case .privacy: "What is kept, for how long, and permissions."
         }
@@ -96,6 +99,7 @@ struct SettingsView: View {
         case .meetings: MeetingsSettings()
         case .knowledge: KnowledgeSettings()
         case .writing: WritingCaptureSettings()
+        case .automations: AutomationsSettings()
         case .team: TeamSettings()
         case .privacy: PrivacySettings()
         }
@@ -838,6 +842,314 @@ private struct PrivacySettings: View {
                 Button("Grant…", action: open)
             }
         }
+    }
+}
+
+// MARK: - Automations
+
+private struct AutomationsSettings: View {
+    private let service = AutomationService.shared
+    @State private var editing: AutomationRule?
+    @State private var deleting: AutomationRule?
+
+    private static let links: [(String, String)] = [
+        ("Add a to-do", "binders://todo?text=call%20Sam%20tomorrow"),
+        ("Add to the calendar", "binders://calendar?text=lunch%20with%20Sam%20tomorrow%20at%20noon"),
+        ("Ask the knowledge base", "binders://ask?q=what%20did%20we%20decide%20about%20pricing"),
+        ("Start or stop hands-free dictation", "binders://dictate"),
+        ("Writing capture on or off", "binders://capture/toggle"),
+        ("Start or stop meeting notes", "binders://meeting/toggle"),
+    ]
+
+    private var executable: String { Bundle.main.executableURL?.path ?? "/Applications/Binders.app/Contents/MacOS/Binders" }
+    private var claudeCodeCommand: String { "claude mcp add binders -- \"\(executable)\" --mcp" }
+    private var mcpJSON: String { "{\"mcpServers\":{\"binders\":{\"command\":\"\(executable)\",\"args\":[\"--mcp\"]}}}" }
+
+    var body: some View {
+        SettingsPageForm(page: .automations) {
+            Section {
+                if service.rules.isEmpty {
+                    Text("No rules yet. A rule runs a Shortcut, opens a URL, runs a script or calls a web hook, either when you say a phrase in Command Mode (hold fn ⌃) or when something happens in Binders.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(service.rules) { rule in
+                    ruleRow(rule)
+                }
+                Button("Add rule…") {
+                    editing = AutomationRule(name: "", trigger: .phrase(text: ""), action: .shortcut(name: "", input: "{text}"))
+                }
+            } header: {
+                Text("Rules")
+            } footer: {
+                Text("Placeholders: {text}, {title}, {when}, {date}, {app}, {binder}, {summary}, {link}. What you say after a phrase is {text}; a time at its end becomes {when} and {date}. Rules are kept in automations.json in the data folder. A web hook sends its payload to the address you give it; nothing else leaves this Mac.")
+            }
+
+            Section {
+                ForEach(Self.links, id: \.1) { title, link in
+                    LabeledContent(title) {
+                        HStack(spacing: 6) {
+                            Text(link).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            copyButton(link)
+                        }
+                    }
+                }
+            } header: {
+                Text("From other apps")
+            } footer: {
+                Text("Anything that can open a link can drive Binders: Shortcuts, Raycast, Alfred, Keyboard Maestro, a script. Text goes in the query, percent-encoded.")
+            }
+
+            Section {
+                LabeledContent("Claude Code") {
+                    HStack(spacing: 6) {
+                        Text(claudeCodeCommand).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        copyButton(claudeCodeCommand)
+                    }
+                }
+                LabeledContent("Claude Desktop and others") {
+                    HStack(spacing: 6) {
+                        Text(mcpJSON).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        copyButton(mcpJSON)
+                    }
+                }
+            } header: {
+                Text("MCP server")
+            } footer: {
+                Text("Other AI tools can search and ask your knowledge base through the Model Context Protocol. The server runs only while the tool that started it is connected, reads the same data the app does, and everything stays on this Mac. Tools: search_knowledge, ask_knowledge, list_binders, list_meetings, get_meeting, list_notes, get_note, list_todos, recent_dictations, add_todo, add_to_calendar.")
+            }
+        }
+        .sheet(item: $editing) { rule in
+            AutomationEditor(rule: rule) { saved in service.upsert(saved) }
+        }
+        .confirmationDialog("Delete “\(deleting?.name ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), presenting: deleting) { rule in
+            Button("Delete", role: .destructive) { service.remove(rule.id) }
+        }
+    }
+
+    private func ruleRow(_ rule: AutomationRule) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rule.name.isEmpty ? "Untitled" : rule.name).fontWeight(.medium)
+                Text("\(Self.describe(rule.trigger)) → \(Self.describe(rule.action))").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if let outcome = service.outcomes[rule.id] {
+                    Text("\(outcome.ok ? "✓" : "✗") \(outcome.message) · \(outcome.at.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption).foregroundStyle(outcome.ok ? Color.secondary : Color.orange).lineLimit(1)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: Binding(get: { rule.isEnabled }, set: { service.setEnabled(rule.id, $0) })).labelsHidden()
+            Button("Edit") { editing = rule }
+            Button { deleting = rule } label: { Image(systemName: "trash") }.buttonStyle(.borderless).foregroundStyle(.secondary)
+        }
+    }
+
+    private func copyButton(_ text: String) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } label: {
+            Image(systemName: "doc.on.doc")
+        }
+        .buttonStyle(.borderless)
+        .help("Copy")
+    }
+
+    static func describe(_ trigger: AutomationRule.Trigger) -> String {
+        switch trigger {
+        case .phrase(let text): "Say “\(text)”"
+        case .event(let name): name.title
+        }
+    }
+
+    static func describe(_ action: AutomationRule.Action) -> String {
+        switch action {
+        case .shortcut(let name, _): "run Shortcut “\(name)”"
+        case .openURL(let template): "open \(template)"
+        case .script(let command): "run `\(command.prefix(40))`"
+        case .webhook(let url, _): "POST to \(url)"
+        }
+    }
+}
+
+/// One rule, edited in a sheet. The trigger and action are picked by kind; only the fields that kind needs show.
+private struct AutomationEditor: View {
+    enum TriggerKind: String, CaseIterable, Identifiable {
+        case phrase, event
+        var id: String { rawValue }
+    }
+    enum ActionKind: String, CaseIterable, Identifiable {
+        case shortcut, url, script, webhook
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .shortcut: "Run a Shortcut"
+            case .url: "Open a URL"
+            case .script: "Run a script"
+            case .webhook: "Call a web hook"
+            }
+        }
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (AutomationRule) -> Void
+    private let id: UUID
+    private let isEnabled: Bool
+    @State private var name: String
+    @State private var triggerKind: TriggerKind
+    @State private var phrase = ""
+    @State private var event: AutomationEvent = .todoAdded
+    @State private var actionKind: ActionKind
+    @State private var shortcutName = ""
+    @State private var shortcutInput = "{text}"
+    @State private var urlTemplate = ""
+    @State private var script = ""
+    @State private var webhookURL = ""
+    @State private var webhookBody = ""
+    @State private var shortcuts: [String] = []
+    @State private var testing = false
+    @State private var testOutcome: AutomationService.Outcome?
+
+    init(rule: AutomationRule, onSave: @escaping (AutomationRule) -> Void) {
+        self.onSave = onSave
+        id = rule.id
+        isEnabled = rule.isEnabled
+        _name = State(initialValue: rule.name)
+        switch rule.trigger {
+        case .phrase(let text):
+            _triggerKind = State(initialValue: .phrase)
+            _phrase = State(initialValue: text)
+        case .event(let name):
+            _triggerKind = State(initialValue: .event)
+            _event = State(initialValue: name)
+        }
+        switch rule.action {
+        case .shortcut(let name, let input):
+            _actionKind = State(initialValue: .shortcut)
+            _shortcutName = State(initialValue: name)
+            _shortcutInput = State(initialValue: input)
+        case .openURL(let template):
+            _actionKind = State(initialValue: .url)
+            _urlTemplate = State(initialValue: template)
+        case .script(let command):
+            _actionKind = State(initialValue: .script)
+            _script = State(initialValue: command)
+        case .webhook(let url, let body):
+            _actionKind = State(initialValue: .webhook)
+            _webhookURL = State(initialValue: url)
+            _webhookBody = State(initialValue: body)
+        }
+    }
+
+    private var rule: AutomationRule {
+        let trigger: AutomationRule.Trigger = triggerKind == .phrase ? .phrase(text: phrase.trimmed) : .event(name: event)
+        let action: AutomationRule.Action
+        switch actionKind {
+        case .shortcut: action = .shortcut(name: shortcutName.trimmed, input: shortcutInput)
+        case .url: action = .openURL(template: urlTemplate.trimmed)
+        case .script: action = .script(command: script)
+        case .webhook: action = .webhook(url: webhookURL.trimmed, body: webhookBody)
+        }
+        return AutomationRule(id: id, name: name.trimmed, isEnabled: isEnabled, trigger: trigger, action: action)
+    }
+
+    private var isComplete: Bool {
+        guard !name.trimmed.isEmpty else { return false }
+        if triggerKind == .phrase, phrase.trimmed.isEmpty { return false }
+        switch actionKind {
+        case .shortcut: return !shortcutName.trimmed.isEmpty
+        case .url: return !urlTemplate.trimmed.isEmpty
+        case .script: return !script.trimmed.isEmpty
+        case .webhook: return !webhookURL.trimmed.isEmpty
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    TextField("Name", text: $name, prompt: Text("Send to Things"))
+                }
+                Section("When") {
+                    Picker("Trigger", selection: $triggerKind) {
+                        Text("I say a phrase in Command Mode").tag(TriggerKind.phrase)
+                        Text("Something happens in Binders").tag(TriggerKind.event)
+                    }
+                    if triggerKind == .phrase {
+                        TextField("Phrase", text: $phrase, prompt: Text("send to things"))
+                        Text("Hold fn ⌃ and say the phrase, then the rest: what follows is {text}; a time at the end becomes {when} and {date}.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Picker("Event", selection: $event) {
+                            ForEach(AutomationEvent.allCases) { Text($0.title).tag($0) }
+                        }
+                    }
+                }
+                Section("Do") {
+                    Picker("Action", selection: $actionKind) {
+                        ForEach(ActionKind.allCases) { Text($0.title).tag($0) }
+                    }
+                    switch actionKind {
+                    case .shortcut:
+                        if shortcuts.isEmpty {
+                            TextField("Shortcut name", text: $shortcutName)
+                        } else {
+                            Picker("Shortcut", selection: $shortcutName) {
+                                Text("Choose…").tag("")
+                                if !shortcutName.isEmpty, !shortcuts.contains(shortcutName) { Text(shortcutName).tag(shortcutName) }
+                                ForEach(shortcuts, id: \.self) { Text($0).tag($0) }
+                            }
+                        }
+                        TextField("Input the Shortcut receives", text: $shortcutInput, prompt: Text("{text}"))
+                    case .url:
+                        TextField("URL", text: $urlTemplate, prompt: Text("things:///add?title={title}&when={date}"))
+                        Text("Placeholders are percent-encoded, so they are safe inside a query.").font(.caption).foregroundStyle(.secondary)
+                    case .script:
+                        TextField("Command (zsh)", text: $script, prompt: Text("echo \"$BINDERS_TEXT\" >> ~/log.txt"), axis: .vertical)
+                            .lineLimit(2...6)
+                            .font(.body.monospaced())
+                        Text("The payload arrives as BINDERS_TEXT, BINDERS_TITLE, BINDERS_WHEN, BINDERS_DATE… and the text on standard input.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    case .webhook:
+                        TextField("URL", text: $webhookURL, prompt: Text("https://…"))
+                        TextField("JSON body", text: $webhookBody, prompt: Text("Leave empty to send every field"), axis: .vertical)
+                            .lineLimit(2...6)
+                            .font(.body.monospaced())
+                        Text("Placeholders are escaped for JSON. This sends the payload off this Mac, to the address above.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section {
+                    HStack {
+                        Button(testing ? "Testing…" : "Test with sample text") {
+                            Task {
+                                testing = true
+                                testOutcome = await AutomationService.shared.run(rule, payload: AutomationService.sample, quietly: true)
+                                testing = false
+                            }
+                        }
+                        .disabled(!isComplete || testing)
+                        if let testOutcome {
+                            Text("\(testOutcome.ok ? "✓" : "✗") \(testOutcome.message)").font(.caption).foregroundStyle(testOutcome.ok ? Color.secondary : Color.orange).lineLimit(2)
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    onSave(rule)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isComplete)
+            }
+            .padding(12)
+        }
+        .frame(width: 580, height: 560)
+        .task { shortcuts = await AutomationService.installedShortcuts() }
     }
 }
 

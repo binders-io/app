@@ -304,6 +304,9 @@ final class WritingCaptureService {
         let binder = Store.shared.binder(settings.currentBinderID) ?? Store.shared.defaultBinder()
         record.binderID = binder.id
         Store.shared.insert(record)
+        AutomationService.shared.fire(.writingCaptured, payload: AutomationPayload(
+            text: redacted.text, title: draft.subject ?? "", app: draft.context.appName ?? "", binder: binder.name,
+            summary: draft.recipients.joined(separator: ", "), link: "binders://open?section=writing"))
         capturedThisSession += 1
         Log.app.notice("Capture: kept \(record.wordCount) words from \(record.appName ?? "app", privacy: .public), \(redacted.count) redacted")
         afterCommit?(record)

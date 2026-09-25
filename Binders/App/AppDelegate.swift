@@ -46,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HubWindowController.shared.show()
         return false
     }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let controller else { return }
+        for url in urls { URLCommands.handle(url, controller: controller) }
+    }
 }
 
 /// Menu bar icon and menu.
