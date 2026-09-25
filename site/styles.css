@@ -123,6 +123,21 @@ kbd { display: inline-grid; place-items: center; min-width: 30px; height: 28px; 
 .button.paper:hover { filter: none; box-shadow: 0 22px 44px -14px rgba(8, 4, 40, 0.8), inset 0 -2px 0 rgba(40, 28, 120, 0.12); }
 .ghost { display: inline-flex; align-items: center; gap: 9px; min-height: 54px; padding: 0 6px; color: var(--cover-text); font-weight: 650; text-decoration: none; }
 .ghost:hover { text-decoration: underline; text-decoration-thickness: 2px; }
+.tour-link .play { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.32); }
+.tour-link .play .i { width: 18px; height: 18px; stroke: none; margin-left: 2px; }
+.tour-link .dur { font-weight: 500; color: var(--cover-muted); }
+.tour-link:hover { text-decoration: none; }
+.tour-link:hover .play { background: rgba(255, 255, 255, 0.24); }
+
+/* The tour, played in a dialog on the page */
+.tour { width: min(1180px, calc(100vw - 32px)); max-width: none; max-height: none; padding: 0; border: 0; border-radius: 16px; background: #000; color: #fff; overflow: visible;
+  box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.8); }
+.tour::backdrop { background: rgba(6, 4, 24, 0.8); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.tour video { display: block; width: 100%; height: auto; border-radius: 16px; }
+.tour form { position: absolute; right: 0; top: -52px; }
+.tour-close { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.14); color: #fff; font: 400 26px/1 var(--body); cursor: pointer; }
+.tour-close:hover { background: rgba(255, 255, 255, 0.24); }
+.tour-close:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
 /* Navigation: the cover's indigo, frosted once the page moves */
 .nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; color: var(--cover-text); margin-bottom: calc(-1 * var(--nav-h));
@@ -456,6 +471,22 @@ kbd { display: inline-grid; place-items: center; min-width: 30px; height: 28px; 
 .page ul { padding-left: 1.2em; }
 .page li::marker { color: var(--accent-soft); }
 .page strong { color: var(--text); }
+.page h3 { font-size: 1.12rem; margin-top: 30px; scroll-margin-top: calc(var(--nav-h) + 24px); }
+.page h2 { scroll-margin-top: calc(var(--nav-h) + 24px); }
+.page h3 + p { margin-top: 8px; }
+.page code { font: 0.9em/1.4 var(--mono); padding: 2px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.page pre { margin: 14px 0 0; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); overflow-x: auto; }
+.page pre code { padding: 0; background: none; font-size: 0.88rem; line-height: 1.6; white-space: pre; }
+.page kbd { height: 24px; min-width: 26px; font-size: 0.78rem; vertical-align: 0.05em; }
+.page .table { margin-top: 16px; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.page table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.page th, .page td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); color: var(--muted); vertical-align: top; }
+.page th { color: var(--text); font-weight: 650; font-size: 0.85rem; letter-spacing: 0.02em; background: var(--surface); }
+.page tr:last-child td { border-bottom: 0; }
+.page td:first-child { white-space: nowrap; color: var(--text); }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.toc a { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; font-size: 0.92rem; font-weight: 600; }
+.toc a:hover { border-color: var(--accent-soft); color: var(--accent-soft); }
 
 /* Motion: content is always visible; motion only adds to it */
 @media (prefers-reduced-motion: reduce) {

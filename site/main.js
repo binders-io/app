@@ -324,6 +324,20 @@
     }
   }
 
+  // The tour plays in a dialog on this page. Without scripts, or without <dialog>, the link opens the video itself.
+  const tour = document.getElementById("tour");
+  const tourVideo = document.getElementById("tour-video");
+  if (tour && tourVideo && typeof tour.showModal === "function") {
+    document.querySelectorAll("[data-tour]").forEach((link) => link.addEventListener("click", (event) => {
+      event.preventDefault();
+      tour.showModal();
+      tourVideo.currentTime = 0;
+      tourVideo.play().catch(() => {});
+    }));
+    tour.addEventListener("close", () => tourVideo.pause());
+    tour.addEventListener("click", (event) => { if (event.target === tour) tour.close(); });   // the backdrop
+  }
+
   // The nav: frosted once the page moves, a progress line in the colour of the divider you are reading, and the
   // matching link marked.
   const nav = document.querySelector(".nav");

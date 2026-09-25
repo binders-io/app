@@ -40,6 +40,7 @@
   <symbol id="i-note" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="m4 17 11-11 3 3L7 20H4v-3Zm7 3h9"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13m0 0-5-5m5 5-5 5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M9 6.5v11l9-5.5-9-5.5Z" fill="currentColor"/></symbol>
 </svg>
 
 <header class="nav" id="top">
@@ -56,6 +57,7 @@
       <a href="#teams" style="--tab: var(--green)">Teams</a>
       <a href="#connect" style="--tab: var(--sky)">MCP</a>
       <a href="#privacy">Privacy</a>
+      <a href="help.html">Help</a>
     </nav>
     <a class="button small" href="#download">Download</a>
   </div>
@@ -78,12 +80,12 @@
           <svg class="i" aria-hidden="true"><use href="#i-down"/></svg>
           Download free for Mac
         </a>
-        <a class="ghost" href="https://github.com/binders-io/app" rel="noopener">
-          <svg class="i" aria-hidden="true"><use href="#i-code"/></svg>
-          Read the code
+        <a class="ghost tour-link" href="assets/tour.mp4" data-tour>
+          <span class="play" aria-hidden="true"><svg class="i"><use href="#i-play"/></svg></span>
+          Watch the tour <span class="dur">54 s</span>
         </a>
       </div>
-      <p class="fineprint">No account, no subscription · macOS 14.2 or later · Notarized by Apple</p>
+      <p class="fineprint">No account, no subscription · macOS 14.2 or later · Notarized by Apple · <a href="https://github.com/binders-io/app" rel="noopener">Read the code</a></p>
     </div>
 
     <div class="sheet-stage">
@@ -470,17 +472,24 @@
       <li><span>2</span>Allow Microphone and Accessibility when Binders asks. Accessibility is how it sees your shortcut and types for you.</li>
       <li><span>3</span>For notes, answers and to-dos, Binders uses <a href="https://ollama.com" rel="noopener">Ollama</a>, free software that runs the language model on your Mac. Binders can install it and pick a model that fits your Mac’s memory, from 8 GB up. Dictation works without it.</li>
     </ol>
-    <p class="fineprint">Version 0.2.0, a preview. Requires macOS 14.2 or later. Apple silicon recommended. Updates arrive inside the app, signed, and only once you allow it to check. <a href="https://github.com/binders-io/app/releases/latest" rel="noopener">Release notes</a></p>
+    <p class="fineprint">Version 0.2.0, a preview. Requires macOS 14.2 or later. Apple silicon recommended. Updates arrive inside the app, signed, and only once you allow it to check. <a href="https://github.com/binders-io/app/releases/latest" rel="noopener">Release notes</a> · <a href="help.html">Help with setup</a></p>
     <p class="fineprint sum">SHA-256 <code>4cce56e499480fb8d1694ddf96b16ddffce9039619d695f98e6ae6b8294129b3</code></p>
   </div>
 </section>
+
+<dialog class="tour" id="tour" aria-label="The Binders tour, 54 seconds, no sound">
+  <form method="dialog"><button class="tour-close" type="submit" aria-label="Close the tour">×</button></form>
+  <video id="tour-video" controls muted playsinline preload="none" poster="assets/tour-poster.webp" width="1920" height="1080">
+    <source src="assets/tour.mp4" type="video/mp4">
+  </video>
+</dialog>
 
 </main>
 
 <footer class="foot">
   <div class="wrap foot-row">
     <a class="brand small" href="#top"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
-    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="help.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
     <p class="foot-line">© 2026 Binders. Free, private, on your Mac. Open source under the GPL, version 3.</p>
     <p class="marks">Zoom, Microsoft Teams, Outlook, Slack, Google Meet, Dropbox, Claude, Cursor, Windsurf, VS Code, Gemini, Codex and the other product names are trademarks of their owners. Mac, macOS and Apple silicon are trademarks of Apple Inc. The people and projects in the pictures are fictional.</p>
   </div>

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Help · Binders</title>
+<meta name="description" content="Setting up Binders, fixing the usual problems, and what happens to your data.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<meta name="theme-color" content="#3a2bb8">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="brand" href="index.html" aria-label="Binders home">
+      <img src="assets/icon-128.png" width="40" height="40" alt="">
+      <span>Binders</span>
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="index.html">Home</a>
+      <a href="help.html" aria-current="page">Help</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="licenses.html">Licences</a>
+    </nav>
+    <a class="button small" href="index.html#download">Download</a>
+  </div>
+</header>
+<main id="main">
+<section class="cover page-cover">
+  <div class="wrap">
+    <p class="kicker">Help</p>
+    <h1>Getting Binders working</h1>
+    <p class="lede">Setting up, fixing the usual problems, and what happens to your data. If your question isn't here, write to <a href="mailto:hello@binders.io">hello@binders.io</a> or open an issue on <a href="https://github.com/binders-io/app/issues" rel="noopener">GitHub</a>.</p>
+  </div>
+</section>
+<article class="page">
+  <div class="wrap">
+    <nav class="toc" aria-label="On this page">
+      <a href="#start">Getting started</a>
+      <a href="#fix">When something isn't working</a>
+      <a href="#data">Privacy and your data</a>
+      <a href="#features">Features</a>
+      <a href="#about">About Binders</a>
+    </nav>
+
+    <h2 id="start">Getting started</h2>
+
+    <h3 id="requirements">What does it need?</h3>
+    <p>A Mac with macOS 14.2 or later. Binders is a universal app, so it also installs on Intel Macs, but it is made for Apple silicon: speech recognition runs on the Neural Engine, and the language model is far quicker there. On an Intel Mac, expect it to be slower.</p>
+    <p>Disk space: about 500 MB for the speech model, and, if you want AI formatting, notes and answers, a language model of 4 to 19 GB (see <a href="#ollama">Do I need Ollama?</a>).</p>
+
+    <h3 id="install">How do I install it?</h3>
+    <p>Open the disk image, drag Binders to Applications and open it. macOS says once that Apple checked it for malicious software. Binders then asks for the Microphone and Accessibility, and downloads the speech model the first time you dictate.</p>
+
+    <h3 id="accessibility">Why does it need Accessibility?</h3>
+    <p>It is how Binders notices your shortcut in any app, types the result where your cursor is, and, only if you switch writing capture on, reads the field you are writing in. Binders does not use it for anything else. You can read the code that does this on GitHub.</p>
+
+    <h3 id="emoji">Pressing fn opens the emoji picker</h3>
+    <p>macOS uses the fn (globe) key for its own things too. In System Settings → Keyboard, set “Press 🌐 key to” to <strong>Do Nothing</strong>. Binders shows a reminder about this on its Home page until it is set.</p>
+
+    <h3 id="ollama">Do I need Ollama?</h3>
+    <p>Not for dictation: speech recognition is built in and works on its own. For the AI parts (cleaning up what you dictate, meeting notes, answers, and finding to-dos in what you write) Binders uses a language model that runs on your Mac through <a href="https://ollama.com" rel="noopener">Ollama</a>, free software from its own makers. If you don't have it, Binders can install it for you: it downloads the official build and checks it was signed by its makers and notarized by Apple. It then suggests a model for your Mac's memory:</p>
+    <div class="table">
+      <table>
+        <thead><tr><th>Memory</th><th>Suggested model</th><th>Download</th></tr></thead>
+        <tbody>
+          <tr><td>8 GB</td><td><code>gemma4:e2b-it-qat</code></td><td>4.3 GB</td></tr>
+          <tr><td>16 GB</td><td><code>gemma4:e4b-it-qat</code></td><td>6.1 GB</td></tr>
+          <tr><td>24 GB or more</td><td><code>gemma4:12b</code></td><td>7.6 GB</td></tr>
+          <tr><td>48 GB or more</td><td><code>gemma4:26b</code></td><td>18.6 GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>You can pick another in Settings → AI, or point Binders at any OpenAI-compatible server instead. If you do, the text Binders sends for those features goes to that server.</p>
+
+    <h3 id="other-apps">I already use another dictation app</h3>
+    <p>Quit any other app that listens to fn, or give one of them a different shortcut: two apps holding the same key get in each other's way. If you used Wispr Flow, the Dictionary page in Binders can import your words and snippets.</p>
+
+    <h2 id="fix">When something isn't working</h2>
+
+    <h3 id="fn-nothing">Holding fn does nothing</h3>
+    <p>This is nearly always the Accessibility permission. Open Binders → Settings → Privacy, which shows each permission and opens the right place in System Settings. Make sure Binders is listed under Accessibility and switched on; that page in Binders says “Active” once the shortcut can be heard.</p>
+    <p>If it is on and fn still does nothing, macOS may be holding on to an entry for an older copy of the app. Reset it, then open Binders and allow Accessibility again:</p>
+    <pre><code>tccutil reset Accessibility io.binders.mac</code></pre>
+    <p>Paste that into Terminal and press Return. It only affects Binders. Then quit Binders from its menu bar icon and open it again.</p>
+
+    <h3 id="after-update">It stopped working after I reinstalled or moved the app</h3>
+    <p>macOS ties the Microphone and Accessibility permissions to the exact copy of an app. Replacing Binders by hand, or keeping two copies (one in Applications and one elsewhere), can leave the permission with the wrong one. Keep a single copy in Applications and use the reset above. Updates installed from inside Binders keep their permissions.</p>
+
+    <h3 id="not-typed">The text didn't appear in my app</h3>
+    <p>If you switched apps while you were speaking, Binders copies the text instead of typing it into the wrong place; paste it with ⌘V. <kbd>⌃</kbd><kbd>⌘</kbd><kbd>V</kbd> pastes the last transcript again at any time.</p>
+
+    <h3 id="language">It hears the wrong language</h3>
+    <p>Choose the speech model in Settings → Dictation. Parakeet v3 covers 25 European languages and is the fastest; Parakeet v2 is English only and the most accurate for English; Whisper Large v3 Turbo covers 99 languages and is slower.</p>
+
+    <h3 id="ai-off">Dictation works, but there's no formatting, no notes or no answers</h3>
+    <p>Those need the language model. Settings → AI says whether Ollama is installed and running, and whether the model you picked has been downloaded.</p>
+
+    <h3 id="meeting-audio">Meeting notes only have my side of the call</h3>
+    <p>Recording the other side needs the audio capture permission, which Binders asks for the first time you record. If you declined, turn it on from Binders → Settings → Privacy.</p>
+
+    <h2 id="data">Privacy and your data</h2>
+
+    <h3 id="keylogger">Is writing capture a keylogger?</h3>
+    <p>No. It is off until you switch it on, and it shows in the menu bar while it is on. It never records keystrokes: it reads the text of the field you are writing in through Accessibility, and keeps it only at the moment you send or save. It never reads password fields, always skips password managers, terminals, and pages whose address mentions login, sign-in, checkout, payment, banking or wallets, and redacts labelled passwords, card numbers, social security numbers, IBANs and long keys before anything is stored. What it keeps is deleted after 90 days by default. Everything stays on your Mac, and the code is <a href="https://github.com/binders-io/app" rel="noopener">public</a>.</p>
+
+    <h3 id="leaves">Does anything leave my Mac?</h3>
+    <p>With the defaults, only the one-time model downloads and, if you allow it, a daily check for updates. The <a href="privacy.html">privacy notes</a> list everything, including what changes if you point Binders at a language model server of your own or share a binder with your team.</p>
+
+    <h3 id="consent">Recording other people</h3>
+    <p>Many places require everyone's consent before a conversation is recorded. Binders reminds you before your first recording; telling people, and not recording when someone objects, is up to you.</p>
+
+    <h3 id="where">Where is my data, and how do I back it up?</h3>
+    <p>In ordinary files in <code>~/Library/Application Support/Binders</code>, which Settings can open for you. Time Machine backs it up with the rest of your Mac. Binders adds no encryption of its own, so it is protected like your other files: by your login and, if it is on, FileVault.</p>
+
+    <h3 id="uninstall">How do I remove Binders completely?</h3>
+    <p>Quit Binders, move it from Applications to the Trash, then delete its folders:</p>
+    <pre><code>rm -rf ~/Library/Application\ Support/Binders ~/Library/Application\ Support/FluidAudio
+defaults delete io.binders.mac</code></pre>
+    <p>The first folder holds your data; the second holds the Parakeet speech model (delete it only if no other app of yours uses FluidAudio). Ollama and its models are separate software: remove them the way Ollama describes, if you no longer want them.</p>
+
+    <h2 id="features">Features</h2>
+
+    <h3 id="shortcuts">What are the shortcuts?</h3>
+    <div class="table">
+      <table>
+        <tbody>
+          <tr><td><kbd>fn</kbd> hold</td><td>Dictate; let go to insert</td></tr>
+          <tr><td><kbd>fn</kbd> twice</td><td>Hands-free; tap fn again to finish</td></tr>
+          <tr><td><kbd>fn</kbd><kbd>⌃</kbd> hold</td><td>Command Mode: rewrite the selection, ask a question, add a to-do or a calendar event</td></tr>
+          <tr><td><kbd>fn</kbd><kbd>W</kbd></td><td>Writing capture on or off</td></tr>
+          <tr><td><kbd>⌥</kbd><kbd>M</kbd></td><td>Start or stop meeting notes</td></tr>
+          <tr><td><kbd>⌥</kbd><kbd>S</kbd></td><td>Scratchpad</td></tr>
+          <tr><td><kbd>⌃</kbd><kbd>⌘</kbd><kbd>V</kbd></td><td>Paste the last transcript again</td></tr>
+          <tr><td><kbd>esc</kbd></td><td>Cancel</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>End a dictation with “press enter” to send it. Every shortcut can be changed in Settings → Shortcuts.</p>
+
+    <h3 id="ai-tools">Can Claude, Cursor or my other AI tools use it?</h3>
+    <p>Yes, through the MCP server built into Binders. Settings → MCP adds it to Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Gemini CLI or Codex with one click, and shows the configuration for anything else. The tool can then search and ask your knowledge base and add notes, meetings, to-dos and calendar events. It runs on your Mac, only while the tool is connected, and nothing can be deleted this way.</p>
+
+    <h3 id="team">Can I share a binder with my team?</h3>
+    <p>Yes, through a folder you already sync, such as OneDrive, Dropbox, Google Drive or iCloud Drive: Settings → Team. Each teammate picks the same shared folder. There is no server of ours in between.</p>
+
+    <h3 id="updates">How do updates work?</h3>
+    <p>On its second launch Binders asks whether it may check for updates. If you agree, it checks at most once a day and installs signed updates from inside the app. Settings → General has the switches and a Check Now button.</p>
+
+    <h2 id="about">About Binders</h2>
+
+    <h3 id="free">Why is it free?</h3>
+    <p>Because there is nothing to pay for: no account, no servers and no cloud of ours. Everything runs on your Mac. Binders is open source under the GNU General Public License, version 3, and published by Helder Feixas.</p>
+
+    <h3 id="bugs">How do I report a bug or ask for a feature?</h3>
+    <p>Open an issue on <a href="https://github.com/binders-io/app/issues" rel="noopener">GitHub</a>, or write to <a href="mailto:hello@binders.io">hello@binders.io</a>. For a security problem, please write to <a href="mailto:security@binders.io">security@binders.io</a> before making it public.</p>
+  </div>
+</article>
+</main>
+<footer class="foot">
+  <div class="wrap foot-row">
+    <a class="brand small" href="index.html"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="help.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-line">© 2026 Binders. Free, private, on your Mac. Open source under the GPL, version 3.</p>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

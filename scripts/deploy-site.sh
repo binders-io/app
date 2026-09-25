@@ -48,6 +48,6 @@ fi
 
 echo "→ Refreshing the CDN"
 # Pages, the stylesheet and script, and the pictures (which keep their names when they are re-rendered).
-aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/assets/*" "/appcast.xml" \
+aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/assets/*" "/appcast.xml" \
   --query "Invalidation.Id" --output text
 echo "✓ Published"
