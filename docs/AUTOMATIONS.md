@@ -122,6 +122,7 @@ Settings → Automations → MCP server has both, with the path of the copy you 
 | `list_notes` (limit, binder) · `get_note` (id) | Notes, and one in full |
 | `list_todos` (status) | Promises, asks and to-dos |
 | `recent_dictations` (limit) | What you dictated lately |
+| `add_to_knowledge` (title, text, source, binder) | Anything worth remembering: a fact, a document's text, a web page, an email. Kept under the title with its source, so search and answers can cite it |
 | `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
 | `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
 | `add_meeting` (title, notes, date, attendees, duration_minutes, app, binder) | A meeting that happened elsewhere, from its notes or transcript, so it is searchable with the rest |

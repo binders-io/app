@@ -55,6 +55,12 @@ enum MCPServer {
         MCPTool(name: "add_to_calendar", description: "Add an event to the user's calendar from a phrase such as \"lunch with Sam tomorrow at noon\". Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "What and when.", required: true),
         ]),
+        MCPTool(name: "add_to_knowledge", description: "Put something into the knowledge base so it can be searched and asked about: a fact learned, a document's text, a web page, an email. Kept under the title with its source, in the named binder or the user's current one. Returns its id.", parameters: [
+            MCPToolParameter(name: "title", description: "What it is, in a few words.", required: true),
+            MCPToolParameter(name: "text", description: "The content, in Markdown if you like.", required: true),
+            MCPToolParameter(name: "source", description: "Where it came from: a URL, a file name, a person, a tool."),
+            MCPToolParameter(name: "binder", description: "The binder's name; see list_binders."),
+        ]),
         MCPTool(name: "add_note", description: "Add a note to the knowledge base. The first line is its title. Goes into the named binder, or the user's current one. Returns its id.", parameters: [
             MCPToolParameter(name: "text", description: "The note, in Markdown if you like.", required: true),
             MCPToolParameter(name: "binder", description: "The binder's name; see list_binders."),
@@ -219,6 +225,10 @@ enum MCPServer {
         case "add_note":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
             return try await handOff(name, ["text": string("text"), "binder": string("binder")])
+        case "add_to_knowledge":
+            guard !string("title").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("title and text are required") }
+            let source = string("source").isEmpty ? "" : "Source: \(string("source"))\n\n"
+            return try await handOff("add_note", ["text": "\(string("title"))\n\n\(source)\(string("text"))", "binder": string("binder")])
         case "append_to_note":
             guard !string("id").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("id and text are required") }
             return try await handOff(name, ["id": string("id"), "text": string("text")])

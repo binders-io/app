@@ -915,7 +915,7 @@ private struct AutomationsSettings: View {
             } header: {
                 Text("MCP server")
             } footer: {
-                Text("Other AI tools can search, ask and add to your knowledge base through the Model Context Protocol. The server runs only while the tool that started it is connected, reads the same data the app does, and everything stays on this Mac. Reading: search_knowledge, ask_knowledge, list_binders, list_meetings, get_meeting, list_notes, get_note, list_todos, recent_dictations. Adding: add_note, append_to_note, create_binder, add_meeting, add_todo, set_todo_status, add_to_calendar. Nothing can be deleted this way.")
+                Text("Other AI tools can search, ask and add to your knowledge base through the Model Context Protocol. The server runs only while the tool that started it is connected, reads the same data the app does, and everything stays on this Mac. Reading: search_knowledge, ask_knowledge, list_binders, list_meetings, get_meeting, list_notes, get_note, list_todos, recent_dictations. Adding: add_to_knowledge, add_note, append_to_note, create_binder, add_meeting, add_todo, set_todo_status, add_to_calendar. Nothing can be deleted this way.")
             }
         }
         .sheet(item: $editing) { rule in
