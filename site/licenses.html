@@ -7,20 +7,35 @@
 <meta name="description" content="The open-source software and models Binders is built with.">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" type="image/png" href="assets/favicon-64.png">
+<meta name="theme-color" content="#3a2bb8">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="nav">
+<header class="nav" id="top">
   <div class="wrap nav-row">
-    <a class="brand" href="index.html"><img src="assets/icon-512.png" width="60" height="60" alt=""><span>Binders</span></a>
-    <a class="button small" href="index.html#download" style="margin-left:auto">Download</a>
+    <a class="brand" href="index.html" aria-label="Binders home">
+      <img src="assets/icon-128.png" width="40" height="40" alt="">
+      <span>Binders</span>
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="index.html">Home</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="licenses.html" aria-current="page">Licences</a>
+    </nav>
+    <a class="button small" href="index.html#download">Download</a>
   </div>
 </header>
-<main class="page">
+<main id="main">
+<section class="cover page-cover">
   <div class="wrap">
-    <p class="tab" style="--spine: var(--b-indigo)">Licences</p>
+    <p class="kicker">Licences</p>
     <h1>Built with open work</h1>
-    <p>Binders is open source itself, and stands on open-source software and openly licensed models. The full licence texts ship inside the app, under Settings, Acknowledgements.</p>
+    <p class="lede">Binders is open source itself, and stands on open-source software and openly licensed models. The full licence texts ship inside the app, under Settings, Acknowledgements.</p>
+  </div>
+</section>
+<article class="page">
+  <div class="wrap">
 
     <h2>Binders itself</h2>
     <p>Binders is open source. Copyright © 2026 Helder Feixas, licensed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="noopener">GNU General Public License, version 3</a>. You can read the code behind every privacy claim on this site, build it yourself, and change it, at <a href="https://github.com/binders-io/app" rel="noopener">github.com/binders-io/app</a>. The Binders name and icon are not part of that licence, so a modified version needs its own.</p>
@@ -45,7 +60,16 @@
       <li><strong>Nunito</strong> and <strong>Nunito Sans</strong>, by Vernon Adams and the Nunito project authors, <a href="assets/fonts/OFL-nunito.txt">SIL Open Font Licence 1.1</a>.</li>
     </ul>
   </div>
+</article>
 </main>
-<footer class="foot"><div class="wrap foot-row"><p>© 2026 Binders.</p><p><a href="index.html">Home</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p></div></footer>
+<footer class="foot">
+  <div class="wrap foot-row">
+    <a class="brand small" href="index.html"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-line">© 2026 Binders. Free, private, on your Mac. Open source under the GPL, version 3.</p>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
 </body>
 </html>

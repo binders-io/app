@@ -47,6 +47,7 @@ if [[ -z "$SITE_ONLY" ]]; then
 fi
 
 echo "→ Refreshing the CDN"
-aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/privacy.html" "/licenses.html" "/terms.html" "/appcast.xml" \
+# Pages, the stylesheet and script, and the pictures (which keep their names when they are re-rendered).
+aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/assets/*" "/appcast.xml" \
   --query "Invalidation.Id" --output text
 echo "✓ Published"
