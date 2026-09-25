@@ -1,0 +1,59 @@
+name: Something isn't working
+description: A bug, a crash, or Binders doing something it shouldn't.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. [The Help page](https://binders.io/help.html) covers the usual setup problems (the fn key, Accessibility, Ollama), so it's worth a look first. Please don't paste anything private: Binders keeps your data on your Mac, and an issue is public.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: "1. Hold fn in Mail\n2. Say …\n3. …"
+  - type: input
+    id: version
+    attributes:
+      label: Binders version
+      description: Settings → General shows it (or Binders → About Binders while its window is in front).
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: "MacBook Air M2, 16 GB, macOS 15.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - Dictation
+        - Command Mode
+        - Meeting notes
+        - Writing capture
+        - Ask and knowledge
+        - Binders and teams
+        - Automations and links
+        - MCP server
+        - Settings or setup
+        - Updates
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Speech model and language model
+      description: Settings → Dictation and Settings → AI.
+      placeholder: "Parakeet v3, gemma4:e4b-it-qat in Ollama"

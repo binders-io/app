@@ -1,0 +1,19 @@
+name: An idea
+description: Something Binders could do, or do better.
+labels: [idea]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you're trying to do
+      description: The situation and the problem, more than the solution. What happens today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working, if you have an idea.
+  - type: markdown
+    attributes:
+      value: Binders stays local-first, so ideas that need a server of ours are unlikely to happen; ideas that work with tools you already use are very welcome.

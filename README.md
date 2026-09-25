@@ -10,9 +10,11 @@ memory you can ask questions. The speech models, the language model and your dat
 ![macOS 14.2 or later](https://img.shields.io/badge/macOS-14.2%2B-604CF4)
 [![Licence: GPL v3](https://img.shields.io/badge/licence-GPLv3-604CF4)](LICENSE)
 
-**Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple
+**Download:** [binders.io](https://binders.io) or the [latest release](https://github.com/binders-io/app/releases/latest) · macOS 14.2 or later · signed and notarized by Apple · [Help](https://binders.io/help.html)
 
-![The Binders home screen: binders, open to-dos with owners and deadlines, and two weeks of dictation activity](site/assets/shot-home.webp)
+[![Holding fn in a chat: the spoken words stream into Binders' flow bar, clean text lands in the message, and Binders notes the promise in it as a to-do](docs/media/dictation.gif)](https://binders.io/assets/tour.mp4)
+
+▶ **[Watch the 54-second tour](https://binders.io/assets/tour.mp4)**: dictation, the to-dos found in what you send, meeting notes, asking your work anything, and an AI tool using Binders over MCP.
 
 | Meeting notes that know who owes what | Promises caught in the messages you send |
 |---|---|

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Help with setup
+    url: https://binders.io/help.html
+    about: Permissions, the fn key, Ollama, languages, uninstalling. Most setup questions are answered here.
+  - name: Questions and ideas
+    url: https://github.com/binders-io/app/discussions
+    about: Ask anything, share how you use Binders, or suggest something before it becomes an issue.
+  - name: A security problem
+    url: mailto:security@binders.io
+    about: Please write privately first, and give us a chance to fix it before making it public.
