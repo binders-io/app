@@ -5,7 +5,7 @@ import BindersKit
 
 /// The categories down the left of Settings. Each is a short page rather than a stop on one long scroll.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, shortcuts, dictation, ai, meetings, knowledge, writing, automations, team, privacy
+    case general, shortcuts, dictation, ai, meetings, knowledge, writing, automations, mcp, team, privacy
 
     var id: String { rawValue }
 
@@ -19,6 +19,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .knowledge: "Knowledge"
         case .writing: "Writing capture"
         case .automations: "Automations"
+        case .mcp: "MCP"
         case .team: "Team"
         case .privacy: "Privacy"
         }
@@ -34,6 +35,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .knowledge: "point.3.connected.trianglepath.dotted"
         case .writing: "pencil.line"
         case .automations: "bolt"
+        case .mcp: "cable.connector"
         case .team: "person.2"
         case .privacy: "lock.shield"
         }
@@ -49,7 +51,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .meetings: "Taking notes on calls."
         case .knowledge: "Search, the graph and note digests."
         case .writing: "What you write in messages and mail, kept once it is sent."
-        case .automations: "Rules that run Shortcuts, scripts and web hooks; links from other apps; the MCP server."
+        case .automations: "Rules that run Shortcuts, scripts and web hooks, and links from other apps."
+        case .mcp: "Let Claude Code, Claude Desktop and other AI tools search, ask and add to your knowledge base."
         case .team: "Sharing binders through a folder you already sync."
         case .privacy: "What is kept, for how long, and permissions."
         }
@@ -100,6 +103,7 @@ struct SettingsView: View {
         case .knowledge: KnowledgeSettings()
         case .writing: WritingCaptureSettings()
         case .automations: AutomationsSettings()
+        case .mcp: MCPSettings()
         case .team: TeamSettings()
         case .privacy: PrivacySettings()
         }
@@ -851,10 +855,6 @@ private struct AutomationsSettings: View {
     private let service = AutomationService.shared
     @State private var editing: AutomationRule?
     @State private var deleting: AutomationRule?
-    @State private var hostMessages: [MCPHost: String] = [:]
-    @State private var showingInstructions: MCPHost?
-    /// Bumped after adding to a tool, so its row re-reads the configuration.
-    @State private var hostRevision = 0
 
     private static let links: [(String, String)] = [
         ("Add a to-do", "binders://todo?text=call%20Sam%20tomorrow"),
@@ -864,10 +864,6 @@ private struct AutomationsSettings: View {
         ("Writing capture on or off", "binders://capture/toggle"),
         ("Start or stop meeting notes", "binders://meeting/toggle"),
     ]
-
-    private var executable: String { Bundle.main.executableURL?.path ?? "/Applications/Binders.app/Contents/MacOS/Binders" }
-    private var claudeCodeCommand: String { "claude mcp add binders -- \"\(executable)\" --mcp" }
-    private var mcpJSON: String { "{\"mcpServers\":{\"binders\":{\"command\":\"\(executable)\",\"args\":[\"--mcp\"]}}}" }
 
     var body: some View {
         SettingsPageForm(page: .automations) {
@@ -900,23 +896,7 @@ private struct AutomationsSettings: View {
             } header: {
                 Text("From other apps")
             } footer: {
-                Text("Anything that can open a link can drive Binders: Shortcuts, Raycast, Alfred, Keyboard Maestro, a script. Text goes in the query, percent-encoded.")
-            }
-
-            Section {
-                ForEach(MCPHost.allCases) { host in
-                    hostRow(host)
-                }
-                LabeledContent("Anything else") {
-                    HStack(spacing: 6) {
-                        Text(mcpJSON).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                        copyButton(mcpJSON)
-                    }
-                }
-            } header: {
-                Text("MCP server")
-            } footer: {
-                Text("Other AI tools can search, ask and add to your knowledge base through the Model Context Protocol. The server runs only while the tool that started it is connected, reads the same data the app does, and everything stays on this Mac. Reading: search_knowledge, ask_knowledge, list_binders, list_meetings, get_meeting, list_notes, get_note, list_todos, recent_dictations. Adding: add_to_knowledge, add_note, append_to_note, create_binder, add_meeting, add_todo, set_todo_status, add_to_calendar. Nothing can be deleted this way.")
+                Text("Anything that can open a link can drive Binders: Shortcuts, Raycast, Alfred, Keyboard Maestro, a script. Text goes in the query, percent-encoded. AI tools connect through the MCP page instead.")
             }
         }
         .sheet(item: $editing) { rule in
@@ -945,6 +925,31 @@ private struct AutomationsSettings: View {
     }
 
     private func copyButton(_ text: String) -> some View {
+        CopyButton(text: text)
+    }
+
+    static func describe(_ trigger: AutomationRule.Trigger) -> String {
+        switch trigger {
+        case .phrase(let text): "Say “\(text)”"
+        case .event(let name): name.title
+        }
+    }
+
+    static func describe(_ action: AutomationRule.Action) -> String {
+        switch action {
+        case .shortcut(let name, _): "run Shortcut “\(name)”"
+        case .openURL(let template): "open \(template)"
+        case .script(let command): "run `\(command.prefix(40))`"
+        case .webhook(let url, _): "POST to \(url)"
+        }
+    }
+}
+
+/// Copies a line to the clipboard.
+private struct CopyButton: View {
+    let text: String
+
+    var body: some View {
         Button {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -953,6 +958,71 @@ private struct AutomationsSettings: View {
         }
         .buttonStyle(.borderless)
         .help("Copy")
+    }
+}
+
+// MARK: - MCP
+
+/// The Model Context Protocol server: what it offers, and the tools it can be added to.
+private struct MCPSettings: View {
+    @State private var hostMessages: [MCPHost: String] = [:]
+    @State private var showingInstructions: MCPHost?
+    /// Bumped after adding to a tool, so its row re-reads the configuration.
+    @State private var hostRevision = 0
+
+    private var executable: String { MCPHost.executable }
+    private var mcpJSON: String { "{\"mcpServers\":{\"binders\":{\"command\":\"\(executable)\",\"args\":[\"--mcp\"]}}}" }
+    private var readingTools: [String] { MCPServer.tools.map(\.name).filter { !Self.isWrite($0) } }
+    private var addingTools: [String] { MCPServer.tools.map(\.name).filter(Self.isWrite) }
+
+    private static func isWrite(_ name: String) -> Bool {
+        ["add_", "append_", "create_", "set_"].contains { name.hasPrefix($0) }
+    }
+
+    var body: some View {
+        SettingsPageForm(page: .mcp) {
+            Section {
+                LabeledContent("Command") {
+                    HStack(spacing: 6) {
+                        Text("\(executable) --mcp").font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        CopyButton(text: "\(executable) --mcp")
+                    }
+                }
+                LabeledContent("Reads") {
+                    Text(readingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Adds") {
+                    Text(addingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                }
+            } header: {
+                Text("Server")
+            } footer: {
+                Text("A tool that supports the Model Context Protocol starts this command and talks to it over a pipe. It runs only while that tool is connected, reads the same data the app does, and everything stays on this Mac. Reads go straight to the database; anything added is handed to the app, so your windows update and the index picks it up. Nothing can be deleted this way.")
+            }
+
+            Section {
+                ForEach(MCPHost.allCases) { host in
+                    hostRow(host)
+                }
+            } header: {
+                Text("Add it to a tool")
+            } footer: {
+                Text("Each tool keeps its servers in its own file. Binders makes a dated backup beside that file first, and changes only the binders entry. The ⓘ button shows how to do it by hand.")
+            }
+
+            Section {
+                LabeledContent("Configuration") {
+                    HStack(spacing: 6) {
+                        Text(mcpJSON).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        CopyButton(text: mcpJSON)
+                    }
+                }
+            } header: {
+                Text("Anything else")
+            } footer: {
+                Text("Any other host that takes a stdio server wants the same two things: the command above and the argument --mcp.")
+            }
+        }
     }
 
     /// One tool: whether it is here, whether Binders is in it, a button to add it, and the way to do it by hand.
@@ -1001,22 +1071,6 @@ private struct AutomationsSettings: View {
                     .frame(width: 520)
                 }
             }
-        }
-    }
-
-    static func describe(_ trigger: AutomationRule.Trigger) -> String {
-        switch trigger {
-        case .phrase(let text): "Say “\(text)”"
-        case .event(let name): name.title
-        }
-    }
-
-    static func describe(_ action: AutomationRule.Action) -> String {
-        switch action {
-        case .shortcut(let name, _): "run Shortcut “\(name)”"
-        case .openURL(let template): "open \(template)"
-        case .script(let command): "run `\(command.prefix(40))`"
-        case .webhook(let url, _): "POST to \(url)"
         }
     }
 }

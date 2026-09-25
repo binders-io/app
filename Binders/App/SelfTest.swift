@@ -863,7 +863,7 @@ enum SelfTest {
                      size: size, name: "demo-meeting", directory: directory)
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
-        for page in [SettingsPage.general, .dictation, .ai, .writing] {
+        for page in [SettingsPage.general, .dictation, .ai, .writing, .automations, .mcp] {
             await render(hub { $0.selection = .settings; $0.pendingSettingsPage = page }, size: size, name: "demo-settings-\(page.rawValue)", directory: directory)
         }
 

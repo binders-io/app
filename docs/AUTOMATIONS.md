@@ -109,7 +109,7 @@ claude mcp add binders -- /Applications/Binders.app/Contents/MacOS/Binders --mcp
 { "mcpServers": { "binders": { "command": "/Applications/Binders.app/Contents/MacOS/Binders", "args": ["--mcp"] } } }
 ```
 
-**Or let Binders do it.** Settings → Automations → MCP server lists Claude Code, Claude Desktop, Cursor, Windsurf, VS Code,
+**Or let Binders do it.** Settings → MCP lists Claude Code, Claude Desktop, Cursor, Windsurf, VS Code,
 Gemini CLI and Codex CLI, shows which are on your Mac and which already have Binders, and adds it with one click. Each
 tool keeps its servers in its own file; Binders makes a dated backup beside that file first and changes only the
 `binders` entry. The ⓘ button shows how to do it by hand, for the tool's own configuration:
