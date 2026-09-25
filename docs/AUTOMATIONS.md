@@ -122,7 +122,15 @@ Settings → Automations → MCP server has both, with the path of the copy you 
 | `list_notes` (limit, binder) · `get_note` (id) | Notes, and one in full |
 | `list_todos` (status) | Promises, asks and to-dos |
 | `recent_dictations` (limit) | What you dictated lately |
-| `add_todo` (text) · `add_to_calendar` (text) | Hand the text to the running app, which adds it and shows the result in the Flow bar |
+| `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
+| `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
+| `add_meeting` (title, notes, date, attendees, duration_minutes, app, binder) | A meeting that happened elsewhere, from its notes or transcript, so it is searchable with the rest |
+| `add_todo` (text) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date; done, open or dismissed |
+| `add_to_calendar` (text) | An event from a phrase such as "lunch with Sam tomorrow at noon" |
+
+Reads go straight to the database. Writes are handed to the running app, which does them and answers with the new
+item's id, so its windows update, reminders get scheduled and the index picks the item up within seconds; if the app
+isn't running, macOS launches it. Nothing can be deleted this way.
 
 Dates are ISO 8601 in local time. Try it by hand:
 

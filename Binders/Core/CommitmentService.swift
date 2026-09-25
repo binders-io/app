@@ -115,7 +115,8 @@ final class CommitmentService {
     // MARK: Spoken to-dos
 
     /// "Add to-do call Sam tomorrow": a to-do of your own, with the time split off the end. Returns the line shown.
-    func addSpoken(_ phrase: String) -> String {
+    @discardableResult
+    func addSpoken(_ phrase: String) -> (line: String, commitment: CommitmentRecord) {
         let split = CommitmentDetection.splitDue(phrase, relativeTo: Date())
         let task = CalendarEventExtraction.cleanTitle(split.task)
         let commitment = CommitmentRecord(task: task, kind: "todo", owner: TranscriptSegment.you)
@@ -130,7 +131,7 @@ final class CommitmentService {
         let line = "To-do added: \(task)\(due)"
         flowBar.toast(line, symbol: "checklist", duration: 4)
         Log.app.notice("To-do added by voice")
-        return line
+        return (line, commitment)
     }
 
     /// What an automation gets when a to-do or promise appears.

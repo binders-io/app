@@ -45,11 +45,35 @@ enum MCPServer {
         MCPTool(name: "recent_dictations", description: "What the user dictated recently, newest first.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
         ]),
-        MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. Opens the Binders app if it isn't running.", parameters: [
+        MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. Returns its id. Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "The to-do, as a person would say it.", required: true),
+        ]),
+        MCPTool(name: "set_todo_status", description: "Mark a to-do done, reopen it, or dismiss it.", parameters: [
+            MCPToolParameter(name: "id", description: "The to-do's id, from list_todos or add_todo.", required: true),
+            MCPToolParameter(name: "status", description: "The new status.", required: true, options: ["open", "done", "dismissed"]),
         ]),
         MCPTool(name: "add_to_calendar", description: "Add an event to the user's calendar from a phrase such as \"lunch with Sam tomorrow at noon\". Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "What and when.", required: true),
+        ]),
+        MCPTool(name: "add_note", description: "Add a note to the knowledge base. The first line is its title. Goes into the named binder, or the user's current one. Returns its id.", parameters: [
+            MCPToolParameter(name: "text", description: "The note, in Markdown if you like.", required: true),
+            MCPToolParameter(name: "binder", description: "The binder's name; see list_binders."),
+        ]),
+        MCPTool(name: "append_to_note", description: "Add text to the end of an existing note.", parameters: [
+            MCPToolParameter(name: "id", description: "The note's id, from list_notes or add_note.", required: true),
+            MCPToolParameter(name: "text", description: "What to add.", required: true),
+        ]),
+        MCPTool(name: "create_binder", description: "Create a binder, one per project or area. Returns its id, or the existing binder's if the name is taken.", parameters: [
+            MCPToolParameter(name: "name", description: "The binder's name.", required: true),
+        ]),
+        MCPTool(name: "add_meeting", description: "Add a meeting that happened elsewhere, from its notes or transcript, so it is searchable alongside the rest. Returns its id.", parameters: [
+            MCPToolParameter(name: "title", description: "The meeting's title.", required: true),
+            MCPToolParameter(name: "notes", description: "The notes, summary or transcript, in Markdown if you like.", required: true),
+            MCPToolParameter(name: "date", description: "When it took place, ISO 8601. Default now."),
+            MCPToolParameter(name: "attendees", description: "Names, comma-separated."),
+            MCPToolParameter(name: "duration_minutes", type: "integer", description: "How long it ran."),
+            MCPToolParameter(name: "app", description: "Where it took place, such as Zoom. Default Imported."),
+            MCPToolParameter(name: "binder", description: "The binder's name; see list_binders."),
         ]),
     ]
 
@@ -190,18 +214,57 @@ enum MCPServer {
                 ["id": record.id.uuidString, "date": AutomationPayload.iso(record.createdAt), "app": record.appName ?? "", "text": record.finalText] as [String: Any]
             })
         case "add_todo", "add_to_calendar":
-            let text = string("text")
-            guard !text.isEmpty else { throw MCPCore.ToolFailure("text is required") }
-            var components = URLComponents()
-            components.scheme = "binders"
-            components.host = name == "add_todo" ? "todo" : "calendar"
-            components.queryItems = [URLQueryItem(name: "text", value: text)]
-            guard let url = components.url else { throw MCPCore.ToolFailure("Couldn't build the link") }
-            NSWorkspace.shared.open(url)
-            return json(["sent": url.absoluteString, "note": "Handed to the Binders app; it shows the result in its Flow bar."])
+            guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
+            return try await handOff(name, ["text": string("text")])
+        case "add_note":
+            guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
+            return try await handOff(name, ["text": string("text"), "binder": string("binder")])
+        case "append_to_note":
+            guard !string("id").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("id and text are required") }
+            return try await handOff(name, ["id": string("id"), "text": string("text")])
+        case "create_binder":
+            guard !string("name").isEmpty else { throw MCPCore.ToolFailure("name is required") }
+            return try await handOff(name, ["name": string("name")])
+        case "add_meeting":
+            guard !string("title").isEmpty, !string("notes").isEmpty else { throw MCPCore.ToolFailure("title and notes are required") }
+            let minutes = (arguments["duration_minutes"] as? Int) ?? (arguments["duration_minutes"] as? Double).map(Int.init)
+            return try await handOff(name, ["title": string("title"), "notes": string("notes"), "date": string("date"), "attendees": string("attendees"),
+                                            "duration_minutes": minutes.map(String.init) ?? "", "app": string("app"), "binder": string("binder")])
+        case "set_todo_status":
+            guard !string("id").isEmpty, !string("status").isEmpty else { throw MCPCore.ToolFailure("id and status are required") }
+            return try await handOff(name, ["id": string("id"), "status": string("status")])
         default:
             throw MCPCore.ToolFailure("No tool named \(name)")
         }
+    }
+
+    /// Hands a write to the running app through the inbox and waits for its answer. The app is the only writer, so its
+    /// windows update and the index picks the item up; launching it takes a few seconds if it isn't running.
+    private static func handOff(_ action: String, _ fields: [String: String]) async throws -> String {
+        let name = UUID().uuidString
+        let directory = InboxCommands.directory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let requestURL = directory.appendingPathComponent(Inbox.requestFile(name))
+        let resultURL = directory.appendingPathComponent(Inbox.resultFile(name))
+        try JSONEncoder().encode(InboxRequest(action: action, fields: fields)).write(to: requestURL, options: .atomic)
+        var components = URLComponents()
+        components.scheme = "binders"
+        components.host = "apply"
+        components.queryItems = [URLQueryItem(name: "file", value: name)]
+        guard let url = components.url else { throw MCPCore.ToolFailure("Couldn't build the link") }
+        NSWorkspace.shared.open(url)
+        for _ in 0..<300 {
+            if let data = try? Data(contentsOf: resultURL), let result = try? JSONDecoder().decode(InboxResult.self, from: data) {
+                try? FileManager.default.removeItem(at: resultURL)
+                guard result.ok else { throw MCPCore.ToolFailure(result.error ?? "The app couldn't do that") }
+                var reply: [String: Any] = ["message": result.message]
+                if let id = result.id { reply["id"] = id }
+                return json(reply)
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        try? FileManager.default.removeItem(at: requestURL)
+        throw MCPCore.ToolFailure("Binders didn't answer within 30 seconds. Is the app running?")
     }
 
     private static func describe(_ hit: KnowledgeHit) -> [String: Any] {

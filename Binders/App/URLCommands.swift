@@ -59,6 +59,10 @@ enum URLCommands {
             let section = HubSection(rawValue: (query["section"] ?? "home").lowercased()) ?? .home
             if let page = query["page"].flatMap({ SettingsPage(rawValue: $0.lowercased()) }) { hub.navigation.pendingSettingsPage = page }
             hub.show(section: section)
+        case "apply":
+            // A write from the MCP server or another local tool, waiting in the inbox.
+            guard let name = query["file"] else { return warn("binders://apply needs ?file=") }
+            Task { await InboxCommands.apply(named: name, controller: controller) }
         default:
             warn("Unknown binders:// command: \(command)")
         }

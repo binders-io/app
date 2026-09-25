@@ -429,7 +429,7 @@ final class DictationController {
 
     /// "Add to-do call Sam tomorrow": onto the board, recorded like an answered question so it is never pasted or indexed.
     private func addTodo(_ phrase: String, instruction: String, snapshot: FocusSnapshot, duration: Double, asrMillis: Int, audioFileName: String?) {
-        let line = commitments.addSpoken(phrase)
+        let line = commitments.addSpoken(phrase).line
         flowBar.hide()
         recordHistory(mode: .command, raw: instruction, final: line, snapshot: snapshot, duration: duration, asrMillis: asrMillis,
                       llmMillis: 0, usedLLM: false, fallback: nil, audioFileName: audioFileName, status: "answered")
@@ -450,10 +450,12 @@ final class DictationController {
     }
 
     /// binders://calendar?text=… and the MCP server's add_to_calendar.
-    func addToCalendar(described text: String) async {
+    @discardableResult
+    func addToCalendar(described text: String) async -> (line: String, added: Bool) {
         let result = await resolveCalendarEvent(.described(text), selectedText: nil)
         if !result.added { Sounds.error() }
         flowBar.toast(result.line, symbol: result.added ? "calendar.badge.plus" : "calendar.badge.exclamationmark", duration: 5)
+        return (result.line, result.added)
     }
 
     /// binders://dictate and binders://command: start hands-free, or finish what is running.
