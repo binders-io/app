@@ -118,7 +118,7 @@ enum MCPServer {
         }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         guard let reply = await MCPCore.handle(message, serverName: "binders", serverVersion: version, instructions: instructions, tools: tools,
-                                               call: { name, arguments in try await call(name, arguments) }) else { return }
+                                               call: { name, arguments in try await call(name, arguments, knowledge: knowledge, write: handOff) }) else { return }
         write(reply)
     }
 
@@ -132,7 +132,12 @@ enum MCPServer {
 
     // MARK: Tools
 
-    private static func call(_ name: String, _ arguments: [String: Any]) async throws -> String {
+    /// Carries out a write (add a note, tick a to-do…) and returns the tool's reply. `Binders --mcp` hands writes to the
+    /// running app; the app's own phone link performs them directly.
+    typealias Writer = (_ action: String, _ fields: [String: String]) async throws -> String
+
+    /// Runs one tool. Shared by `Binders --mcp` and the phone link, which differ only in how they write.
+    static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write: Writer) async throws -> String {
         func string(_ key: String) -> String { (arguments[key] as? String ?? "").trimmed }
         func integer(_ key: String, default value: Int, max cap: Int) -> Int {
             let asked = (arguments[key] as? Int) ?? (arguments[key] as? Double).map(Int.init) ?? value
@@ -223,28 +228,28 @@ enum MCPServer {
             })
         case "add_todo", "add_to_calendar":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
-            return try await handOff(name, ["text": string("text")])
+            return try await write(name, ["text": string("text")])
         case "add_note":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
-            return try await handOff(name, ["text": string("text"), "binder": string("binder")])
+            return try await write(name, ["text": string("text"), "binder": string("binder")])
         case "add_to_knowledge":
             guard !string("title").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("title and text are required") }
             let source = string("source").isEmpty ? "" : "Source: \(string("source"))\n\n"
-            return try await handOff("add_note", ["text": "\(string("title"))\n\n\(source)\(string("text"))", "binder": string("binder")])
+            return try await write("add_note", ["text": "\(string("title"))\n\n\(source)\(string("text"))", "binder": string("binder")])
         case "append_to_note":
             guard !string("id").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("id and text are required") }
-            return try await handOff(name, ["id": string("id"), "text": string("text")])
+            return try await write(name, ["id": string("id"), "text": string("text")])
         case "create_binder":
             guard !string("name").isEmpty else { throw MCPCore.ToolFailure("name is required") }
-            return try await handOff(name, ["name": string("name")])
+            return try await write(name, ["name": string("name")])
         case "add_meeting":
             guard !string("title").isEmpty, !string("notes").isEmpty else { throw MCPCore.ToolFailure("title and notes are required") }
             let minutes = (arguments["duration_minutes"] as? Int) ?? (arguments["duration_minutes"] as? Double).map(Int.init)
-            return try await handOff(name, ["title": string("title"), "notes": string("notes"), "date": string("date"), "attendees": string("attendees"),
+            return try await write(name, ["title": string("title"), "notes": string("notes"), "date": string("date"), "attendees": string("attendees"),
                                             "duration_minutes": minutes.map(String.init) ?? "", "app": string("app"), "binder": string("binder")])
         case "set_todo_status":
             guard !string("id").isEmpty, !string("status").isEmpty else { throw MCPCore.ToolFailure("id and status are required") }
-            return try await handOff(name, ["id": string("id"), "status": string("status")])
+            return try await write(name, ["id": string("id"), "status": string("status")])
         default:
             throw MCPCore.ToolFailure("No tool named \(name)")
         }
@@ -252,6 +257,17 @@ enum MCPServer {
 
     /// Hands a write to the running app through the inbox and waits for its answer. The app is the only writer, so its
     /// windows update and the index picks the item up; launching it takes a few seconds if it isn't running.
+    /// Performs a write in this process, for the running app itself: the same reply `handOff` gives.
+    static func writeInApp(controller: DictationController) -> Writer {
+        { action, fields in
+            let result = await InboxCommands.perform(InboxRequest(action: action, fields: fields), controller: controller)
+            guard result.ok else { throw MCPCore.ToolFailure(result.error ?? "The app couldn't do that") }
+            var reply: [String: Any] = ["message": result.message]
+            if let id = result.id { reply["id"] = id }
+            return json(reply)
+        }
+    }
+
     private static func handOff(_ action: String, _ fields: [String: String]) async throws -> String {
         let name = UUID().uuidString
         let directory = InboxCommands.directory

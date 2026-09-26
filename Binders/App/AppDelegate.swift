@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HubWindowController.shared.controller = controller
         statusItem = StatusItemController(controller: controller)
         controller.start()
+        if controller.settings.phoneLink { controller.link.start() }
 
         if !AppSettings.shared.hasCompletedSetup || !Permissions.accessibility || Permissions.microphone != .authorized {
             HubWindowController.shared.show(section: .home)

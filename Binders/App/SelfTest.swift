@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import SwiftData
 import SwiftUI
 import BindersKit
@@ -571,6 +572,9 @@ enum SelfTest {
             }
             return 0
         }
+        if args.contains("--selftest-link") {
+            return await linkSelfTest()
+        }
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
@@ -891,6 +895,82 @@ open reports/import.html
         print("FINAL: \(result.text)")
     }
 
+    /// Plays an iPhone against the phone link, in a throwaway folder (BINDERS_DATA_DIR) on spare ports: pairs once, proves
+    /// which device it is, uses the tools, hears about changes, and is shut out by a wrong key and by being removed.
+    @MainActor
+    private static func linkSelfTest() async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes notes and to-dos")
+            return 1
+        }
+        var failures = 0
+        func check(_ condition: Bool, _ label: String) {
+            print("\(condition ? "PASS" : "FAIL"): \(label)")
+            if !condition { failures += 1 }
+        }
+        let controller = DictationController()
+        let devicesURL = FileManager.default.temporaryDirectory.appendingPathComponent("link-devices-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: devicesURL) }
+        let server = LinkServer(controller: controller, port: 0, pairingPort: 0, devicesURL: devicesURL)
+        server.start()
+        for _ in 0..<50 where server.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
+        check(server.status == .listening, "the Mac is listening")
+        guard let port = server.boundPort, let pairing = await server.beginPairing(), let pairingPort = server.boundPairingPort else {
+            print("LINK_FAILED: couldn't start")
+            return 1
+        }
+        check(!pairing.addresses.isEmpty && LinkPairing(url: pairing.url) == pairing, "the QR code carries addresses and survives the round trip")
+        var local = pairing
+        local.addresses = ["127.0.0.1:\(pairingPort)"]
+
+        do {
+            let paired = try await LinkClient.pair(local, deviceName: "Test iPhone")
+            check(server.devices.map(\.name) == ["Test iPhone"], "paired, and the Mac keeps the device")
+            try? await Task.sleep(for: .milliseconds(600))
+            check(server.pairing == nil, "pairing closes after one use")
+            let reused = try? await LinkClient.pair(local, deviceName: "Someone else")
+            check(reused == nil, "the same code can't pair a second device")
+
+            let phone = LinkClient(host: "127.0.0.1", port: port, identity: paired.device.uuidString, key: paired.key)
+            try await phone.connect()
+            let early = try? await phone.request("tools/list")
+            check(early == nil, "nothing works before the device proves which one it is")
+            try await phone.hello(device: paired.device, key: paired.key, name: "Test iPhone")
+            check(server.connectedDevices.contains(paired.device), "the Mac shows the device as connected")
+            let tools = try await phone.request("tools/list") as? [String: Any]
+            check((tools?["tools"] as? [Any])?.count == MCPServer.tools.count, "the phone gets the same tools as MCP")
+            _ = try await phone.callTool("add_todo", ["text": "Call Sam tomorrow at 3 pm"])
+            let todos = try await phone.callTool("list_todos")
+            check(todos.localizedCaseInsensitiveContains("call sam"), "a to-do added from the phone is on the board")
+
+            let heard = LinkEvents()
+            phone.onNotification { heard.add($0) }
+            _ = try await phone.request("binders/subscribe")
+            Store.shared.insert(NoteItem(text: "Link test note\n\n- [ ] check the phone"))
+            for _ in 0..<30 where heard.kinds.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+            check(heard.kinds.contains("notes") && heard.kinds.contains("todos"), "the phone hears that notes changed: \(heard.kinds.sorted())")
+
+            let intruder = LinkClient(host: "127.0.0.1", port: port, identity: paired.device.uuidString, key: SymmetricKey(size: .bits256))
+            let intruded = (try? await intruder.connect(timeout: 3)) != nil
+            check(!intruded, "a wrong key can't connect")
+            intruder.close()
+
+            server.revoke(paired.device)
+            try? await Task.sleep(for: .milliseconds(300))
+            let afterRemoval = try? await phone.callTool("list_binders")
+            check(afterRemoval == nil, "a removed device is disconnected at once")
+            let again = LinkClient(host: "127.0.0.1", port: port, identity: paired.device.uuidString, key: paired.key)
+            let reconnected = (try? await again.connect(timeout: 3)) != nil
+            check(!reconnected, "and can't connect again")
+            again.close()
+        } catch {
+            check(false, "the conversation failed: \(error.localizedDescription)")
+        }
+        server.stop()
+        print(failures == 0 ? "LINK_OK" : "LINK_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+
     /// Ticks checklist items in a meeting's notes, a note's digest and a note the way MCP's set_todo_status does, in a
     /// throwaway folder (BINDERS_DATA_DIR) only.
     @MainActor
@@ -968,8 +1048,15 @@ open reports/import.html
                      size: size, name: "demo-note", directory: directory)
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
-        for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp] {
+        for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp, .phone] {
+            // The iPhone page with the link on and a pairing code showing, when run with `-phoneLink YES`.
+            if page == .phone, AppSettings.shared.phoneLink {
+                controller.link.start()
+                for _ in 0..<30 where controller.link.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
+                await controller.link.beginPairing()
+            }
             await render(hub { $0.selection = .settings; $0.pendingSettingsPage = page }, size: size, name: "demo-settings-\(page.rawValue)", directory: directory)
+            if page == .phone { controller.link.stop() }
         }
 
         for (suffix, section) in [("home", HubSection.home), ("binder", .binder), ("writing", .writing), ("knowledge", .knowledge)] {
@@ -1127,4 +1214,17 @@ open reports/import.html
     private static func ms(since date: Date) -> Int {
         Int(Date().timeIntervalSince(date) * 1000)
     }
+}
+
+/// Collects the kinds in `binders/changed` notifications, which arrive on the link's queue.
+private final class LinkEvents: @unchecked Sendable {
+    private let lock = NSLock()
+    private var collected = Set<String>()
+
+    func add(_ message: [String: Any]) {
+        let kinds = ((message["params"] as? [String: Any])?["kinds"] as? [String]) ?? []
+        lock.withLock { collected.formUnion(kinds) }
+    }
+
+    var kinds: Set<String> { lock.withLock { collected } }
 }

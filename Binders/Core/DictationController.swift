@@ -43,6 +43,8 @@ final class DictationController {
     @ObservationIgnored private(set) lazy var team = TeamSyncService(flowBar: flowBar)
     @ObservationIgnored private(set) lazy var capture = WritingCaptureService(flowBar: flowBar)
     @ObservationIgnored private(set) lazy var commitments = CommitmentService(flowBar: flowBar)
+    /// Binders as a server for paired phones; started by the app when the setting is on.
+    @ObservationIgnored private(set) lazy var link = LinkServer(controller: self)
 
     init() {
         hotkeys = HotkeyMonitor(bindings: AppSettings.shared.hotkeys)

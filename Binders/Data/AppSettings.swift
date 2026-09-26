@@ -68,6 +68,8 @@ final class AppSettings {
 
     var knowledgeGraph: Bool { didSet { defaults.set(knowledgeGraph, forKey: "knowledgeGraph") } }
     var noteDigests: Bool { didSet { defaults.set(noteDigests, forKey: "noteDigests") } }
+    /// Paired phones may connect to Binders on this Mac. Off until the user turns it on: it opens a network port.
+    var phoneLink: Bool { didSet { defaults.set(phoneLink, forKey: "phoneLink") } }
     /// "dark", "light" or "system"; Binders is dark unless told otherwise.
     var appearance: String { didSet { defaults.set(appearance, forKey: "appearance") } }
     /// The binder new meetings and notes go into: the one last opened in the window.
@@ -142,6 +144,7 @@ final class AppSettings {
         meetingKeepAudio = defaults.object(forKey: "meetingKeepAudio") as? Bool ?? true
         knowledgeGraph = defaults.object(forKey: "knowledgeGraph") as? Bool ?? true
         noteDigests = defaults.object(forKey: "noteDigests") as? Bool ?? true
+        phoneLink = defaults.bool(forKey: "phoneLink")
         appearance = defaults.string(forKey: "appearance") ?? "dark"
         currentBinderID = defaults.string(forKey: "currentBinderID").flatMap(UUID.init(uuidString:))
         captureApps = defaults.stringArray(forKey: "captureApps") ?? WritingCaptureService.defaultApps

@@ -97,11 +97,11 @@ public enum MCPCore {
         failure(id: NSNull(), code: -32700, message: "Parse error")
     }
 
-    static func success(id: Any, result: [String: Any]) -> [String: Any] {
-        ["jsonrpc": "2.0", "id": id, "result": result]
+    public static func success(id: Any?, result: [String: Any]) -> [String: Any] {
+        ["jsonrpc": "2.0", "id": id ?? NSNull(), "result": result]
     }
 
-    static func failure(id: Any?, code: Int, message: String) -> [String: Any] {
+    public static func failure(id: Any?, code: Int, message: String) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id ?? NSNull(), "error": ["code": code, "message": message]]
     }
 }

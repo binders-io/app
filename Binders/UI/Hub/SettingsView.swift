@@ -1,13 +1,21 @@
 import AppKit
+import CoreImage.CIFilterBuiltins
 import ServiceManagement
 import SwiftUI
 import BindersKit
 
 /// The categories down the left of Settings. Each is a short page rather than a stop on one long scroll.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, shortcuts, dictation, ai, meetings, knowledge, writing, automations, mcp, team, privacy
+    case general, shortcuts, dictation, ai, meetings, knowledge, writing, automations, mcp, phone, team, privacy
 
     var id: String { rawValue }
+
+    /// The pages in the list. The iPhone page stays hidden until the iPhone app ships, unless it's already in use or the
+    /// preview is on (`defaults write io.binders.mac phoneLinkPreview -bool YES`).
+    @MainActor static var visible: [SettingsPage] {
+        let showPhone = AppSettings.shared.phoneLink || UserDefaults.standard.bool(forKey: "phoneLinkPreview")
+        return allCases.filter { $0 != .phone || showPhone }
+    }
 
     var title: String {
         switch self {
@@ -20,6 +28,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .writing: "Writing capture"
         case .automations: "Automations"
         case .mcp: "MCP"
+        case .phone: "iPhone"
         case .team: "Team"
         case .privacy: "Privacy"
         }
@@ -36,6 +45,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .writing: "pencil.line"
         case .automations: "bolt"
         case .mcp: "cable.connector"
+        case .phone: "iphone"
         case .team: "person.2"
         case .privacy: "lock.shield"
         }
@@ -53,6 +63,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .writing: "What you write in messages and mail, kept once it is sent."
         case .automations: "Rules that run Shortcuts, scripts and web hooks, and links from other apps."
         case .mcp: "Let Claude Code, Claude Desktop and other AI tools search, ask and add to your knowledge base."
+        case .phone: "Pair your iPhone with Binders on this Mac, at home or anywhere with Tailscale."
         case .team: "Sharing binders through a folder you already sync."
         case .privacy: "What is kept, for how long, and permissions."
         }
@@ -83,7 +94,7 @@ struct SettingsView: View {
 
     private var pageList: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(SettingsPage.allCases) { row($0) }
+            ForEach(SettingsPage.visible) { row($0) }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
@@ -104,6 +115,7 @@ struct SettingsView: View {
         case .writing: WritingCaptureSettings()
         case .automations: AutomationsSettings()
         case .mcp: MCPSettings()
+        case .phone: PhoneSettings()
         case .team: TeamSettings()
         case .privacy: PrivacySettings()
         }
@@ -992,6 +1004,104 @@ private struct CopyButton: View {
 // MARK: - MCP
 
 /// The Model Context Protocol server: what it offers, and the tools it can be added to.
+private struct PhoneSettings: View {
+    @Environment(DictationController.self) private var controller
+    @Environment(AppSettings.self) private var settings
+
+    var body: some View {
+        let link = controller.link
+        SettingsPageForm(page: .phone) {
+            Section {
+                Toggle("Let paired devices connect to this Mac", isOn: Binding(get: { settings.phoneLink }, set: { on in
+                    settings.phoneLink = on
+                    if on { link.start() } else { link.stop() }
+                }))
+                if settings.phoneLink { status(link) }
+            } footer: {
+                Text("Your iPhone talks to Binders on this Mac: over your Wi-Fi at home, or anywhere with Tailscale. Everything is encrypted with a key made when you pair, and nothing passes through anyone's server. The Mac needs to be awake; while it isn't, the phone keeps what you capture and sends it later.")
+            }
+            if settings.phoneLink {
+                Section("Pair a device") {
+                    if let pairing = link.pairing {
+                        HStack(alignment: .top, spacing: 16) {
+                            if let image = Self.qrCode(pairing.url.absoluteString) {
+                                Image(nsImage: image).interpolation(.none).resizable().frame(width: 180, height: 180)
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Scan this with your iPhone's camera.").font(.headline)
+                                Text("The code works once, until \(pairing.expires.formatted(date: .omitted, time: .shortened)). It's the only way a new device can join.")
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Cancel") { link.cancelPairing() }
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    } else {
+                        Button("Pair an iPhone…") { Task { await link.beginPairing() } }
+                            .disabled(!link.isRunning)
+                    }
+                }
+                Section("Paired devices") {
+                    if link.devices.isEmpty {
+                        Text("None yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach(link.devices) { device in
+                        HStack(spacing: 10) {
+                            Image(systemName: "iphone").foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.name)
+                                Text(detail(device, connected: link.connectedDevices.contains(device.id)))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Remove", role: .destructive) { link.revoke(device.id) }
+                                .help("Disconnect this device and delete its key. It would have to pair again.")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func status(_ link: LinkServer) -> some View {
+        switch link.status {
+        case .listening:
+            let local = link.addresses.filter { !$0.isTailscale }.map(\.host)
+            let tailscale = link.addresses.filter(\.isTailscale).map(\.host)
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Listening on port \(String(link.boundPort ?? Link.port))", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                if !local.isEmpty { Text("Wi-Fi and Ethernet: \(local.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary) }
+                Text(tailscale.isEmpty ? "Tailscale: not connected on this Mac." : "Tailscale: \(tailscale.joined(separator: ", "))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .off:
+            Text("Starting…").foregroundStyle(.secondary)
+        }
+    }
+
+    private func detail(_ device: LinkDevice, connected: Bool) -> String {
+        if connected { return "Connected" }
+        let paired = "Paired \(device.pairedAt.formatted(date: .abbreviated, time: .omitted))"
+        guard let seen = device.lastSeen else { return paired }
+        return "\(paired) · last seen \(seen.formatted(.relative(presentation: .named)))"
+    }
+
+    static func qrCode(_ text: String) -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+}
+
 private struct MCPSettings: View {
     @State private var hostMessages: [MCPHost: String] = [:]
     @State private var showingInstructions: MCPHost?
