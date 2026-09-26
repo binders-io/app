@@ -64,6 +64,18 @@ public enum MarkdownSyntax {
         return count
     }
 
+    /// A note's first line as a title: without the heading, quote, list or task marker in front, and without the
+    /// emphasis and link markup inside. "## **Launch** plan" → "Launch plan".
+    public static func plainTitle(_ line: String) -> String {
+        var title = line.trimmingCharacters(in: .whitespaces)
+        for prefix in [#"^#{1,6}[ \t]+"#, #"^>[ \t]?"#, #"^[-*+][ \t]+\[[ xX]\][ \t]+"#, #"^[-*+][ \t]+"#] {
+            title = title.replacingOccurrences(of: prefix, with: "", options: .regularExpression)
+        }
+        title = title.replacingOccurrences(of: #"\[([^\]\n]+)\]\([^)\s]+\)"#, with: "$1", options: .regularExpression)
+        for marker in ["**", "__", "~~", "`"] { title = title.replacingOccurrences(of: marker, with: "") }
+        return title.trimmingCharacters(in: .whitespaces)
+    }
+
     public static func isFence(_ line: String) -> Bool {
         let trimmed = line.drop { $0 == " " }
         return line.count - trimmed.count <= 3 && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~"))

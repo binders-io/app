@@ -61,6 +61,15 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(span.map { (text as NSString).substring(with: $0.range) }, "**bold**")
     }
 
+    func testTitles() {
+        XCTAssertEqual(MarkdownSyntax.plainTitle("# Phone app and sync: plan"), "Phone app and sync: plan")
+        XCTAssertEqual(MarkdownSyntax.plainTitle("## **Launch** plan"), "Launch plan")
+        XCTAssertEqual(MarkdownSyntax.plainTitle("- [ ] Call Sam about `v2`"), "Call Sam about v2")
+        XCTAssertEqual(MarkdownSyntax.plainTitle("> See [the plan](https://example.com)"), "See the plan")
+        XCTAssertEqual(MarkdownSyntax.plainTitle("#hashtag stays"), "#hashtag stays")
+        XCTAssertEqual(MarkdownSyntax.plainTitle("2 * 3 is 6"), "2 * 3 is 6")
+    }
+
     // MARK: Return in a list
 
     func testReturnContinuesLists() {
