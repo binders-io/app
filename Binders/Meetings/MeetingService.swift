@@ -709,7 +709,8 @@ final class MeetingService {
             if parsed.droppedRepeats > 0 {
                 Log.meeting.warning("Dropped \(parsed.droppedRepeats) repeated or cut-off lines from the notes")
             }
-            record.summary = parsed.body
+            // Rewriting the notes keeps the action items already ticked off.
+            record.summary = NotesEditing.carryOverTicks(from: record.summary, into: parsed.body)
             // Keep a title the user typed while notes were being written.
             if record.title.hasPrefix(Self.placeholderPrefix) {
                 if let title = parsed.title {

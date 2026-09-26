@@ -81,9 +81,13 @@ enum InboxCommands {
             return InboxResult(ok: true, id: record.id.uuidString, message: "Meeting “\(title)” added to \(binder.name)")
 
         case "set_todo_status":
-            guard let id = UUID(uuidString: field("id")) else { return .failure("id must be a to-do id") }
             let status = field("status").lowercased()
             guard ["open", "done", "dismissed"].contains(status) else { return .failure("status must be open, done or dismissed") }
+            if let reference = BoardTaskReference(field("id")) {
+                guard status != "dismissed" else { return .failure("Only promises can be dismissed. Mark this one done instead.") }
+                return setTask(reference, done: status == "done")
+            }
+            guard let id = UUID(uuidString: field("id")) else { return .failure("id must be a to-do id from list_todos") }
             guard let todo = store.commitments().first(where: { $0.id == id }) else { return .failure("No to-do with that id") }
             controller.commitments.setStatus(todo, status)
             return InboxResult(ok: true, id: todo.id.uuidString, message: "“\(todo.task)” is now \(status)")
@@ -103,6 +107,35 @@ enum InboxCommands {
         default:
             return .failure("Unknown action \(request.action)")
         }
+    }
+
+    /// Ticks or unticks a checklist item in a meeting's notes, a note's digest or a note, found by its words.
+    private static func setTask(_ reference: BoardTaskReference, done: Bool) -> InboxResult {
+        let store = Store.shared
+        let id = reference.id
+        let gone = InboxResult.failure("That to-do has changed or is gone. list_todos has the current ones.")
+        let result: (markdown: String, task: TaskLine)
+        switch reference.place {
+        case .meeting:
+            guard let meeting = (try? store.context.fetch(FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == id })))?.first,
+                  let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: meeting.summary) else { return gone }
+            meeting.summary = found.markdown
+            result = found
+        case .digest, .note:
+            guard let note = (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })))?.first else { return gone }
+            if reference.place == .digest {
+                guard let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: note.digest) else { return gone }
+                note.digest = found.markdown
+                result = found
+            } else {
+                guard let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: note.text) else { return gone }
+                note.text = found.markdown
+                note.updatedAt = Date()
+                result = found
+            }
+        }
+        store.save()
+        return InboxResult(ok: true, id: reference.string, message: "“\(result.task.text)” is now \(done ? "done" : "open")")
     }
 
     /// The named binder, or the current one when no name is given. Nil when a name is given and nothing matches.

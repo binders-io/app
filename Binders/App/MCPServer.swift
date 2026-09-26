@@ -39,7 +39,7 @@ enum MCPServer {
         MCPTool(name: "get_note", description: "One note in full.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
         ]),
-        MCPTool(name: "list_todos", description: "The user's to-dos: promises they made in messages, asks they made of others, and to-dos they added themselves.", parameters: [
+        MCPTool(name: "list_todos", description: "The user's to-dos, as on their board: promises they made in messages, asks they made of others, to-dos they added, and the checklist items in meeting notes, notes and note digests. Each has an id for set_todo_status.", parameters: [
             MCPToolParameter(name: "status", description: "Which ones. Default open.", options: ["open", "done", "dismissed", "all"]),
         ]),
         MCPTool(name: "recent_dictations", description: "What the user dictated recently, newest first.", parameters: [
@@ -48,7 +48,7 @@ enum MCPServer {
         MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. Returns its id. Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "The to-do, as a person would say it.", required: true),
         ]),
-        MCPTool(name: "set_todo_status", description: "Mark a to-do done, reopen it, or dismiss it.", parameters: [
+        MCPTool(name: "set_todo_status", description: "Mark a to-do done or reopen it; the checkbox in a note or meeting is ticked to match. Promises can also be dismissed.", parameters: [
             MCPToolParameter(name: "id", description: "The to-do's id, from list_todos or add_todo.", required: true),
             MCPToolParameter(name: "status", description: "The new status.", required: true, options: ["open", "done", "dismissed"]),
         ]),
@@ -207,11 +207,13 @@ enum MCPServer {
         case "list_todos":
             let wanted = string("status").isEmpty ? "open" : string("status")
             let todos = Store.shared.commitments().filter { wanted == "all" || $0.status == wanted }
-            return json(todos.map { todo in
+            var items: [[String: Any]] = todos.map { todo in
                 ["id": todo.id.uuidString, "task": todo.task, "owner": todo.owner, "kind": todo.kind, "status": todo.status,
                  "due": todo.dueAt.map(AutomationPayload.iso) ?? "", "due_as_said": todo.dueText ?? "", "to": todo.to ?? "",
                  "source": todo.sourceTitle, "created": AutomationPayload.iso(todo.createdAt)] as [String: Any]
-            })
+            }
+            if wanted != "dismissed" { items += checklistItems(status: wanted) }
+            return json(items)
         case "recent_dictations":
             let records = Store.shared.recentTranscripts(limit: integer("limit", default: 20, max: 50) * 2)
                 .filter { $0.mode == "dictation" && $0.status == "inserted" && !$0.finalText.trimmed.isEmpty }
@@ -275,6 +277,34 @@ enum MCPServer {
         }
         try? FileManager.default.removeItem(at: requestURL)
         throw MCPCore.ToolFailure("Binders didn't answer within 30 seconds. Is the app running?")
+    }
+
+    /// The checklist items the board shows from meeting notes, note digests and notes, newest sources first.
+    private static func checklistItems(status wanted: String) -> [[String: Any]] {
+        let context = Store.shared.context
+        var meetingsQuery = FetchDescriptor<MeetingRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        meetingsQuery.fetchLimit = 60
+        var notesQuery = FetchDescriptor<NoteItem>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        notesQuery.fetchLimit = 120
+        var items: [[String: Any]] = []
+        func scan(_ markdown: String, place: BoardTaskReference.Place, id: UUID, kind: String, title: String, date: Date, binderID: UUID?) {
+            for line in markdown.components(separatedBy: "\n") {
+                guard let task = NotesEditing.task(from: line), !task.text.isEmpty else { continue }
+                let status = task.done ? "done" : "open"
+                guard wanted == "all" || wanted == status else { continue }
+                items.append(["id": BoardTaskReference(place: place, id: id, text: task.text).string, "task": task.text,
+                              "owner": task.owner ?? "", "kind": kind, "status": status, "source": title, "source_id": id.uuidString,
+                              "binder": Store.shared.binder(binderID)?.name ?? "", "created": AutomationPayload.iso(date)])
+            }
+        }
+        for meeting in (try? context.fetch(meetingsQuery)) ?? [] {
+            scan(meeting.summary, place: .meeting, id: meeting.id, kind: "meeting", title: meeting.title, date: meeting.createdAt, binderID: meeting.binderID)
+        }
+        for note in (try? context.fetch(notesQuery)) ?? [] {
+            scan(note.digest, place: .digest, id: note.id, kind: "note digest", title: note.title, date: note.updatedAt, binderID: note.binderID)
+            scan(note.text, place: .note, id: note.id, kind: "note", title: note.title, date: note.updatedAt, binderID: note.binderID)
+        }
+        return items
     }
 
     private static func describe(_ hit: KnowledgeHit) -> [String: Any] {

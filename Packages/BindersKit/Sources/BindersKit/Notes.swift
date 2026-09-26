@@ -29,6 +29,7 @@ public enum NotePrompts {
 
         Rules:
         - Use only what is in the note. Never invent facts, names, numbers or tasks.
+        - A to-do the note already shows as done (ticked "- [x]", marked "✓", or said to be done) is written "- [x] …".
         - Keep names and terms as written; fix obvious speech-recognition slips from context.
         - Write in the note's language. No preamble, no commentary.
         """

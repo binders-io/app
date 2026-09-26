@@ -136,13 +136,13 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `list_binders` | Your binders with their counts |
 | `list_meetings` (limit, binder) · `get_meeting` (id, include_transcript) | Meetings, and one in full |
 | `list_notes` (limit, binder) · `get_note` (id) | Notes, and one in full |
-| `list_todos` (status) | Promises, asks and to-dos |
+| `list_todos` (status) | Everything on the board: promises, asks, to-dos, and the checklist items in meeting notes, notes and digests |
 | `recent_dictations` (limit) | What you dictated lately |
 | `add_to_knowledge` (title, text, source, binder) | Anything worth remembering: a fact, a document's text, a web page, an email. Kept under the title with its source, so search and answers can cite it |
 | `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
 | `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
 | `add_meeting` (title, notes, date, attendees, duration_minutes, app, binder) | A meeting that happened elsewhere, from its notes or transcript, so it is searchable with the rest |
-| `add_todo` (text) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date; done, open or dismissed |
+| `add_todo` (text) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date; done or open (ticks the checkbox where it lives), or dismiss a promise |
 | `add_to_calendar` (text) | An event from a phrase such as "lunch with Sam tomorrow at noon" |
 
 Reads go straight to the database. Writes are handed to the running app, which does them and answers with the new

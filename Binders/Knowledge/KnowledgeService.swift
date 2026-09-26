@@ -317,7 +317,8 @@ final class KnowledgeService {
             guard note.modelContext != nil, !note.isDeleted else { return }
             let parsed = SummaryParser.parse(output)
             guard !parsed.body.isEmpty else { return }
-            note.digest = (parsed.title.map { "# \($0)\n\n" } ?? "") + parsed.body
+            // A rewritten digest keeps the to-dos already ticked off.
+            note.digest = NotesEditing.carryOverTicks(from: note.digest, into: (parsed.title.map { "# \($0)\n\n" } ?? "") + parsed.body)
             note.digestHash = hash
             Store.shared.save()
             status.extractionIssue = nil

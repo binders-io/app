@@ -571,6 +571,9 @@ enum SelfTest {
             }
             return 0
         }
+        if args.contains("--selftest-board-tasks") {
+            return await boardTasksSelfTest()
+        }
         if let directory = value("--selftest-demo-shots") {
             // Product screenshots from fictional data in a throwaway folder (BINDERS_DATA_DIR), never the real store.
             let controller = DictationController()
@@ -875,6 +878,49 @@ open reports/import.html
         print("USED_LLM: \(result.usedLLM)\(result.fallbackReason.map { " (fallback: \($0))" } ?? "")")
         print("PRESS_ENTER: \(result.pressEnter)")
         print("FINAL: \(result.text)")
+    }
+
+    /// Ticks checklist items in a meeting's notes, a note's digest and a note the way MCP's set_todo_status does, in a
+    /// throwaway folder (BINDERS_DATA_DIR) only.
+    @MainActor
+    private static func boardTasksSelfTest() async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes notes and meetings")
+            return 1
+        }
+        let controller = DictationController()
+        let store = Store.shared
+        let meeting = MeetingRecord(title: "Launch review", appName: "Zoom", templateID: AppSettings.shared.meetingTemplateID)
+        meeting.summary = "## Action items\n- [ ] Maya — send the deck\n- [ ] Noah — book the room"
+        meeting.status = "ready"
+        store.insert(meeting)
+        let note = NoteItem(text: "Plan\n\n- [ ] call Sam\n- [x] order stickers")
+        note.digest = "# Plan\n\n## To-dos\n- [ ] Call Sam about the launch"
+        store.insert(note)
+
+        var failures = 0
+        func check(_ condition: Bool, _ label: String) {
+            print("\(condition ? "PASS" : "FAIL"): \(label)")
+            if !condition { failures += 1 }
+        }
+        func set(_ reference: BoardTaskReference, _ status: String) async -> InboxResult {
+            await InboxCommands.perform(InboxRequest(action: "set_todo_status", fields: ["id": reference.string, "status": status]), controller: controller)
+        }
+        let deck = BoardTaskReference(place: .meeting, id: meeting.id, text: "send the deck")
+        let ticked = await set(deck, "done")
+        check(ticked.ok && meeting.summary.contains("- [x] Maya — send the deck") && meeting.summary.contains("- [ ] Noah — book the room"),
+              "meeting action item ticked, the other left alone")
+        check(await set(deck, "open").ok && meeting.summary.contains("- [ ] Maya — send the deck"), "and reopened")
+        let digest = await set(BoardTaskReference(place: .digest, id: note.id, text: "Call Sam about the launch"), "done")
+        check(digest.ok && note.digest.contains("- [x] Call Sam about the launch") && note.text.contains("- [ ] call Sam"), "digest to-do ticked, note untouched")
+        let before = note.updatedAt
+        let body = await set(BoardTaskReference(place: .note, id: note.id, text: "call Sam"), "done")
+        check(body.ok && note.text.contains("- [x] call Sam") && note.updatedAt > before, "note checkbox ticked and the note marked as edited")
+        check(!(await set(BoardTaskReference(place: .note, id: note.id, text: "order stickers"), "dismissed")).ok, "checklist items can't be dismissed")
+        check(!(await set(BoardTaskReference(place: .note, id: note.id, text: "something never written"), "done")).ok, "a changed or missing item is refused")
+        check(!(await set(BoardTaskReference(place: .meeting, id: UUID(), text: "send the deck"), "done")).ok, "an unknown meeting is refused")
+        print(failures == 0 ? "BOARD_TASKS_OK" : "BOARD_TASKS_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
     }
 
     /// Renders every Hub page and the Flow bar states to PNGs, for visual checks without screen recording access.
