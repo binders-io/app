@@ -8,6 +8,7 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 build-release/
+build-phone/
 site/download/
 site/.deploy.env
 dist/

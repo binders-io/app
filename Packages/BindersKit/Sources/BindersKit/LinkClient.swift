@@ -28,11 +28,17 @@ public final class LinkClient: @unchecked Sendable {
     private var waiting: [Int: CheckedContinuation<Any, Error>] = [:]
     private var ready: CheckedContinuation<Void, Error>?
     private var notificationHandler: (@Sendable ([String: Any]) -> Void)?
+    private var closeHandler: (@Sendable () -> Void)?
     private var closed = false
 
     public init(host: String, port: UInt16, identity: String, key: SymmetricKey) {
         connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!,
                                   using: Link.parameters(keys: [(identity, key)]))
+    }
+
+    /// Connects to an endpoint found by Bonjour.
+    public init(endpoint: NWEndpoint, identity: String, key: SymmetricKey) {
+        connection = NWConnection(to: endpoint, using: Link.parameters(keys: [(identity, key)]))
     }
 
     /// Opens the connection; fails if the Mac can't be reached or refuses the key.
@@ -51,6 +57,13 @@ public final class LinkClient: @unchecked Sendable {
             }
         }
         receive()
+    }
+
+    /// Called once when the connection ends, for whatever reason, on a background queue.
+    public func onClose(_ handler: @escaping @Sendable () -> Void) {
+        queue.async {
+            if self.closed { handler() } else { self.closeHandler = handler }
+        }
     }
 
     /// Called for each notification the Mac sends, on a background queue.
@@ -105,7 +118,7 @@ public final class LinkClient: @unchecked Sendable {
     }
 
     /// Pairs with the Mac in a QR code: tries each of its addresses, then asks for a device key.
-    public static func pair(_ pairing: LinkPairing, deviceName: String) async throws -> (device: UUID, key: SymmetricKey, address: String) {
+    public static func pair(_ pairing: LinkPairing, deviceName: String) async throws -> (device: UUID, key: SymmetricKey, host: String, port: UInt16) {
         guard !pairing.isExpired() else { throw Failure.rejected("This pairing code has expired. Show a new one on the Mac.") }
         var lastError: Error = Failure.unreachable("no address")
         for address in pairing.addresses {
@@ -119,7 +132,9 @@ public final class LinkClient: @unchecked Sendable {
                       let key = (reply?["key"] as? String).flatMap({ Data(base64Encoded: $0) }) else {
                     throw Failure.rejected("The Mac's answer was incomplete")
                 }
-                return (id, SymmetricKey(data: key), address)
+                // The main port, where every later connection goes.
+                let mainPort = (reply?["port"] as? Int).flatMap(UInt16.init(exactly:)) ?? Link.port
+                return (id, SymmetricKey(data: key), host, mainPort)
             } catch {
                 lastError = error
             }
@@ -195,5 +210,7 @@ public final class LinkClient: @unchecked Sendable {
         closed = true
         for continuation in waiting.values { continuation.resume(throwing: Failure.closed) }
         waiting.removeAll()
+        closeHandler?()
+        closeHandler = nil
     }
 }

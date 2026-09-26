@@ -572,6 +572,9 @@ enum SelfTest {
             }
             return 0
         }
+        if args.contains("--selftest-link-serve") {
+            return await linkServe()
+        }
         if args.contains("--selftest-link") {
             return await linkSelfTest()
         }
@@ -893,6 +896,56 @@ open reports/import.html
         print("USED_LLM: \(result.usedLLM)\(result.fallbackReason.map { " (fallback: \($0))" } ?? "")")
         print("PRESS_ENTER: \(result.pressEnter)")
         print("FINAL: \(result.text)")
+    }
+
+    /// For developing the iPhone app: the fictional demo data behind a real phone link, a pairing link on standard output
+    /// (with 127.0.0.1 first, for the Simulator), and commands on standard input: "todo <text>", "note <text>", "pair".
+    @MainActor
+    private static func linkServe() async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
+            return 1
+        }
+        let controller = DictationController()
+        guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
+        let server = LinkServer(controller: controller, devicesURL: AppPaths.support.appendingPathComponent("link-devices.json"))
+        server.start()
+        for _ in 0..<50 where server.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
+        guard server.status == .listening else {
+            print("ERROR: \(server.status)")
+            return 1
+        }
+        func printPairing() async {
+            guard var pairing = await server.beginPairing(), let port = server.boundPairingPort else { return }
+            pairing.addresses.insert("127.0.0.1:\(port)", at: 0)
+            print("PAIR_URL: \(pairing.url.absoluteString)")
+            fflush(stdout)
+        }
+        print("SERVING on port \(server.boundPort ?? 0)")
+        await printPairing()
+        let lines = AsyncStream<String> { continuation in
+            Thread.detachNewThread {
+                while let line = readLine() { continuation.yield(line) }
+                continuation.finish()
+            }
+        }
+        for await line in lines {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if text == "pair" {
+                await printPairing()
+            } else if text.hasPrefix("todo ") {
+                let result = await InboxCommands.perform(InboxRequest(action: "add_todo", fields: ["text": String(text.dropFirst(5))]), controller: controller)
+                print("TODO: \(result.message)")
+            } else if text.hasPrefix("note ") {
+                let result = await InboxCommands.perform(InboxRequest(action: "add_note", fields: ["text": String(text.dropFirst(5))]), controller: controller)
+                print("NOTE: \(result.message)")
+            } else if text == "quit" {
+                break
+            }
+            fflush(stdout)
+        }
+        server.stop()
+        return 0
     }
 
     /// Plays an iPhone against the phone link, in a throwaway folder (BINDERS_DATA_DIR) on spare ports: pairs once, proves

@@ -2,7 +2,9 @@ import AppKit
 
 // Renders the Binders app icon into the asset catalog: one page held by two rings on the indigo cover, a few lines written on it.
 //   swift scripts/make-icon.swift Binders/Resources/Assets.xcassets/AppIcon.appiconset
+//   swift scripts/make-icon.swift Phone/Resources/Assets.xcassets/AppIcon.appiconset --ios   (one full-bleed 1024 px square; iOS rounds it)
 let output = URL(fileURLWithPath: CommandLine.arguments[1])
+let forIOS = CommandLine.arguments.contains("--ios")
 let sizes: [(points: Int, scale: Int)] = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
 
 func rgb(_ r: Double, _ g: Double, _ b: Double) -> NSColor { NSColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1) }
@@ -18,9 +20,9 @@ func ring(cx: CGFloat, cy: CGFloat, radius: CGFloat, hole: NSColor) {
 }
 
 func draw(_ s: CGFloat) {
-    let inset = s * 0.08
+    let inset = forIOS ? 0 : s * 0.08
     let r = NSRect(x: inset, y: inset, width: s - inset * 2, height: s - inset * 2)
-    let cover = NSBezierPath(roundedRect: r, xRadius: r.width * 0.225, yRadius: r.width * 0.225)
+    let cover = forIOS ? NSBezierPath(rect: r) : NSBezierPath(roundedRect: r, xRadius: r.width * 0.225, yRadius: r.width * 0.225)
     NSGradient(colors: [rgb(96, 76, 244), rgb(34, 24, 110)])!.draw(in: cover, angle: -90)
     let ink = rgb(70, 52, 210)
     let page = NSRect(x: r.minX + r.width * 0.24, y: r.minY + r.height * 0.15, width: r.width * 0.56, height: r.height * 0.70)
@@ -49,7 +51,11 @@ func render(pixels: Int) -> Data {
 }
 
 var images: [[String: String]] = []
-for (points, scale) in sizes {
+if forIOS {
+    try! render(pixels: 1024).write(to: output.appendingPathComponent("icon_1024.png"))
+    images.append(["idiom": "universal", "platform": "ios", "size": "1024x1024", "filename": "icon_1024.png"])
+}
+for (points, scale) in (forIOS ? [] : sizes) {
     let name = "icon_\(points)x\(points)@\(scale)x.png"
     try! render(pixels: points * scale).write(to: output.appendingPathComponent(name))
     images.append(["idiom": "mac", "size": "\(points)x\(points)", "scale": "\(scale)x", "filename": name])

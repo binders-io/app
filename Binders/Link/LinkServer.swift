@@ -465,7 +465,7 @@ private final class LinkSession {
             let device = server.completePairing(name: params["name"] as? String ?? "")
             return reply(MCPCore.success(id: id, result: ["device": device.id.uuidString, "key": device.key.base64EncodedString(),
                                                           "name": Host.current().localizedName ?? "Mac",
-                                                          "protocol": Link.protocolVersion]))
+                                                          "port": Int(server.boundPort ?? Link.port), "protocol": Link.protocolVersion]))
         }
 
         switch method {
