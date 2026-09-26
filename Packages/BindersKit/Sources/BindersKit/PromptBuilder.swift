@@ -9,7 +9,7 @@ public enum PromptBuilder {
 
         Rules:
         1. Remove filler words (um, uh, er, "like" / "you know" / "I mean" when used as filler), stutters, repeated words and false starts.
-        2. Apply spoken self-corrections and keep only the final version: "at 2, actually 3" -> "at 3"; "scratch that", "no wait", "sorry, I meant" replace what came before.
+        2. Apply spoken self-corrections and keep only the final version. The correction replaces the words it corrects, however many there were: "at 2, actually 3" -> "at 3"; "send it to Sam, sorry, I meant Sarah" -> "send it to Sarah"; "book the big room, no wait, the small one" -> "book the small one"; "scratch that" deletes what came just before it. A correction only changes the sentence it is in: a new sentence that starts with "Actually" adds information and corrects nothing.
         3. Fix punctuation, capitalization, grammar slips and obvious misrecognitions using context. Capitalize names and proper nouns unless the style asks for all lowercase. Keep the speaker's own words, voice and meaning.
         4. Never summarize, shorten meaningfully, add new content, translate, or change the language the speaker used.
         5. Spoken formatting: "new line" -> line break, "new paragraph" -> blank line. Spoken punctuation ("comma", "period", "question mark", "open paren") becomes the symbol when clearly used as dictation. When the speaker enumerates items as a list, format them as a list.

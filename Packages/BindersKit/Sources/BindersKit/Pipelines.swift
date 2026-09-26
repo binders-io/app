@@ -54,7 +54,8 @@ public enum DictationPipeline {
         text = snippets.text
 
         let pre = DictionaryMatcher.apply(config.vocabulary, to: text)
-        text = pre.text
+        // "by Friday, actually make that Thursday" is settled here, so it holds with a small model or none.
+        text = SelfCorrection.resolve(pre.text)
 
         let deterministic: () -> PipelineResult = {
             let cleaned = FillerCleaner.clean(text)
