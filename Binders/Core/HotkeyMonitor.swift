@@ -59,6 +59,21 @@ final class HotkeyMonitor {
         core.updateBindings(bindings)
     }
 
+    /// Sends every key event to `handler` instead of acting on it, until `stopRecording()`, so pressing an existing
+    /// shortcut records it rather than running it. Keys are swallowed; modifier changes still reach other apps.
+    /// False when the tap isn't running (no Accessibility), in which case nothing global would fire anyway.
+    func startRecording(_ handler: @escaping (HotkeyInput, TimeInterval) -> Void) -> Bool {
+        guard core.hasTap else { return false }
+        core.recorder = { input, time in
+            DispatchQueue.main.async { MainActor.assumeIsolated { handler(input, time) } }
+        }
+        return true
+    }
+
+    func stopRecording() {
+        core.recorder = nil
+    }
+
     /// The app ended a session on its own (UI button, max duration, error, rejected start).
     func sessionEnded() {
         core.sessionEnded()
@@ -110,6 +125,7 @@ private final class HotkeyCore: @unchecked Sendable {
     private var fnDown = false
     private var paused = false
     private var escapeIntercepted = false
+    private var recording: (@Sendable (HotkeyInput, TimeInterval) -> Void)?
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var runLoop: CFRunLoop?
@@ -134,6 +150,17 @@ private final class HotkeyCore: @unchecked Sendable {
     var interceptsEscape: Bool {
         get { lock.withLock { escapeIntercepted } }
         set { lock.withLock { escapeIntercepted = newValue } }
+    }
+
+    /// While set, key events go here instead of to the shortcuts. Clearing it starts the shortcuts from a clean state.
+    var recorder: (@Sendable (HotkeyInput, TimeInterval) -> Void)? {
+        get { lock.withLock { recording } }
+        set {
+            lock.withLock {
+                recording = newValue
+                machine.reset()
+            }
+        }
     }
 
     var hasTap: Bool { lock.withLock { tap != nil } }
@@ -242,8 +269,9 @@ private final class HotkeyCore: @unchecked Sendable {
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         let now = ProcessInfo.processInfo.systemUptime
 
+        var recorded: (handler: @Sendable (HotkeyInput, TimeInterval) -> Void, input: HotkeyInput)?
         let (actions, consume, escape): ([HotkeyAction], Bool, Bool) = lock.withLock {
-            guard !paused else { return ([], false, false) }
+            guard !paused || recording != nil else { return ([], false, false) }
             var modifiers = Self.modifiers(from: flags)
             let input: HotkeyInput
             switch type {
@@ -265,12 +293,17 @@ private final class HotkeyCore: @unchecked Sendable {
             default:
                 return ([], false, false)
             }
+            if let recording {
+                recorded = (recording, input)
+                return ([], type != .flagsChanged, false)
+            }
             if type == .keyDown, keyCode == KeyCode.escape, !machine.isSessionActive, escapeIntercepted {
                 return ([], true, true)
             }
             let result = machine.handle(input, at: now)
             return (result.actions, result.consume, false)
         }
+        if let recorded { recorded.handler(recorded.input, now) }
         if escape { onEscape?() }
         if !actions.isEmpty { onActions?(actions) }
         return consume ? nil : passThrough

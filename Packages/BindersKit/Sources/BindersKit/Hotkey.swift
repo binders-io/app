@@ -25,10 +25,23 @@ public struct Hotkey: Codable, Hashable, Sendable {
     public var modifiers: ModifierSet
     /// nil means a modifier-only hotkey such as fn or fn+⌃.
     public var keyCode: UInt16?
+    /// A modifier-only hotkey pressed twice quickly (tap ⌥ twice), for the actions that toggle something.
+    public var doubleTap: Bool
 
-    public init(modifiers: ModifierSet, keyCode: UInt16? = nil) {
+    public init(modifiers: ModifierSet, keyCode: UInt16? = nil, doubleTap: Bool = false) {
         self.modifiers = modifiers
         self.keyCode = keyCode
+        self.doubleTap = doubleTap
+    }
+
+    private enum CodingKeys: String, CodingKey { case modifiers, keyCode, doubleTap }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        modifiers = try container.decode(ModifierSet.self, forKey: .modifiers)
+        keyCode = try container.decodeIfPresent(UInt16.self, forKey: .keyCode)
+        // Shortcuts saved before double-taps existed are single presses.
+        doubleTap = try container.decodeIfPresent(Bool.self, forKey: .doubleTap) ?? false
     }
 
     public var isModifierOnly: Bool { keyCode == nil }
@@ -43,15 +56,19 @@ public struct Hotkey: Codable, Hashable, Sendable {
 
     public func displayString(keyName: (UInt16) -> String = KeyCode.name) -> String {
         let mods = modifiers.symbols
-        guard let keyCode else { return mods.isEmpty ? "None" : mods }
+        guard let keyCode else {
+            if mods.isEmpty { return "None" }
+            return doubleTap ? "Double-tap \(mods)" : mods
+        }
         let key = keyName(keyCode)
-        return mods.isEmpty ? key : (modifiers.contains(.function) ? "\(mods) \(key)" : "\(mods)\(key)")
+        let combo = mods.isEmpty ? key : (modifiers.contains(.function) ? "\(mods) \(key)" : "\(mods)\(key)")
+        return doubleTap ? "Double-tap \(combo)" : combo
     }
 
     /// Modifiers that must match exactly for key-based hotkeys (fn is ignored unless required,
     /// because arrow/function keys carry the fn flag implicitly).
     func matches(keyCode code: UInt16, modifiers current: ModifierSet) -> Bool {
-        guard let keyCode, keyCode == code else { return false }
+        guard !doubleTap, let keyCode, keyCode == code else { return false }
         var relevant = current
         if !modifiers.contains(.function) { relevant.remove(.function) }
         return relevant == modifiers
@@ -119,6 +136,62 @@ public struct HotkeyBindings: Codable, Equatable, Sendable {
 
     public static let `default` = HotkeyBindings(dictation: .fn, command: .fnControl, handsFreeToggle: nil,
                                                  pasteLast: .pasteLast, scratchpad: .scratchpad, meeting: .meeting, capture: .capture)
+
+    /// Each shortcut the user can set, in the order Settings lists them.
+    public enum Field: String, CaseIterable, Sendable {
+        case dictation, command, handsFreeToggle, pasteLast, scratchpad, meeting, capture
+
+        public var title: String {
+            switch self {
+            case .dictation: "Dictation"
+            case .command: "Command Mode"
+            case .handsFreeToggle: "Hands-free toggle"
+            case .pasteLast: "Paste last transcript"
+            case .scratchpad: "Scratchpad"
+            case .meeting: "Meeting notes"
+            case .capture: "Writing capture on/off"
+            }
+        }
+
+        /// Dictation and Command Mode are held while you talk; the rest switch something on or off.
+        public var isHold: Bool { self == .dictation || self == .command }
+    }
+
+    public subscript(field: Field) -> Hotkey? {
+        get {
+            switch field {
+            case .dictation: dictation
+            case .command: command
+            case .handsFreeToggle: handsFreeToggle
+            case .pasteLast: pasteLast
+            case .scratchpad: scratchpad
+            case .meeting: meeting
+            case .capture: capture
+            }
+        }
+        set {
+            switch field {
+            case .dictation: if let newValue { dictation = newValue }
+            case .command: command = newValue
+            case .handsFreeToggle: handsFreeToggle = newValue
+            case .pasteLast: pasteLast = newValue
+            case .scratchpad: scratchpad = newValue
+            case .meeting: meeting = newValue
+            case .capture: capture = newValue
+            }
+        }
+    }
+
+    /// The other shortcut that `hotkey` would collide with if it were set for `field`, if any. Holding a modifier for
+    /// dictation also owns double-tapping it (that is hands-free), so the two collide.
+    public func conflict(for hotkey: Hotkey, in field: Field) -> Field? {
+        Field.allCases.first { other in
+            guard other != field, let existing = self[other] else { return false }
+            if existing == hotkey { return true }
+            guard existing.isModifierOnly, hotkey.isModifierOnly, existing.modifiers == hotkey.modifiers else { return false }
+            return existing.doubleTap != hotkey.doubleTap && (other.isHold || field.isHold)
+        }
+    }
 }
 
 public enum SessionMode: String, Codable, Sendable {
@@ -164,6 +237,11 @@ public struct HotkeyStateMachine: Sendable {
 
     private var modifiers: ModifierSet = []
     private var heldCombos: Set<Hotkey> = []
+    /// Modifier taps, for double-tap shortcuts: the modifiers pressed since all were up, when, and whether a key broke it.
+    private var tapPeak: ModifierSet = []
+    private var tapStartedAt: TimeInterval?
+    private var tapBroken = false
+    private var lastTap: (modifiers: ModifierSet, at: TimeInterval)?
 
     public init(bindings: HotkeyBindings) {
         self.bindings = bindings
@@ -185,6 +263,47 @@ public struct HotkeyStateMachine: Sendable {
         state = .idle
         modifiers = []
         heldCombos = []
+        tapPeak = []
+        tapStartedAt = nil
+        tapBroken = false
+        lastTap = nil
+    }
+
+    /// The toggle a double-tap of exactly these modifiers is bound to, if any.
+    private func doubleTapAction(_ mods: ModifierSet) -> (action: HotkeyAction?, handsFree: Bool)? {
+        func bound(_ hotkey: Hotkey?) -> Bool { hotkey.map { $0.doubleTap && $0.isModifierOnly && $0.modifiers == mods } ?? false }
+        if bound(bindings.pasteLast) { return (.pasteLast, false) }
+        if bound(bindings.scratchpad) { return (.toggleScratchpad, false) }
+        if bound(bindings.meeting) { return (.toggleMeeting, false) }
+        if bound(bindings.capture) { return (.toggleCapture, false) }
+        if bound(bindings.handsFreeToggle) { return (nil, true) }
+        return nil
+    }
+
+    /// Follows modifier taps; returns the modifiers when this change completes a second quick tap of the same set.
+    private mutating func trackTaps(from previous: ModifierSet, to current: ModifierSet, at now: TimeInterval) -> ModifierSet? {
+        if previous.isEmpty, !current.isEmpty {
+            tapPeak = current
+            tapStartedAt = now
+            tapBroken = false
+            return nil
+        }
+        if !current.isEmpty {
+            tapPeak.formUnion(current)
+            return nil
+        }
+        guard let started = tapStartedAt, !previous.isEmpty else { return nil }
+        tapStartedAt = nil
+        guard !tapBroken, now - started <= tapThreshold else {
+            lastTap = nil
+            return nil
+        }
+        if let last = lastTap, last.modifiers == tapPeak, now - last.at <= doubleTapWindow {
+            lastTap = nil
+            return tapPeak
+        }
+        lastTap = (tapPeak, now)
+        return nil
     }
 
     public mutating func handle(_ input: HotkeyInput, at now: TimeInterval) -> (actions: [HotkeyAction], consume: Bool) {
@@ -197,10 +316,14 @@ public struct HotkeyStateMachine: Sendable {
         var otherKeyDown = false
         var escape = false
 
+        var doubleTapped: ModifierSet?
         switch input {
         case .flagsChanged(let mods):
+            doubleTapped = trackTaps(from: modifiers, to: mods, at: now)
             modifiers = mods
         case .keyDown(let code, let mods, let isRepeat):
+            tapBroken = true
+            lastTap = nil
             // Arrow and function keys carry the fn flag on their own; only flagsChanged may change fn state.
             modifiers = mods.subtracting(.function).union(modifiers.intersection(.function))
             for hotkey in [bindings.dictation, bindings.command].compactMap({ $0 }) where hotkey.matches(keyCode: code, modifiers: mods) {
@@ -241,6 +364,18 @@ public struct HotkeyStateMachine: Sendable {
         case .resync(let mods):
             modifiers = mods
             heldCombos.removeAll()
+            tapStartedAt = nil
+            lastTap = nil
+        }
+        // From here a double-tap behaves like a key combo. Toggles wait until nothing is being dictated; the hands-free
+        // toggle also ends a hands-free session.
+        if let tapped = doubleTapped, let bound = doubleTapAction(tapped) {
+            if let action = bound.action {
+                if !isSessionActive { comboAction = action }
+            } else if case .holding = state {
+            } else {
+                comboHandsFree = true
+            }
         }
 
         let dictation = isDown(bindings.dictation)

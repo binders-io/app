@@ -222,40 +222,68 @@ private struct GeneralSettings: View {
 
 private struct ShortcutsSettings: View {
     @Environment(AppSettings.self) private var settings
+    @State private var recordingField: HotkeyBindings.Field?
+    @State private var conflict: ShortcutConflict?
 
     var body: some View {
-        @Bindable var settings = settings
         SettingsPageForm(page: .shortcuts) {
             Section {
-                LabeledContent("Dictation") {
-                    HotkeyRecorder(hotkey: Binding(get: { settings.hotkeys.dictation },
-                                                   set: { if let value = $0 { settings.hotkeys.dictation = value } }),
-                                   allowsNone: false)
+                ForEach(HotkeyBindings.Field.allCases, id: \.self) { field in
+                    LabeledContent(field.title) {
+                        ShortcutField(field: field, hotkey: settings.hotkeys[field], recordingField: $recordingField,
+                                      onRecord: { record($0, for: field) }, onClear: { settings.hotkeys[field] = nil })
+                    }
+                    if let conflict, conflict.field == field {
+                        conflictRow(conflict)
+                    }
                 }
-                LabeledContent("Command Mode") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.command)
+                Button("Reset to defaults") {
+                    conflict = nil
+                    settings.hotkeys = .default
                 }
-                LabeledContent("Hands-free toggle") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.handsFreeToggle)
-                }
-                LabeledContent("Paste last transcript") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.pasteLast)
-                }
-                LabeledContent("Scratchpad") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.scratchpad)
-                }
-                LabeledContent("Meeting notes") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.meeting)
-                }
-                LabeledContent("Writing capture on/off") {
-                    HotkeyRecorder(hotkey: $settings.hotkeys.capture)
-                }
-                Button("Reset to defaults") { settings.hotkeys = .default }
             } footer: {
-                Text("Hold to talk, release to insert. Double-tap the dictation shortcut to go hands-free, press it again to finish, Esc to cancel.")
+                Text("Hold to talk, release to insert. Double-tap the dictation shortcut to go hands-free, press it again to finish, Esc to cancel. The other shortcuts can be a key combination such as ⌥S, or a modifier tapped twice: click, then tap ⌥ twice.")
             }
         }
     }
+
+    private func record(_ hotkey: Hotkey, for field: HotkeyBindings.Field) {
+        conflict = nil
+        if let other = settings.hotkeys.conflict(for: hotkey, in: field) {
+            conflict = ShortcutConflict(field: field, hotkey: hotkey, other: other)
+        } else {
+            settings.hotkeys[field] = hotkey
+        }
+    }
+
+    @ViewBuilder
+    private func conflictRow(_ conflict: ShortcutConflict) -> some View {
+        let name = conflict.hotkey.displayString(keyName: KeyCode.name)
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            if conflict.other == .dictation {
+                Text("\(name) is how you dictate. Pick another shortcut.")
+                Spacer()
+                Button("OK") { self.conflict = nil }
+            } else {
+                Text("\(name) is already used for \(conflict.other.title).")
+                Spacer()
+                Button("Use it here") {
+                    settings.hotkeys[conflict.other] = nil
+                    settings.hotkeys[conflict.field] = conflict.hotkey
+                    self.conflict = nil
+                }
+                Button("Cancel") { self.conflict = nil }
+            }
+        }
+        .font(.callout)
+    }
+}
+
+private struct ShortcutConflict: Equatable {
+    let field: HotkeyBindings.Field
+    let hotkey: Hotkey
+    let other: HotkeyBindings.Field
 }
 
 private struct DictationSettings: View {
@@ -1259,73 +1287,119 @@ private struct AutomationEditor: View {
 
 // MARK: - Shortcut recorder
 
-struct HotkeyRecorder: View {
+/// One shortcut in Settings. Recording goes through the same event tap that runs the shortcuts, which hands every key
+/// to the recorder meanwhile: pressing a shortcut that is already set records it instead of doing it.
+private struct ShortcutField: View {
     @Environment(DictationController.self) private var controller
-    @Binding var hotkey: Hotkey?
-    var allowsNone = true
-    @State private var recording = false
-    @State private var monitor: Any?
-    @State private var peak: ModifierSet = []
+    let field: HotkeyBindings.Field
+    let hotkey: Hotkey?
+    @Binding var recordingField: HotkeyBindings.Field?
+    let onRecord: (Hotkey) -> Void
+    let onClear: () -> Void
+
+    @State private var recorder = ShortcutRecorder(isHold: false)
+    @State private var live = ""
+    @State private var hint: String?
+    @State private var localMonitor: Any?
+    @State private var tick: Task<Void, Never>?
+
+    private var isRecording: Bool { recordingField == field }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button {
-                recording ? stop() : startRecording()
-            } label: {
-                Text(recording ? "Press shortcut…" : (hotkey?.displayString(keyName: KeyCode.name) ?? "Not set"))
-                    .frame(minWidth: 120)
-            }
-            if allowsNone, hotkey != nil, !recording {
-                Button { hotkey = nil } label: { Image(systemName: "xmark.circle.fill") }
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Button {
+                    isRecording ? stop() : start()
+                } label: {
+                    Text(isRecording ? (live.isEmpty ? "Press keys… (Esc cancels)" : live) : (hotkey?.displayString(keyName: KeyCode.name) ?? "Not set"))
+                        .monospacedDigit()
+                        .frame(minWidth: 150)
+                }
+                .tint(isRecording ? .accentColor : nil)
+                .buttonStyle(.bordered)
+                // Always there, hidden when it can't be used, so every field lines up.
+                let clearable = field != .dictation && hotkey != nil && !isRecording
+                Button(action: onClear) { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
+                    .help("Remove this shortcut")
+                    .opacity(clearable ? 1 : 0)
+                    .disabled(!clearable)
+                    .accessibilityHidden(!clearable)
             }
+            if let hint {
+                Text(hint).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: recordingField) { _, current in
+            if current != field { stop(clearOwner: false) }
         }
         .onDisappear { stop() }
-        // Leaving the app mid-recording would otherwise keep every global shortcut paused.
+        // Leaving the app mid-recording would otherwise keep the shortcuts off.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in stop() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in stop() }
     }
 
-    private func startRecording() {
-        recording = true
-        peak = []
-        controller.hotkeys.isPaused = true
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
-            let modifiers = Self.modifiers(event.modifierFlags)
-            if event.type == .keyDown {
-                if event.keyCode == KeyCode.escape, modifiers.subtracting(.function).isEmpty {
-                    stop()
-                    return nil
-                }
-                let combo = modifiers.subtracting(.function)
-                let isFunctionKey = KeyCode.name(event.keyCode).hasPrefix("F")
-                guard !combo.subtracting(.shift).isEmpty || isFunctionKey else {
-                    NSSound.beep()
-                    return nil
-                }
-                hotkey = Hotkey(modifiers: combo, keyCode: event.keyCode)
-                stop()
+    private func start() {
+        recordingField = field
+        recorder = ShortcutRecorder(isHold: field.isHold)
+        live = ""
+        hint = field.isHold ? nil : "A key combination, or tap a modifier twice."
+        if !controller.hotkeys.startRecording({ input, time in handle(input, at: time) }) {
+            // No event tap (Accessibility is off): listen to this window instead.
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+                let modifiers = Self.modifiers(event.modifierFlags)
+                let input: HotkeyInput = event.type == .keyDown
+                    ? .keyDown(keyCode: event.keyCode, modifiers: modifiers, isRepeat: event.isARepeat)
+                    : .flagsChanged(modifiers)
+                handle(input, at: ProcessInfo.processInfo.systemUptime)
                 return nil
             }
-            if modifiers.isEmpty {
-                if !peak.isEmpty {
-                    hotkey = Hotkey(modifiers: peak)
-                    stop()
-                }
-            } else {
-                peak.formUnion(modifiers)
-            }
-            return nil
         }
     }
 
-    private func stop() {
-        guard recording || monitor != nil else { return }
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        recording = false
-        controller.hotkeys.isPaused = false
+    private func handle(_ input: HotkeyInput, at time: TimeInterval) {
+        guard isRecording else { return }
+        apply(recorder.handle(input, at: time))
+    }
+
+    private func apply(_ outcome: ShortcutRecorder.Outcome) {
+        switch outcome {
+        case .listening(let held):
+            live = held.isEmpty ? "" : "\(held)…"
+        case .awaitingSecondTap(let modifiers):
+            live = "Tap \(modifiers.symbols) again…"
+            tick?.cancel()
+            let window = recorder.doubleTapWindow
+            tick = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(window + 0.05))
+                guard !Task.isCancelled, isRecording, let late = recorder.tick(at: ProcessInfo.processInfo.systemUptime) else { return }
+                apply(late)
+            }
+        case .recorded(let hotkey):
+            stop()
+            hint = nil
+            onRecord(hotkey)
+        case .cancelled:
+            stop()
+            hint = nil
+        case .rejected(let reason):
+            live = ""
+            hint = reason
+        }
+    }
+
+    /// Ends this field's recording. Only the field that is recording hands the keyboard back to the shortcuts; when
+    /// another field has just started (`clearOwner` false), the keyboard is already theirs.
+    private func stop(clearOwner: Bool = true) {
+        tick?.cancel()
+        tick = nil
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        localMonitor = nil
+        if clearOwner, isRecording {
+            controller.hotkeys.stopRecording()
+            recordingField = nil
+        }
+        live = ""
     }
 
     static func modifiers(_ flags: NSEvent.ModifierFlags) -> ModifierSet {
