@@ -23,8 +23,8 @@ settings:
     DEVELOPMENT_TEAM: 87LFD98HJU
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   Binders:
     type: application

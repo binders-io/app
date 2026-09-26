@@ -39,6 +39,8 @@ memory you can ask questions. The speech models, the language model and your dat
   with a deadline and a reminder.
 - **Ask your work anything.** Meetings, notes and messages are indexed together and linked into a graph of people, projects and
   topics. Search by meaning, or ask in plain language and get an answer with its sources.
+- **Notes.** Notes, the scratchpad and meeting notes are plain Markdown that formats as you type: headings, lists, checklists you
+  can tick, code blocks, quotes and links, with a toolbar and the usual keys.
 - **Binders and teams.** One binder per thing you are working on. Share a binder with teammates through a folder you already sync
   (OneDrive, Dropbox, Google Drive, iCloud Drive). There is no server of ours in between.
 - **Open to other software.** Rules run a Shortcut, open a URL, run a script or call a web hook when you say a phrase or when
@@ -91,7 +93,8 @@ The full breakdown is on the site's privacy page (`site/privacy.html`).
 | **⌃⌘V** | Paste the last transcript again |
 | **Esc** | Cancel |
 
-End a dictation with "press enter" to send it. Every shortcut can be changed in Settings.
+End a dictation with "press enter" to send it. Every shortcut can be changed in Settings, to a key combination or to a modifier
+tapped twice.
 
 ## Building from source
 
