@@ -908,7 +908,8 @@ open reports/import.html
         }
         let controller = DictationController()
         guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
-        let server = LinkServer(controller: controller, devicesURL: AppPaths.support.appendingPathComponent("link-devices.json"))
+        // Spare ports, so it runs alongside the real app's phone link.
+        let server = LinkServer(controller: controller, port: 0, pairingPort: 0, devicesURL: AppPaths.support.appendingPathComponent("link-devices.json"))
         server.start()
         for _ in 0..<50 where server.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
         guard server.status == .listening else {

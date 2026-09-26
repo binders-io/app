@@ -25,7 +25,7 @@ struct BindersPhoneApp: App {
 }
 
 enum PhoneTab: String {
-    case todos, notes, meetings, ask
+    case todos, binders, ask
 }
 
 struct RootView: View {
@@ -40,12 +40,9 @@ struct RootView: View {
                 BoardView()
                     .tabItem { Label("To-dos", systemImage: "checklist") }
                     .tag(PhoneTab.todos)
-                NotesListView()
-                    .tabItem { Label("Notes", systemImage: "note.text") }
-                    .tag(PhoneTab.notes)
-                MeetingsListView()
-                    .tabItem { Label("Meetings", systemImage: "person.2.wave.2") }
-                    .tag(PhoneTab.meetings)
+                BindersView()
+                    .tabItem { Label("Binders", systemImage: "books.vertical") }
+                    .tag(PhoneTab.binders)
                 AskView()
                     .tabItem { Label("Ask", systemImage: "sparkles") }
                     .tag(PhoneTab.ask)

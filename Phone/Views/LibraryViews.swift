@@ -3,57 +3,47 @@ import SwiftUI
 
 // MARK: - Notes
 
-struct NotesListView: View {
+/// Notes, all of them or one binder's. Lives inside a navigation stack that knows how to open a `NoteSummary`.
+struct NotesList: View {
     @Environment(MacConnection.self) private var connection
+    let binder: String?
+
     @State private var notes: [NoteSummary] = []
     @State private var loaded = false
-    @State private var writing = false
-    @State private var path: [NoteSummary] = []
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                OfflineBanner()
-                ForEach(notes) { note in
-                    NavigationLink(value: note) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(note.title).font(.headline).lineLimit(1)
-                            Text(note.preview.drop { $0 != "\n" }.trimmingCharacters(in: .whitespacesAndNewlines))
-                                .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                            Text([note.binder, note.updated.friendlyDate].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.tertiary)
+        List {
+            OfflineBanner()
+            ForEach(notes) { note in
+                NavigationLink(value: note) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(note.title).font(.headline).lineLimit(1)
+                        let rest = note.preview.drop { $0 != "\n" }.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !rest.isEmpty {
+                            Text(rest).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                         }
-                        .padding(.vertical, 2)
+                        Text([binder == nil ? note.binder : "", note.updated.friendlyDate].filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.tertiary)
                     }
+                    .padding(.vertical, 2)
                 }
             }
-            .overlay {
-                if loaded && notes.isEmpty {
-                    ContentUnavailableView("No notes yet", systemImage: "note.text", description: Text("Notes you write or dictate on your Mac show up here."))
-                }
-            }
-            .navigationTitle("Notes")
-            .navigationDestination(for: NoteSummary.self) { NoteDetailView(summary: $0) }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { writing = true } label: { Image(systemName: "square.and.pencil") }
-                        .disabled(!connection.isConnected)
-                        .accessibilityLabel("New note")
-                }
-            }
-            .macToolbar()
-            .refreshable { await load() }
-            .task(id: connection.revision("notes")) { await load() }
-            .sheet(isPresented: $writing) { NewNoteSheet() }
         }
+        .overlay {
+            if loaded && notes.isEmpty {
+                ContentUnavailableView("No notes yet", systemImage: "note.text", description: Text("Notes you write or dictate show up here."))
+            }
+        }
+        .refreshable { await load() }
+        .task(id: connection.revision("notes")) { await load() }
     }
 
     private func load() async {
-        let result = await connection.fetch("list_notes", ["limit": 50], cache: "notes", as: [NoteSummary].self)
+        var arguments: [String: Any] = ["limit": 50]
+        if let binder { arguments["binder"] = binder }
+        let result = await connection.fetch("list_notes", arguments, cache: "notes-\(binder ?? "all")", as: [NoteSummary].self)
         if let value = result.value { notes = value }
         loaded = true
-        // For development: `-openFirst YES` opens the first one, as the Simulator can't be tapped from a script.
-        if UserDefaults.standard.bool(forKey: "openFirst"), path.isEmpty, let first = notes.first { path = [first] }
     }
 }
 
@@ -93,6 +83,8 @@ struct NoteDetailView: View {
 struct NewNoteSheet: View {
     @Environment(MacConnection.self) private var connection
     @Environment(\.dismiss) private var dismiss
+    /// The binder it goes into; the Mac's current binder when nil.
+    var binder: String? = nil
     @State private var text = ""
     @State private var saving = false
     @State private var problem: String?
@@ -106,7 +98,7 @@ struct NewNoteSheet: View {
                         Text("The first line is the title.").foregroundStyle(.tertiary).padding(.horizontal, 20).padding(.top, 8).allowsHitTesting(false)
                     }
                 }
-                .navigationTitle("New note")
+                .navigationTitle(binder.map { "New note in \($0)" } ?? "New note")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -127,7 +119,9 @@ struct NewNoteSheet: View {
         Task {
             defer { saving = false }
             do {
-                _ = try await connection.call("add_note", ["text": text])
+                var arguments: [String: Any] = ["text": text]
+                if let binder { arguments["binder"] = binder }
+                _ = try await connection.call("add_note", arguments)
                 dismiss()
             } catch {
                 problem = error.localizedDescription
@@ -138,51 +132,50 @@ struct NewNoteSheet: View {
 
 // MARK: - Meetings
 
-struct MeetingsListView: View {
+/// Meetings, all of them or one binder's. Lives inside a navigation stack that knows how to open a `MeetingSummary`.
+struct MeetingsList: View {
     @Environment(MacConnection.self) private var connection
+    let binder: String?
+
     @State private var meetings: [MeetingSummary] = []
     @State private var loaded = false
-    @State private var path: [MeetingSummary] = []
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                OfflineBanner()
-                ForEach(meetings) { meeting in
-                    NavigationLink(value: meeting) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(meeting.title).font(.headline).lineLimit(2)
-                            Text(details(meeting)).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 2)
+        List {
+            OfflineBanner()
+            ForEach(meetings) { meeting in
+                NavigationLink(value: meeting) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(meeting.title).font(.headline).lineLimit(2)
+                        Text(details(meeting)).font(.caption).foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 2)
                 }
             }
-            .overlay {
-                if loaded && meetings.isEmpty {
-                    ContentUnavailableView("No meetings yet", systemImage: "person.2.wave.2", description: Text("Meetings your Mac takes notes on show up here."))
-                }
-            }
-            .navigationTitle("Meetings")
-            .navigationDestination(for: MeetingSummary.self) { MeetingDetailView(summary: $0) }
-            .macToolbar()
-            .refreshable { await load() }
-            .task(id: connection.revision("meetings")) { await load() }
         }
+        .overlay {
+            if loaded && meetings.isEmpty {
+                ContentUnavailableView("No meetings yet", systemImage: "person.2.wave.2", description: Text("Meetings your Mac takes notes on show up here."))
+            }
+        }
+        .refreshable { await load() }
+        .task(id: connection.revision("meetings")) { await load() }
     }
 
     private func details(_ meeting: MeetingSummary) -> String {
         var parts = [meeting.date.friendlyDate]
         if meeting.durationMinutes > 0 { parts.append("\(meeting.durationMinutes) min") }
         if !meeting.attendees.isEmpty { parts.append(meeting.attendees.prefix(3).joined(separator: ", ")) }
+        if binder == nil, !meeting.binder.isEmpty { parts.append(meeting.binder) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func load() async {
-        let result = await connection.fetch("list_meetings", ["limit": 50], cache: "meetings", as: [MeetingSummary].self)
+        var arguments: [String: Any] = ["limit": 50]
+        if let binder { arguments["binder"] = binder }
+        let result = await connection.fetch("list_meetings", arguments, cache: "meetings-\(binder ?? "all")", as: [MeetingSummary].self)
         if let value = result.value { meetings = value }
         loaded = true
-        if UserDefaults.standard.bool(forKey: "openFirst"), path.isEmpty, let first = meetings.first { path = [first] }
     }
 }
 

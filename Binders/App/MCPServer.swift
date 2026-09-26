@@ -159,7 +159,7 @@ enum MCPServer {
             return json(Store.shared.binders(includeArchived: true).map { binder in
                 let counts = Store.shared.counts(in: binder.id)
                 return ["id": binder.id.uuidString, "name": binder.name, "archived": binder.archived, "shared": binder.sharedWithTeam || binder.isTeamCopy,
-                        "meetings": counts.meetings, "notes": counts.notes] as [String: Any]
+                        "meetings": counts.meetings, "notes": counts.notes, "color": binder.colorIndex] as [String: Any]
             })
         case "list_meetings":
             let binder = binderID(named: string("binder"))
@@ -215,7 +215,8 @@ enum MCPServer {
             var items: [[String: Any]] = todos.map { todo in
                 ["id": todo.id.uuidString, "task": todo.task, "owner": todo.owner, "kind": todo.kind, "status": todo.status,
                  "due": todo.dueAt.map(AutomationPayload.iso) ?? "", "due_as_said": todo.dueText ?? "", "to": todo.to ?? "",
-                 "source": todo.sourceTitle, "created": AutomationPayload.iso(todo.createdAt)] as [String: Any]
+                 "source": todo.sourceTitle, "binder": Store.shared.binder(todo.binderID)?.name ?? "",
+                 "created": AutomationPayload.iso(todo.createdAt)] as [String: Any]
             }
             if wanted != "dismissed" { items += checklistItems(status: wanted) }
             return json(items)

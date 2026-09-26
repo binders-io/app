@@ -25,6 +25,20 @@ struct Todo: Decodable, Identifiable, Hashable {
     }
 }
 
+struct BinderInfo: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let archived: Bool
+    let shared: Bool
+    let meetings: Int
+    let notes: Int
+    let color: Int?
+
+    var counts: String {
+        [meetings == 1 ? "1 meeting" : "\(meetings) meetings", notes == 1 ? "1 note" : "\(notes) notes"].joined(separator: " · ")
+    }
+}
+
 struct NoteSummary: Decodable, Identifiable, Hashable {
     let id: String
     let title: String

@@ -57,6 +57,8 @@ final class LinkServer {
     @ObservationIgnored private var flushScheduled = false
 
     static let pairingLifetime: TimeInterval = 10 * 60
+    /// Where binders://link/pair leaves the pairing link, for pairing a phone that isn't at the Mac. Gone once pairing closes.
+    static var pairingLinkFile: URL { AppPaths.support.appendingPathComponent("link-pairing.txt") }
 
     init(controller: DictationController, port: UInt16 = Link.port, pairingPort: UInt16 = Link.pairingPort,
          devicesURL: URL = AppPaths.support.appendingPathComponent("link-devices.json")) {
@@ -139,6 +141,7 @@ final class LinkServer {
     }
 
     func cancelPairing() {
+        try? FileManager.default.removeItem(at: Self.pairingLinkFile)
         pairingExpiry?.cancel()
         pairingExpiry = nil
         pairingListener?.cancel()

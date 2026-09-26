@@ -7,6 +7,8 @@ import BindersKit
 ///     binders://ask?q=what%20did%20we%20decide       binders://dictate   binders://command
 ///     binders://capture/on|off|toggle                binders://meeting/start|stop|toggle   binders://meeting/<id>
 ///     binders://open?section=home|writing|knowledge|settings[&page=automations]
+///     binders://link/pair   turns the phone link on and opens pairing; the one-time link is written to
+///                           Application Support/Binders/link-pairing.txt (yours only), for a phone that isn't at the Mac
 @MainActor
 enum URLCommands {
     static func handle(_ url: URL, controller: DictationController) {
@@ -31,6 +33,19 @@ enum URLCommands {
             guard !text.isEmpty else { return warn("binders://ask needs ?q=") }
             hub.navigation.pendingKnowledgeQuery = text
             hub.show(section: .knowledge)
+        case "link":
+            guard (path.first ?? query["action"] ?? "").lowercased() == "pair" else { return warn("binders://link/pair") }
+            if !controller.settings.phoneLink { controller.settings.phoneLink = true }
+            controller.link.start()
+            Task {
+                for _ in 0..<30 where controller.link.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
+                guard let pairing = await controller.link.beginPairing() else { return }
+                let file = LinkServer.pairingLinkFile
+                try? Data(pairing.url.absoluteString.utf8).write(to: file, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+                hub.navigation.pendingSettingsPage = .phone
+                hub.show(section: .settings)
+            }
         case "dictate":
             controller.toggleSession(.dictation)
         case "command":

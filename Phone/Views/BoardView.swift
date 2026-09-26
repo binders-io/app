@@ -1,8 +1,21 @@
 import SwiftUI
 
-/// The to-do board: promises, asks and the checklists in meetings and notes, grouped by where they came from.
+/// The to-do board on its own tab: everything, with a field to add to-dos.
 struct BoardView: View {
+    var body: some View {
+        NavigationStack {
+            TodoBoard(binder: nil, allowsAdding: true)
+                .navigationTitle("To-dos")
+                .macToolbar()
+        }
+    }
+}
+
+/// Promises, asks and the checklists in meetings and notes, grouped by where they came from; all of them, or one binder's.
+struct TodoBoard: View {
     @Environment(MacConnection.self) private var connection
+    let binder: String?
+    var allowsAdding = false
     @State private var todos: [Todo] = []
     @State private var loaded = false
     @State private var newTodo = ""
@@ -10,8 +23,8 @@ struct BoardView: View {
     @State private var problem: String?
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
+            if allowsAdding {
                 Section {
                     HStack {
                         TextField("Add a to-do, like “call Sam tomorrow at 3”", text: $newTodo)
@@ -24,41 +37,42 @@ struct BoardView: View {
                 } footer: {
                     OfflineBanner()
                 }
-                ForEach(groups, id: \.title) { group in
-                    Section(group.title) {
-                        ForEach(group.items) { todo in
-                            TodoRow(todo: todo) { toggle(todo) }
-                        }
-                    }
-                }
-                if !done.isEmpty {
-                    Section("Done") {
-                        ForEach(done.prefix(15)) { todo in
-                            TodoRow(todo: todo) { toggle(todo) }
-                        }
+            } else {
+                OfflineBanner()
+            }
+            ForEach(groups, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.items) { todo in
+                        TodoRow(todo: todo) { toggle(todo) }
                     }
                 }
             }
-            .overlay {
-                if loaded && todos.isEmpty {
-                    ContentUnavailableView("Nothing to do", systemImage: "checkmark.circle",
-                                           description: Text("Promises you make, asks, and the checklists in your meetings and notes show up here."))
+            if !done.isEmpty {
+                Section("Done") {
+                    ForEach(done.prefix(15)) { todo in
+                        TodoRow(todo: todo) { toggle(todo) }
+                    }
                 }
             }
-            .navigationTitle("To-dos")
-            .macToolbar()
-            .refreshable { await load() }
-            .task(id: connection.revision("todos")) { await load() }
-            .alert("Couldn't update the Mac", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK", role: .cancel) {}
-            } message: { Text(problem ?? "") }
         }
+        .overlay {
+            if loaded && open.isEmpty && done.isEmpty {
+                ContentUnavailableView("Nothing to do", systemImage: "checkmark.circle",
+                                       description: Text("Promises you make, asks, and the checklists in your meetings and notes show up here."))
+            }
+        }
+        .refreshable { await load() }
+        .task(id: connection.revision("todos")) { await load() }
+        .alert("Couldn't update the Mac", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(problem ?? "") }
     }
 
     // MARK: Data
 
-    private var open: [Todo] { todos.filter { !$0.isDone } }
-    private var done: [Todo] { todos.filter(\.isDone) }
+    private var mine: [Todo] { binder.map { name in todos.filter { $0.binder == name } } ?? todos }
+    private var open: [Todo] { mine.filter { !$0.isDone } }
+    private var done: [Todo] { mine.filter(\.isDone) }
 
     /// Open to-dos grouped by their source, in the order the Mac lists them (promises with deadlines first).
     private var groups: [(title: String, items: [Todo])] {
