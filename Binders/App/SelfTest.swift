@@ -630,6 +630,17 @@ open reports/import.html
             await render(MarkdownNoteEditor(text: .constant(sample), fontSize: 15, placeholder: "Write, or hold fn to dictate.")
                 .frame(width: 760, height: 720).background(Color(nsColor: .textBackgroundColor)),
                          size: NSSize(width: 760, height: 720), name: "editor", directory: URL(fileURLWithPath: directory))
+            // Editing the second paragraph: its markup shows, everything else stays rendered.
+            await render(MarkdownNoteEditor(text: .constant(sample), fontSize: 15, placeholder: "Write, or hold fn to dictate.")
+                .frame(width: 760, height: 720).background(Color(nsColor: .textBackgroundColor)),
+                         size: NSSize(width: 760, height: 720), name: "editor-focused", directory: URL(fileURLWithPath: directory)) { root in
+                func find(_ view: NSView) -> MarkdownTextView? {
+                    (view as? MarkdownTextView) ?? view.subviews.lazy.compactMap(find).first
+                }
+                guard let editor = find(root) else { return }
+                editor.window?.makeFirstResponder(editor)
+                editor.setSelectedRange(NSRange(location: (sample as NSString).range(of: "Harbor").location, length: 0))
+            }
             print("EDITOR_SHOT_DONE")
             return 0
         }
@@ -1047,7 +1058,8 @@ open reports/import.html
     }
 
     @MainActor
-    private static func render<Content: View>(_ view: Content, size: NSSize, name: String, directory: URL) async {
+    private static func render<Content: View>(_ view: Content, size: NSSize, name: String, directory: URL,
+                                              prepare: ((NSView) -> Void)? = nil) async {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .fullSizeContentView],
                               backing: .buffered, defer: false)
@@ -1057,6 +1069,10 @@ open reports/import.html
         hosting.wantsLayer = true
         window.contentView = hosting
         window.orderFrontRegardless()
+        if let prepare {
+            try? await Task.sleep(for: .milliseconds(300))
+            prepare(hosting)
+        }
         try? await Task.sleep(for: .milliseconds(1200))
         capture(hosting, name: name, directory: directory)
         captureScrollContents(hosting, name: name, directory: directory)
