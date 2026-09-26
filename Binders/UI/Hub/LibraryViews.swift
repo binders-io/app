@@ -313,8 +313,10 @@ private struct ToneCard: View {
 
 struct NotesView: View {
     @Environment(HubNavigation.self) private var navigation
+    @Environment(TeamSyncService.self) private var team
     @Query private var notes: [NoteItem]
     @State private var selection: UUID?
+    @State private var noteToDelete: NoteItem?
     let binderID: UUID?
 
     /// The notes in one binder, or every note when `binderID` is nil.
@@ -382,6 +384,26 @@ struct NotesView: View {
                     }
                     .tag(note.id)
                 }
+                // ⌫ or ⌦ on the selected note, or right-click: asks once, and Return confirms.
+                .onDeleteCommand { noteToDelete = notes.first { $0.id == selection } }
+                .onKeyPress(.deleteForward) {
+                    guard let note = notes.first(where: { $0.id == selection }) else { return .ignored }
+                    noteToDelete = note
+                    return .handled
+                }
+                .contextMenu(forSelectionType: UUID.self) { ids in
+                    if let id = ids.first, let note = notes.first(where: { $0.id == id }) {
+                        Button("Delete…", role: .destructive) { noteToDelete = note }
+                    }
+                }
+                .confirmationDialog(deleteTitle, isPresented: Binding(get: { noteToDelete != nil }, set: { if !$0 { noteToDelete = nil } }),
+                                    presenting: noteToDelete) { note in
+                    Button(sharedWithTeam(note) ? "Delete for Everyone" : "Delete", role: .destructive) { delete(note) }
+                        .keyboardShortcut(.defaultAction)
+                    Button("Cancel", role: .cancel) {}
+                } message: { note in
+                    Text(sharedWithTeam(note) ? "It's removed for everyone on the team. This can't be undone." : "This can't be undone.")
+                }
                 Button("Open Scratchpad (\(AppSettings.shared.hotkeys.scratchpad?.displayString() ?? "menu bar"))") {
                     ScratchpadController.shared.show()
                 }
@@ -391,13 +413,34 @@ struct NotesView: View {
             .frame(width: 260)
             Divider()
             if let note = notes.first(where: { $0.id == selection }) {
-                NoteEditor(note: note) { selection = nil }
+                NoteEditor(note: note) { selection = neighbour(of: note)?.id }
             } else {
                 ContentUnavailableView("Select a note", systemImage: "note.text",
                                        description: Text("Dictate into the Scratchpad and your notes land here."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var deleteTitle: String {
+        guard let noteToDelete else { return "Delete this note?" }
+        return sharedWithTeam(noteToDelete) ? "Delete “\(noteToDelete.title)” for everyone on the team?" : "Delete “\(noteToDelete.title)”?"
+    }
+
+    private func sharedWithTeam(_ note: NoteItem) -> Bool {
+        team.isConfigured && (note.sharedWithTeam || note.isTeamCopy)
+    }
+
+    /// The note below this one in the list, or above it at the end, so deleting several in a row is ⌫ ⏎ ⌫ ⏎.
+    private func neighbour(of note: NoteItem) -> NoteItem? {
+        guard let index = notes.firstIndex(where: { $0.id == note.id }) else { return nil }
+        if notes.indices.contains(index + 1) { return notes[index + 1] }
+        return index > 0 ? notes[index - 1] : nil
+    }
+
+    private func delete(_ note: NoteItem) {
+        if selection == note.id { selection = neighbour(of: note)?.id }
+        NoteEditor.remove(note)
     }
 }
 
@@ -409,6 +452,7 @@ struct NoteEditor: View {
     var onDelete: () -> Void
     @State private var confirmDelete = false
     @State private var digestVisible = true
+    @State private var digestCopied = false
 
     private var digesting: Bool { knowledge.digestingNoteIDs.contains(note.id) }
     private var digestStale: Bool { !note.digest.isEmpty && note.digestHash != KnowledgeService.noteContentHash(note.text) }
@@ -474,6 +518,13 @@ struct NoteEditor: View {
             HStack {
                 Text("Digest").font(.headline)
                 Spacer()
+                if !note.digest.isEmpty {
+                    Button(action: copyDigest) {
+                        Image(systemName: digestCopied ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy the digest as Markdown")
+                }
                 if digesting {
                     ProgressView().controlSize(.small)
                 } else {
@@ -504,10 +555,23 @@ struct NoteEditor: View {
                     })
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .contextMenu {
+                    Button("Copy Digest", action: copyDigest)
+                }
             }
             Spacer(minLength: 0)
         }
         .padding(16)
+    }
+
+    /// The whole digest, as Markdown, so it pastes cleanly into another note, Obsidian or a message.
+    private func copyDigest() {
+        TextInserter.copyToClipboard(note.digest.trimmingCharacters(in: .whitespacesAndNewlines))
+        digestCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            digestCopied = false
+        }
     }
 
     private var digestPlaceholder: String {
@@ -522,8 +586,12 @@ struct NoteEditor: View {
     }
 
     private func delete() {
-        ScratchpadController.shared.noteWillBeDeleted(note)
         onDelete()
+        Self.remove(note)
+    }
+
+    static func remove(_ note: NoteItem) {
+        ScratchpadController.shared.noteWillBeDeleted(note)
         // Let the editor leave the hierarchy before the model is deleted.
         DispatchQueue.main.async { Store.shared.delete(note) }
     }

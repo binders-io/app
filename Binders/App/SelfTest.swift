@@ -905,6 +905,10 @@ open reports/import.html
         await render(hub { $0.selection = .binder }, size: size, name: "demo-binder", directory: directory)
         await render(hub { $0.selection = .binder; $0.pendingBinderTab = .meetings; $0.pendingMeetingID = review?.id },
                      size: size, name: "demo-meeting", directory: directory)
+        let notes = (try? Store.shared.context.fetch(FetchDescriptor<NoteItem>())) ?? []
+        let digested = notes.first { $0.binderID == harbor.id && !$0.digest.isEmpty }
+        await render(hub { $0.selection = .binder; $0.pendingBinderTab = .notes; $0.pendingNoteID = digested?.id },
+                     size: size, name: "demo-note", directory: directory)
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
         for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp] {
