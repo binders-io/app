@@ -597,6 +597,16 @@ enum SelfTest {
             return 0
         }
 
+        if args.contains("--selftest-instances") {
+            // Which running copies of Binders would keep the app from starting (MCP servers and self-tests don't).
+            let own = ProcessInfo.processInfo.processIdentifier
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "") where app.processIdentifier != own {
+                print("pid \(app.processIdentifier): \(AppDelegate.isAppInstance(app.processIdentifier) ? "the app" : "not the app (MCP server or self-test)")")
+            }
+            print("INSTANCES_DONE")
+            return 0
+        }
+
         if args.contains("--selftest-team") {
             return await teamSelfTest(keepFolder: args.contains("--keep"))
         }

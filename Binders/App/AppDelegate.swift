@@ -9,10 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Two copies would both answer fn, and an older build would migrate the database back to its own schema.
-        // Exit before anything opens the store.
+        // Exit before anything opens the store. The MCP server and self-tests are this executable too, run with a flag;
+        // they don't count, or a Claude Desktop that started its server first would keep Binders from opening.
         let ownPID = ProcessInfo.processInfo.processIdentifier
         if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-            .first(where: { $0.processIdentifier != ownPID }) {
+            .first(where: { $0.processIdentifier != ownPID && Self.isAppInstance($0.processIdentifier) }) {
             Log.app.error("Another Binders is already running (pid \(existing.processIdentifier)); exiting")
             existing.activate()
             exit(0)
@@ -27,6 +28,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !AppSettings.shared.hasCompletedSetup || !Permissions.accessibility || Permissions.microphone != .authorized {
             HubWindowController.shared.show(section: .home)
         }
+    }
+
+    /// Whether a running Binders is the app proper, from its launch arguments. When they can't be read, it counts.
+    static func isAppInstance(_ pid: pid_t) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return true }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0,
+              let arguments = AppInstances.arguments(fromProcArgs: Array(buffer.prefix(size))) else { return true }
+        return AppInstances.isApp(arguments: arguments)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
