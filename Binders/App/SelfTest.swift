@@ -597,6 +597,40 @@ enum SelfTest {
             return 0
         }
 
+        if let directory = value("--selftest-editor-shot") {
+            // The note editor with a sample note, rendered offscreen: nothing is read from or written to the store.
+            let sample = #"""
+# Launch checklist
+
+Everything that has to be true before **Harbor** ships on the 28th. See [the plan](https://example.com), and forget ~~the old date~~.
+
+## Before Friday
+- [x] Confirm the annual discount with finance
+- [ ] Send Jonas the final launch checklist
+- [ ] Loop in support on the last two onboarding emails
+  - [ ] Draft the reply template
+
+## Notes
+1. Pricing page copy is final
+2. The comparison table still needs a *second* pass
+- Beta list is at 412 people
+
+> Launch date stays the 28th. A slip is decided on Monday, not before.
+
+Run the import test with `make import-test`:
+
+```bash
+make import-test ROWS=50000
+open reports/import.html
+```
+"""#
+            await render(MarkdownNoteEditor(text: .constant(sample), fontSize: 15, placeholder: "Write, or hold fn to dictate.")
+                .frame(width: 760, height: 720).background(Color(nsColor: .textBackgroundColor)),
+                         size: NSSize(width: 760, height: 720), name: "editor", directory: URL(fileURLWithPath: directory))
+            print("EDITOR_SHOT_DONE")
+            return 0
+        }
+
         if args.contains("--selftest-instances") {
             // Which running copies of Binders would keep the app from starting (MCP servers and self-tests don't).
             let own = ProcessInfo.processInfo.processIdentifier
@@ -873,7 +907,7 @@ enum SelfTest {
                      size: size, name: "demo-meeting", directory: directory)
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
-        for page in [SettingsPage.general, .dictation, .ai, .writing, .automations, .mcp] {
+        for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp] {
             await render(hub { $0.selection = .settings; $0.pendingSettingsPage = page }, size: size, name: "demo-settings-\(page.rawValue)", directory: directory)
         }
 

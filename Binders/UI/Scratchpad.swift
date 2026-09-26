@@ -76,11 +76,9 @@ private struct ScratchpadView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextEditor(text: $note.text)
-                .font(.system(size: 14))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 12)
-                .padding(.top, 30)
+            MarkdownNoteEditor(text: $note.text, fontSize: 14, placeholder: "Hold fn and talk, or type.",
+                               inset: NSSize(width: 12, height: 10), compactToolbar: true)
+                .padding(.top, 26)
                 .onChange(of: note.text) { note.updatedAt = Date() }
             HStack {
                 Text("Hold \(AppSettings.shared.hotkeys.dictation.displayString()) to dictate · saved to Notes")

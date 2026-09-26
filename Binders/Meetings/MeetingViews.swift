@@ -90,17 +90,9 @@ struct LiveMeetingView: View {
             if showTranscript {
                 LiveTranscriptView(segments: service.liveSegments, names: meeting.speakerNames)
             } else {
-                TextEditor(text: $meeting.userNotes)
-                    .font(.system(size: 14))
-                    .scrollContentBackground(.hidden)
-                    .overlay(alignment: .topLeading) {
-                        if meeting.userNotes.isEmpty {
-                            Text("Jot down what matters (type, or hold fn to dictate). The summary focuses on it.")
-                                .foregroundStyle(.tertiary)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                MarkdownNoteEditor(text: $meeting.userNotes, fontSize: 14,
+                                   placeholder: "Jot down what matters (type, or hold fn to dictate). The summary focuses on it.",
+                                   inset: NSSize(width: 4, height: 8), compactToolbar: true)
             }
         }
         .padding(.horizontal, 14)
@@ -497,9 +489,7 @@ struct MeetingDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                TextEditor(text: $meeting.userNotes)
-                    .font(.system(size: 14))
-                    .scrollContentBackground(.hidden)
+                MarkdownNoteEditor(text: $meeting.userNotes, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true)
             }
         case .transcript: transcriptView
         case .ask: askView
@@ -538,9 +528,7 @@ struct MeetingDetailView: View {
                         .keyboardShortcut(.return, modifiers: .command)
                         .help("⌘↩")
                 }
-                TextEditor(text: $meeting.summary)
-                    .font(.system(size: 13, design: .monospaced))
-                    .scrollContentBackground(.hidden)
+                MarkdownNoteEditor(text: $meeting.summary, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true)
             }
         } else {
             ScrollView {

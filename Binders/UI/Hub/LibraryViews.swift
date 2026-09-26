@@ -424,10 +424,7 @@ struct NoteEditor: View {
                     .padding(.top, 16)
             }
             HStack(spacing: 0) {
-                TextEditor(text: $note.text)
-                    .font(.system(size: 15))
-                    .scrollContentBackground(.hidden)
-                    .padding(20)
+                MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.")
                     .onChange(of: note.text) { note.updatedAt = Date() }
                 if digestVisible {
                     Divider()
