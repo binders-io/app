@@ -130,6 +130,8 @@ final class KnowledgeService {
     private(set) var pullProgress: Double?
     /// Notes whose digest is being written right now.
     private(set) var digestingNoteIDs: Set<UUID> = []
+    /// Why a note's last digest failed, shown next to the note until the next one is written.
+    private(set) var digestIssues: [UUID: String] = [:]
 
     @ObservationIgnored let store = KnowledgeStore(url: AppPaths.support.appendingPathComponent("Knowledge.sqlite"))
     /// Entity extraction shares the local model with dictation; it waits while this returns true.
@@ -298,6 +300,7 @@ final class KnowledgeService {
     func digest(_ note: NoteItem) async {
         guard let client = settings.makeLLMClient() else {
             status.extractionIssue = "Choose a language model in Settings to write note digests"
+            digestIssues[note.id] = "Choose a language model in Settings → AI to write digests."
             return
         }
         await digest(note, using: client)
@@ -307,6 +310,7 @@ final class KnowledgeService {
         let text = note.text.trimmed
         guard text.wordCount >= 3 else { return }
         digestingNoteIDs.insert(note.id)
+        digestIssues[note.id] = nil
         defer { digestingNoteIDs.remove(note.id) }
         let hash = Self.noteContentHash(note.text)
         do {
@@ -316,7 +320,10 @@ final class KnowledgeService {
                                                  maxTokens: 900, temperature: 0.2, timeout: 300, stopWhen: { LoopGuard.isLooping($0) })
             guard note.modelContext != nil, !note.isDeleted else { return }
             let parsed = SummaryParser.parse(output)
-            guard !parsed.body.isEmpty else { return }
+            guard !parsed.body.isEmpty else {
+                digestIssues[note.id] = "The model's reply had no digest in it. Try again, or choose another model in Settings."
+                return
+            }
             // A rewritten digest keeps the to-dos already ticked off.
             note.digest = NotesEditing.carryOverTicks(from: note.digest, into: (parsed.title.map { "# \($0)\n\n" } ?? "") + parsed.body)
             note.digestHash = hash
@@ -326,6 +333,7 @@ final class KnowledgeService {
         } catch {
             Log.app.error("Couldn't digest note: \(error.localizedDescription)")
             status.extractionIssue = "Couldn't write a note digest: \(error.localizedDescription)"
+            digestIssues[note.id] = "Couldn't write the digest. \(error.localizedDescription)"
         }
     }
 

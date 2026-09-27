@@ -3,12 +3,17 @@ import Foundation
 enum LLMError: LocalizedError {
     case http(Int, String)
     case emptyResponse
+    /// A thinking model used its whole reply on reasoning and never got to the answer.
+    case onlyThinking
     case invalidResponse
 
     var errorDescription: String? {
         switch self {
         case .http(let code, let body): "HTTP \(code): \(body.prefix(200))"
         case .emptyResponse: "The model returned an empty response"
+        case .onlyThinking:
+            "The model spent its whole reply thinking and never answered. Turn thinking off for it on your server "
+                + "(for llama.cpp, start it with --reasoning-budget 0), or choose a model without thinking."
         case .invalidResponse: "Unexpected response from the model server"
         }
     }
@@ -85,10 +90,13 @@ private func openStream(_ url: URL, body: [String: Any], headers: [String: Strin
 }
 
 /// Gathers streamed text line by line (NDJSON or SSE "data:" lines). `content` pulls the new text out of one event,
-/// `isDone` recognizes the last one. Closing the connection early makes the server stop generating.
+/// `thinking` any reasoning the server sends apart from it, and `isDone` recognizes the last one. Closing the
+/// connection early makes the server stop generating.
 private func collect(_ bytes: URLSession.AsyncBytes, model: String, stopWhen: @escaping @Sendable (String) -> Bool,
-                     content: ([String: Any]) -> String?, isDone: ([String: Any]) -> Bool) async throws -> String {
+                     content: ([String: Any]) -> String?, thinking: ([String: Any]) -> String? = { _ in nil },
+                     isDone: ([String: Any]) -> Bool) async throws -> String {
     var text = ""
+    var thought = false
     defer { bytes.task.cancel() }
     for try await line in bytes.lines {
         var payload = line.trimmingCharacters(in: .whitespaces)
@@ -105,9 +113,10 @@ private func collect(_ bytes: URLSession.AsyncBytes, model: String, stopWhen: @e
                 break
             }
         }
+        if let chunk = thinking(json), !chunk.isEmpty { thought = true }
         if isDone(json) { break }
     }
-    guard !text.trimmed.isEmpty else { throw LLMError.emptyResponse }
+    guard !text.trimmed.isEmpty else { throw thought ? LLMError.onlyThinking : LLMError.emptyResponse }
     return text
 }
 
@@ -210,32 +219,65 @@ struct OpenAICompatibleClient: LLMClient {
 
     private var chatURL: URL { baseURL.appendingPathComponent("chat/completions") }
 
+    /// Thinking off, as llama.cpp, vLLM and SGLang take it: a thinking model would otherwise spend the reply's token
+    /// budget on reasoning, which these servers send apart from the answer.
+    private static let noThinking = "chat_template_kwargs"
+
     private func chatBody(system: String, user: String, maxTokens: Int, temperature: Double, stream: Bool) -> [String: Any] {
         [
             "model": model,
             "stream": stream,
             "temperature": temperature,
             "max_tokens": maxTokens,
+            Self.noThinking: ["enable_thinking": false],
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
         ]
     }
 
+    /// Whether the server turned down the thinking switch, as OpenAI's own API does with any field it doesn't know.
+    private static func rejectsNoThinking(_ code: Int, _ message: String) -> Bool {
+        (400..<500).contains(code) && message.contains(noThinking)
+    }
+
+    /// The reasoning a server sent apart from the answer, under either of the names servers use for it.
+    private static func reasoning(_ message: [String: Any]?) -> String? {
+        (message?["reasoning_content"] as? String) ?? (message?["reasoning"] as? String)
+    }
+
     func complete(system: String, user: String, maxTokens: Int, temperature: Double, timeout: TimeInterval) async throws -> String {
-        let body = chatBody(system: system, user: user, maxTokens: maxTokens, temperature: temperature, stream: false)
-        let json = try await postJSON(chatURL, body: body, headers: headers, timeout: timeout)
+        var body = chatBody(system: system, user: user, maxTokens: maxTokens, temperature: temperature, stream: false)
+        let json: [String: Any]
+        do {
+            json = try await postJSON(chatURL, body: body, headers: headers, timeout: timeout)
+        } catch LLMError.http(let code, let message) where Self.rejectsNoThinking(code, message) {
+            body.removeValue(forKey: Self.noThinking)
+            json = try await postJSON(chatURL, body: body, headers: headers, timeout: timeout)
+        }
         guard let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String else { throw LLMError.invalidResponse }
-        guard !content.trimmed.isEmpty else { throw LLMError.emptyResponse }
+              let message = choices.first?["message"] as? [String: Any] else { throw LLMError.invalidResponse }
+        let content = message["content"] as? String ?? ""
+        guard !content.trimmed.isEmpty else {
+            throw Self.reasoning(message)?.isEmpty == false ? LLMError.onlyThinking : LLMError.emptyResponse
+        }
         return content
     }
 
     func stream(system: String, user: String, maxTokens: Int, temperature: Double, timeout: TimeInterval,
                 stopWhen: @escaping @Sendable (String) -> Bool) async throws -> String {
-        let body = chatBody(system: system, user: user, maxTokens: maxTokens, temperature: temperature, stream: true)
-        let bytes = try await openStream(chatURL, body: body, headers: headers, timeout: timeout)
+        var body = chatBody(system: system, user: user, maxTokens: maxTokens, temperature: temperature, stream: true)
+        let bytes: URLSession.AsyncBytes
+        do {
+            bytes = try await openStream(chatURL, body: body, headers: headers, timeout: timeout)
+        } catch LLMError.http(let code, let message) where Self.rejectsNoThinking(code, message) {
+            body.removeValue(forKey: Self.noThinking)
+            bytes = try await openStream(chatURL, body: body, headers: headers, timeout: timeout)
+        }
+        func delta(_ json: [String: Any]) -> [String: Any]? {
+            (json["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any]
+        }
         return try await collect(bytes, model: model, stopWhen: stopWhen,
-                                 content: { (($0["choices"] as? [[String: Any]])?.first?["delta"] as? [String: Any])?["content"] as? String },
+                                 content: { delta($0)?["content"] as? String },
+                                 thinking: { Self.reasoning(delta($0)) },
                                  isDone: { ($0["choices"] as? [[String: Any]])?.first?["finish_reason"] is String })
     }
 

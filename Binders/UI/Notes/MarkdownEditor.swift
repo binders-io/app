@@ -221,7 +221,8 @@ struct MarkdownStyler {
         [.font: baseFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: baseParagraph]
     }
 
-    func apply(_ spans: [MarkdownSpan], to storage: NSTextStorage, in range: NSRange) {
+    /// Styles `range`. `concealed` says whether hidden markup takes no room, which is where wrapped list lines line up.
+    func apply(_ spans: [MarkdownSpan], to storage: NSTextStorage, in range: NSRange, concealed: Bool = true) {
         storage.setAttributes(baseAttributes, range: range)
         func clipped(_ span: MarkdownSpan) -> NSRange? {
             let overlap = NSIntersectionRange(span.range, range)
@@ -305,6 +306,43 @@ struct MarkdownStyler {
                 break
             }
         }
+        // A list item that wraps carries on under its words, not under its bullet, number or checkbox.
+        let string = storage.string as NSString
+        for (index, span) in spans.enumerated() {
+            // A task's words start after its box; the dash in front of the box is only part of the way.
+            switch span.style {
+            case .listMarker:
+                if index + 1 < spans.count, case .task = spans[index + 1].style { continue }
+            case .task:
+                break
+            default:
+                continue
+            }
+            guard NSLocationInRange(span.range.location, range) else { continue }
+            let line = string.lineRange(for: span.range)
+            let rest = NSRange(location: NSMaxRange(span.range), length: NSMaxRange(line) - NSMaxRange(span.range))
+            let words = string.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted, options: [], range: rest)
+            guard words.location != NSNotFound else { continue }
+            let indent = visibleWidth(of: NSRange(location: line.location, length: words.location - line.location), in: storage, concealed: concealed)
+            let paragraph = NSIntersectionRange(line, range)
+            guard paragraph.length > 0,
+                  let style = (storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy()
+                    as? NSMutableParagraphStyle, indent > style.headIndent else { continue }
+            style.headIndent = indent
+            storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
+        }
+    }
+
+    /// How wide the start of a line looks: hidden markup takes no room and a list dash shows as a bullet.
+    private func visibleWidth(of range: NSRange, in storage: NSTextStorage, concealed: Bool) -> CGFloat {
+        let shown = NSMutableAttributedString()
+        storage.enumerateAttributes(in: range) { attributes, run, _ in
+            var text = (storage.string as NSString).substring(with: run)
+            if concealed, attributes[.markdownConceal] != nil { return }
+            if concealed, attributes[.markdownBullet] != nil { text = "\u{2022}" }
+            shown.append(NSAttributedString(string: text, attributes: attributes))
+        }
+        return ceil(shown.size().width)
     }
 
     /// The address of the link whose label is at `label`: what's between "](" and ")".
@@ -336,7 +374,11 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     /// Keeps the markup visible everywhere instead of only on the lines being edited.
     var showsMarkup = false {
-        didSet { if showsMarkup != oldValue { refreshAll() } }
+        didSet {
+            guard showsMarkup != oldValue else { return }
+            restyle()
+            refreshAll()
+        }
     }
 
     /// The paragraphs that show their markup: the ones the cursor or selection is in, while the editor has focus.
@@ -385,7 +427,9 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         relayout(NSRange(location: 0, length: storage.length))
     }
 
-    /// Hidden markup gets no glyph at all, so the text closes up around it; list dashes become bullets.
+    /// Hidden markup becomes a control glyph with no width, so the text closes up around it; list dashes become bullets.
+    /// (A null glyph would close it up too, but at the start of a paragraph it makes the visible first line lay out as
+    /// a wrapped one, with the paragraph's hanging indent.)
     nonisolated func layoutManager(_ layoutManager: NSLayoutManager, shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
                                    properties props: UnsafePointer<NSLayoutManager.GlyphProperty>, characterIndexes charIndexes: UnsafePointer<Int>,
                                    font aFont: NSFont, forGlyphRange glyphRange: NSRange) -> Int {
@@ -399,7 +443,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 guard index < storage.length, !NSLocationInRange(index, revealed) else { continue }
                 if storage.attribute(.markdownConceal, at: index, effectiveRange: nil) != nil {
                     if properties == nil { properties = Array(UnsafeBufferPointer(start: props, count: count)) }
-                    properties?[i] = .null
+                    properties?[i] = .controlCharacter
                 } else if storage.attribute(.markdownBullet, at: index, effectiveRange: nil) != nil, let bullet = Self.bulletGlyph(in: aFont) {
                     if replaced == nil { replaced = Array(UnsafeBufferPointer(start: glyphs, count: count)) }
                     replaced?[i] = bullet
@@ -418,6 +462,15 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         }
     }
 
+    nonisolated func layoutManager(_ layoutManager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction,
+                                   forControlCharacterAt charIndex: Int) -> NSLayoutManager.ControlCharacterAction {
+        MainActor.assumeIsolated {
+            guard !showsMarkup, let storage = layoutManager.textStorage, charIndex < storage.length, !NSLocationInRange(charIndex, revealed),
+                  storage.attribute(.markdownConceal, at: charIndex, effectiveRange: nil) != nil else { return action }
+            return .zeroAdvancement
+        }
+    }
+
     private static func bulletGlyph(in font: NSFont) -> CGGlyph? {
         var character: UniChar = 0x2022
         var glyph: CGGlyph = 0
@@ -429,7 +482,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         guard let storage = textStorage else { return }
         fences = MarkdownSyntax.fenceCount(in: storage.string)
         storage.beginEditing()
-        styler.apply(MarkdownSyntax.spans(in: storage.string), to: storage, in: NSRange(location: 0, length: storage.length))
+        styler.apply(MarkdownSyntax.spans(in: storage.string), to: storage, in: NSRange(location: 0, length: storage.length), concealed: !showsMarkup)
         storage.endEditing()
         needsDisplay = true
     }
@@ -457,7 +510,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 fences = count
                 dirty = NSRange(location: dirty.location, length: string.length - dirty.location)
             }
-            styler.apply(MarkdownSyntax.spans(in: text), to: storage, in: dirty)
+            styler.apply(MarkdownSyntax.spans(in: text), to: storage, in: dirty, concealed: !showsMarkup)
         }
     }
 
@@ -625,11 +678,13 @@ final class MarkdownLayoutManager: NSLayoutManager {
         }
         storage.enumerateAttribute(.markdownQuote, in: characters) { value, run, _ in
             guard value != nil else { return }
-            visibleFragments(of: run) { rect in
-                NSColor.tertiaryLabelColor.setFill()
-                NSBezierPath(roundedRect: NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + rect.minY + 2, width: 3, height: rect.height - 4),
-                             xRadius: 1.5, yRadius: 1.5).fill()
-            }
+            // One bar down the whole paragraph, however many lines it wraps to.
+            var union = NSRect.null
+            visibleFragments(of: run) { union = union.union($0) }
+            guard !union.isNull else { return }
+            NSColor.tertiaryLabelColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + union.minY + 2, width: 3, height: union.height - 4),
+                         xRadius: 1.5, yRadius: 1.5).fill()
         }
         storage.enumerateAttribute(.markdownRule, in: characters) { value, run, _ in
             guard value != nil else { return }
@@ -647,9 +702,21 @@ final class MarkdownLayoutManager: NSLayoutManager {
         var rects: [NSRect] = []
         enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, fragment, _ in
             let shared = NSIntersectionRange(fragment, glyphs)
-            if (shared.location..<NSMaxRange(shared)).contains(where: { self.propertyForGlyph(at: $0) != .null }) { rects.append(rect) }
+            if (shared.location..<NSMaxRange(shared)).contains(where: { self.isShown($0) }) { rects.append(rect) }
         }
         rects.forEach(body)
+    }
+
+    /// Whether a glyph shows: not hidden markup, which is a null glyph or a control glyph standing for a concealed character.
+    private func isShown(_ glyph: Int) -> Bool {
+        switch propertyForGlyph(at: glyph) {
+        case .null: return false
+        case .controlCharacter:
+            let character = characterIndexForGlyph(at: glyph)
+            guard let storage = textStorage, character < storage.length else { return true }
+            return storage.attribute(.markdownConceal, at: character, effectiveRange: nil) == nil
+        default: return true
+        }
     }
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {

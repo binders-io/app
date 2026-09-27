@@ -7,6 +7,9 @@ public enum OutputGuard {
         // Reasoning blocks from thinking models.
         text = text.replacingOccurrences(of: "(?s)<think>.*?</think>", with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: "(?s)^.*?</think>", with: "", options: .regularExpression)
+        // Gemma 4 marks its reasoning as a "thought" channel.
+        text = text.replacingOccurrences(of: "(?s)<\\|channel>thought.*?<channel\\|>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "(?s)^.*?<channel\\|>", with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: "</?(?:transcript|output|text|result|cleaned)>", with: "", options: .regularExpression)
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
 

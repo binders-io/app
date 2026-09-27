@@ -413,7 +413,9 @@ struct NotesView: View {
             .frame(width: 260)
             Divider()
             if let note = notes.first(where: { $0.id == selection }) {
+                // A fresh editor per note: reusing one would take the switch for an edit and move the note to the top.
                 NoteEditor(note: note) { selection = neighbour(of: note)?.id }
+                    .id(note.id)
             } else {
                 ContentUnavailableView("Select a note", systemImage: "note.text",
                                        description: Text("Dictate into the Scratchpad and your notes land here."))
@@ -451,7 +453,8 @@ struct NoteEditor: View {
     @Bindable var note: NoteItem
     var onDelete: () -> Void
     @State private var confirmDelete = false
-    @State private var digestVisible = true
+    /// Every note follows the same choice.
+    @AppStorage("notesShowDigest") private var digestVisible = true
     @State private var digestCopied = false
 
     private var digesting: Bool { knowledge.digestingNoteIDs.contains(note.id) }
@@ -538,11 +541,20 @@ struct NoteEditor: View {
                     .help(note.digest.isEmpty ? "Write a digest with your local model" : "Write the digest again")
                 }
             }
-            if note.digest.isEmpty {
-                Text(digestPlaceholder)
+            if let digestIssue {
+                Label(digestIssue, systemImage: "exclamationmark.triangle")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if note.digest.isEmpty {
+                if digestIssue == nil {
+                    Text(digestPlaceholder)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 if digestStale {
                     Label(digesting ? "Updating…" : "The note changed since this was written.", systemImage: "clock")
@@ -572,6 +584,10 @@ struct NoteEditor: View {
             try? await Task.sleep(for: .seconds(1.5))
             digestCopied = false
         }
+    }
+
+    private var digestIssue: String? {
+        digesting ? nil : knowledge.digestIssues[note.id]
     }
 
     private var digestPlaceholder: String {

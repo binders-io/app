@@ -113,6 +113,7 @@ final class OutputGuardTests: XCTestCase {
     func testSanitizeStripsWrappers() {
         XCTAssertEqual(OutputGuard.sanitize("<think>hmm</think>\nHere is the cleaned text:\n\"Hello there.\""), "Hello there.")
         XCTAssertEqual(OutputGuard.sanitize("```\nls -la\n```"), "ls -la")
+        XCTAssertEqual(OutputGuard.sanitize("<|channel>thought\nThe user wants a greeting.\n<channel|>Hello there."), "Hello there.")
     }
 
     func testRejectsAnswers() {

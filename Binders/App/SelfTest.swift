@@ -321,6 +321,96 @@ enum SelfTest {
             return 0
         }
 
+        if args.contains("--selftest-notes-view") {
+            // Opens the notes page on a throwaway store, clicks from note to note and resizes the window: opening a note
+            // mustn't count as editing it, and the editor's text must stay within its column at every width.
+            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+                print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
+                return 1
+            }
+            let controller = DictationController()
+            let binder = Store.shared.defaultBinder()
+            let texts = [
+                "# Retrieval reading list\n\nPapers on search over small, personal corpora.\n\n- [ ] BM25 revisited, and whether good tokenisation closes the gap with dense retrieval on recall@10\n- [x] Hybrid search survey\n- Reciprocal rank fusion with k=60, and what happens when one retriever returns far fewer results\n  - Nested: try k=20 as well, on the mixed-language subset\n1. Chunking at 300 tokens with 50 overlap did best in their tests, sentence-level chunks did worst\n\n> Dense retrieval only pulls ahead past about 50k chunks, which is more than most people's notes will ever reach.",
+                "# Chunking experiment\n\nTried 300 tokens with 50 overlap against sentence-level chunks. **Recall@10** went from 0.61 to 0.68, and \"why\" questions improved the most.\n\n```\nchunk=300 overlap=50\n```",
+                "# Questions for the authors\n\n1. Is the eval set licensed for reuse?\n2. Did they try a multilingual encoder on mixed-language notes?",
+            ]
+            let notes = texts.enumerated().map { index, text in
+                let note = NoteItem(text: text)
+                note.binderID = binder.id
+                note.updatedAt = Date().addingTimeInterval(-Double(index + 1) * 86_400)
+                Store.shared.insert(note)
+                return note
+            }
+            let before = notes.map(\.updatedAt)
+            let navigation = HubNavigation()
+            navigation.binderID = binder.id
+            navigation.selection = .binder
+            navigation.pendingBinderTab = .notes
+            let hosting = NSHostingView(rootView: HubView()
+                .environment(controller)
+                .environment(controller.meetings)
+                .environment(controller.knowledge)
+                .environment(controller.team)
+                .environment(controller.capture)
+                .environment(controller.commitments)
+                .environment(navigation)
+                .environment(AppSettings.shared)
+                .modelContainer(Store.shared.container))
+            // Sized and set up like the real window.
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 720), styleMask: [.titled, .resizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
+            window.contentMinSize = NSSize(width: 840, height: 560)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            hosting.wantsLayer = true
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(800))
+            for note in notes + notes.reversed() {
+                navigation.pendingNoteID = note.id
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            var failed = false
+            for (note, date) in zip(notes, before) where note.updatedAt != date {
+                print("MOVED: opening “\(note.title)” marked it as edited")
+                failed = true
+            }
+            func textViews(in view: NSView) -> [MarkdownTextView] {
+                (view as? MarkdownTextView).map { [$0] } ?? view.subviews.flatMap(textViews)
+            }
+            let directory = value("--dir").map { URL(fileURLWithPath: $0) }
+            if let directory { try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+            // The hub window's narrowest is 840 points wide.
+            print("OPENED: window \(Int(window.contentLayoutRect.width)), page \(Int(hosting.frame.width))")
+            for width in stride(from: 1180, through: 840, by: -20).map({ $0 }) + stride(from: 860, through: 1400, by: 60).map({ $0 }) {
+                window.setContentSize(NSSize(width: width, height: 720))
+                try? await Task.sleep(for: .milliseconds(150))
+                if hosting.frame.width > window.contentLayoutRect.width + 1 {
+                    print("CLIPPED at \(width): the page is \(Int(hosting.frame.width)) wide in a \(Int(window.contentLayoutRect.width)) window")
+                    failed = true
+                }
+                for textView in textViews(in: hosting) {
+                    guard let clip = textView.enclosingScrollView?.contentView else { continue }
+                    let off = abs(textView.frame.width - clip.bounds.width)
+                    if off > 1 {
+                        print("MISALIGNED at \(width): text \(Int(textView.frame.width)) wide in a \(Int(clip.bounds.width)) column")
+                        failed = true
+                    }
+                    let line = (textView.textContainer?.size.width ?? 0) - 2 * (textView.textContainer?.lineFragmentPadding ?? 0)
+                    if line < 240 {
+                        print("CRAMPED at \(width): lines are \(Int(line)) points wide")
+                        failed = true
+                    }
+                }
+                if let directory, width == 840 || width == 1400 { capture(hosting, name: width == 840 ? "notes-narrowest" : "notes-wide", directory: directory) }
+            }
+            window.close()
+            notes.forEach { Store.shared.delete($0) }
+            print(failed ? "FAIL" : "OK")
+            return failed ? 1 : 0
+        }
+
         if args.contains("--selftest-merge") {
             // Exercises rename and merge on a throwaway knowledge index: mentions move, relations follow, old names become aliases.
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("binders-merge-\(UUID().uuidString).sqlite")
