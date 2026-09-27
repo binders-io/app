@@ -41,11 +41,15 @@ memory you can ask questions. The speech models, the language model and your dat
   topics. Search by meaning, or ask in plain language and get an answer with its sources.
 - **Notes.** Notes, the scratchpad and meeting notes are plain Markdown, shown rendered: headings, lists, checklists you can tick,
   code blocks, quotes and links, with the markup showing only on the line you're editing. A toolbar and the usual keys format.
+- **A board in every binder.** Cards move from Backlog to Done, and you and your AI agents work from the same board. An agent
+  claims a card over MCP, reports progress, asks you when it's stuck, and hands the work over for you to review. The to-dos
+  Binders finds become cards in a click, and each is ticked off where it came from when its card is done.
 - **Binders and teams.** One binder per thing you are working on. Share a binder with teammates through a folder you already sync
   (OneDrive, Dropbox, Google Drive, iCloud Drive). There is no server of ours in between.
 - **Open to other software.** Rules run a Shortcut, open a URL, run a script or call a web hook when you say a phrase or when
   something happens in Binders; `binders://` links let Shortcuts, Raycast or a script drive it; and an MCP server (`Binders --mcp`)
-  lets Claude Code, Claude Desktop and other AI tools search and ask your knowledge base, on this Mac. See
+  lets Claude Code, Claude Desktop and other AI tools search and ask your knowledge base and work from your boards, on this
+  Mac. See
   [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md).
 
 ## Privacy
@@ -65,7 +69,8 @@ The full breakdown is on the site's privacy page (`site/privacy.html`).
 ## Requirements
 
 - macOS 14.2 or later. Apple silicon recommended.
-- For the AI features, [Ollama](https://ollama.com), or any OpenAI-compatible server. If Ollama is missing, setup offers to
+- For the AI features, [Ollama](https://ollama.com), or any OpenAI-compatible server (llama.cpp, vLLM, LM Studio), on this Mac
+  or another one you reach over your network or Tailscale. If Ollama is missing, setup offers to
   install it: the official build is downloaded, checked against Ollama's signing team and Apple's notarization, and placed in
   Applications. Binders then picks a Gemma 4 model that
   fits the Mac's memory (`gemma4:e2b-it-qat` on 8 GB, `gemma4:e4b-it-qat` on 16 GB, `gemma4:12b` from 24 GB, `gemma4:26b` from

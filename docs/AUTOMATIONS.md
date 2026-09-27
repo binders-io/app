@@ -6,7 +6,8 @@ Binders can drive other software, and other software can drive Binders. Three do
   in Binders. Settings → Automations.
 - **`binders://` links** let anything that can open a link (Shortcuts, Raycast, Alfred, Keyboard Maestro, a script) add a
   to-do, add to the calendar, ask the knowledge base, or start dictation.
-- **The MCP server** lets AI tools such as Claude Code and Claude Desktop search and ask your knowledge base, on this Mac.
+- **The MCP server** lets AI tools such as Claude Code and Claude Desktop search and ask your knowledge base, and pick up
+  work from your binders' boards, on this Mac.
 
 None of it runs unless you set it up. A web hook sends its payload to the address you give it; everything else stays local.
 

@@ -84,7 +84,8 @@
         </tbody>
       </table>
     </div>
-    <p>You can pick another in Settings → AI, or point Binders at any OpenAI-compatible server instead. If you do, the text Binders sends for those features goes to that server.</p>
+    <p>You can pick another in Settings → AI, or point Binders at any OpenAI-compatible server instead, such as llama.cpp, vLLM or LM Studio, on this Mac or on another machine you reach over your network or Tailscale. If you do, the text Binders sends for those features goes to that server.</p>
+    <p>Thinking models (Qwen 3, Gemma 4 and others) are asked to skip their thinking, so answers come back quickly and whole. If a server ignores that and the model thinks until it runs out of room, the note's Digest column says so, with the fix: for llama.cpp, start the server with <code>--reasoning-budget 0</code>.</p>
 
     <h3 id="other-apps">I already use another dictation app</h3>
     <p>Quit any other app that listens to fn, or give one of them a different shortcut: two apps holding the same key get in each other's way. If you used Wispr Flow, the Dictionary page in Binders can import your words and snippets.</p>
@@ -152,7 +153,14 @@ defaults delete io.binders.mac</code></pre>
     <p>End a dictation with “press enter” to send it. Every shortcut can be changed in Settings → Shortcuts.</p>
 
     <h3 id="ai-tools">Can Claude, Cursor or my other AI tools use it?</h3>
-    <p>Yes, through the MCP server built into Binders. Settings → MCP adds it to Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Gemini CLI or Codex with one click, and shows the configuration for anything else. The tool can then search and ask your knowledge base and add notes, meetings, to-dos and calendar events. It runs on your Mac, only while the tool is connected, and nothing can be deleted this way.</p>
+    <p>Yes, through the MCP server built into Binders. Settings → MCP adds it to Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Gemini CLI or Codex with one click, and shows the configuration for anything else. The tool can then search and ask your knowledge base, add notes, meetings, to-dos and calendar events, and pick up cards from your <a href="#board">boards</a>. It runs on your Mac, only while the tool is connected, and nothing can be deleted this way.</p>
+
+    <h3 id="board">What is the board?</h3>
+    <p>Every binder has one, under its Board tab: cards that move from Backlog to Ready, In progress, Blocked, Review and Done. Drag a card to move it, or click it for its description, links and timeline. You and your AI tools work from the same board.</p>
+    <p>To turn the to-dos Binders found into cards, click <strong>Add To-dos</strong> on the board and tick the ones you want, or hover over a to-do in any list and click the board button next to it. The to-do stays where it is, marked “On board”, and is ticked off in its meeting, note or message when its card is done.</p>
+
+    <h3 id="agents">How do AI tools work from the board?</h3>
+    <p>Over the MCP server (see <a href="#ai-tools">above</a>). An agent such as Claude Code lists the Ready cards, claims one, reports progress and links as it goes, and asks you a question when it's stuck: the card waits in Blocked until you answer on it. When it's finished, the card goes to Review for you to check, unless you let agents finish cards in that binder. A claim lasts 30 minutes and every update extends it, so a card an agent abandons goes back to Ready on its own. Agents can also turn a to-do into a card.</p>
 
     <h3 id="team">Can I share a binder with my team?</h3>
     <p>Yes, through a folder you already sync, such as OneDrive, Dropbox, Google Drive or iCloud Drive: Settings → Team. Each teammate picks the same shared folder. There is no server of ours in between.</p>

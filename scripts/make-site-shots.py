@@ -54,6 +54,11 @@ writing = flat(shots / "demo-writing-scroll0.png", PAPER)
 writing.crop((500, 520, 2010, 1130)).save(out / f"detail-writing{SUFFIX}.webp", "WEBP", quality=90, method=6)
 print("detail-writing" + SUFFIX, (1510, 610))
 window("demo-binder-scroll0.png", "demo-sidebar-binder.png", "shot-binder")
+
+# The board as a strip: its six columns and the row above them, without the sidebar or the binder's header.
+board = flat(shots / "demo-board.png", PAPER)
+board.crop((490, 330, 4150, 1180)).save(out / f"shot-board{SUFFIX}.webp", "WEBP", quality=90, method=6)
+print("shot-board" + SUFFIX, (3660, 850))
 window("demo-writing-scroll0.png", "demo-sidebar-writing.png", "shot-writing")
 
 # The graph sits on its own dark card in both appearances: the light run trims the margin around it.

@@ -1327,7 +1327,8 @@ open reports/import.html
         let digested = notes.first { $0.binderID == harbor.id && !$0.digest.isEmpty }
         await render(hub { $0.selection = .binder; $0.pendingBinderTab = .notes; $0.pendingNoteID = digested?.id },
                      size: size, name: "demo-note", directory: directory)
-        await render(hub { $0.selection = .binder; $0.pendingBinderTab = .board }, size: NSSize(width: 1560, height: 820), name: "demo-board", directory: directory)
+        // Wide enough for all six columns, and short, as the site shows the board as a strip.
+        await render(hub { $0.selection = .binder; $0.pendingBinderTab = .board }, size: NSSize(width: 2080, height: 600), name: "demo-board", directory: directory)
         if let blocked = controller.board.cards(in: harbor.id).first(where: { $0.column == .blocked }) {
             await render(CardDetailView(card: blocked).environment(controller).modelContainer(Store.shared.container),
                          size: NSSize(width: 760, height: 560), name: "demo-card", directory: directory)

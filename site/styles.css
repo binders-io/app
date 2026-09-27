@@ -404,6 +404,11 @@ kbd { display: inline-grid; place-items: center; min-width: 30px; height: 28px; 
 .tools li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: var(--muted); }
 .tools span { font: 700 0.72rem/1 var(--body); letter-spacing: 0.08em; text-transform: uppercase; width: 52px; }
 .tools code { font-size: 0.78rem; padding: 3px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--text); }
+.board-row { margin-top: clamp(64px, 8vw, 110px); padding-top: clamp(36px, 4vw, 52px); border-top: 1px solid var(--line-strong); display: grid; gap: 28px; }
+.board-row .auto-intro { align-items: end; }
+.board-row .kicker { margin-bottom: 6px; }
+.board-row h3 { font-size: clamp(1.4rem, 2.2vw, 1.75rem); letter-spacing: -0.02em; text-wrap: balance; }
+.board-row .auto-intro > p { color: var(--muted); max-width: 40em; }
 .automations { margin-top: clamp(64px, 8vw, 110px); padding-top: clamp(36px, 4vw, 52px); border-top: 1px solid var(--line-strong); display: grid; gap: 24px; }
 .auto-intro { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 12px clamp(28px, 5vw, 80px); align-items: baseline; }
 .auto-intro h3 { font-size: clamp(1.4rem, 2.2vw, 1.75rem); letter-spacing: -0.02em; }
