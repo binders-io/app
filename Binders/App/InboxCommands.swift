@@ -157,7 +157,7 @@ enum InboxCommands {
             guard let target = binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
             let column: BoardColumn = BoardColumn(loose: field("column")) == .ready ? .ready : .backlog
             let card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
-            return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to \(target.name)'s board, in \(card.column.title)")
+            return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to the \(target.name) board, in \(card.column.title)")
         }
         guard let id = UUID(uuidString: field("id")), let card = board.card(id) else {
             return .failure("No card with that id. list_tasks shows them.")
