@@ -47,6 +47,7 @@ enum MCPServer {
         ]),
         MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. Returns its id. Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "The to-do, as a person would say it.", required: true),
+            MCPToolParameter(name: "binder", description: "The binder it belongs to; see list_binders. Default: the user's current binder."),
         ]),
         MCPTool(name: "set_todo_status", description: "Mark a to-do done or reopen it; the checkbox in a note or meeting is ticked to match. Promises can also be dismissed.", parameters: [
             MCPToolParameter(name: "id", description: "The to-do's id, from list_todos or add_todo.", required: true),
@@ -229,7 +230,7 @@ enum MCPServer {
             })
         case "add_todo", "add_to_calendar":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
-            return try await write(name, ["text": string("text")])
+            return try await write(name, ["text": string("text"), "binder": string("binder")])
         case "add_note":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
             return try await write(name, ["text": string("text"), "binder": string("binder")])

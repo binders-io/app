@@ -102,7 +102,7 @@ targets:
         # The App Store Connect record "Binders" (6751210657), taken over from the old events app at 2.0.
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app
         MARKETING_VERSION: "2.0"
-        CURRENT_PROJECT_VERSION: "2"
+        CURRENT_PROJECT_VERSION: "3"
         PRODUCT_NAME: Binders
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"

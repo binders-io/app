@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// The binders, as on the Mac: one per project or area, each holding its meetings, notes and to-dos.
+/// Home: the binders, as on the Mac, each holding its to-dos, meetings and notes. Above them, the same three across every
+/// binder; Ask is a button, since it looks across all of it.
 struct BindersView: View {
     @Environment(MacConnection.self) private var connection
     @State private var binders: [BinderInfo] = []
+    @State private var openTodos: Int?
+    @State private var todosByBinder: [String: Int] = [:]
     @State private var path = NavigationPath()
+    @State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
 
     enum Place: Hashable {
-        case allMeetings, allNotes
+        case allTodos, allMeetings, allNotes
         case binder(BinderInfo)
     }
 
@@ -15,20 +19,27 @@ struct BindersView: View {
         NavigationStack(path: $path) {
             List {
                 OfflineBanner()
-                Section {
-                    NavigationLink(value: Place.allMeetings) { Label("All meetings", systemImage: "person.2.wave.2") }
-                    NavigationLink(value: Place.allNotes) { Label("All notes", systemImage: "note.text") }
+                Section("Everything") {
+                    NavigationLink(value: Place.allTodos) {
+                        HStack {
+                            Label("To-dos", systemImage: "checklist")
+                            Spacer()
+                            if let openTodos, openTodos > 0 { Text("\(openTodos)").foregroundStyle(.secondary) }
+                        }
+                    }
+                    NavigationLink(value: Place.allMeetings) { Label("Meetings", systemImage: "person.2.wave.2") }
+                    NavigationLink(value: Place.allNotes) { Label("Notes", systemImage: "note.text") }
                 }
                 Section("Binders") {
                     ForEach(binders.filter { !$0.archived }) { binder in
-                        NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder) }
+                        NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder, openTodos: todosByBinder[binder.name] ?? 0) }
                     }
                 }
                 let archived = binders.filter(\.archived)
                 if !archived.isEmpty {
                     Section("Archived") {
                         ForEach(archived) { binder in
-                            NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder) }
+                            NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder, openTodos: todosByBinder[binder.name] ?? 0) }
                         }
                     }
                 }
@@ -36,31 +47,60 @@ struct BindersView: View {
             .navigationTitle("Binders")
             .navigationDestination(for: Place.self) { place in
                 switch place {
-                case .allMeetings: MeetingsList(binder: nil).navigationTitle("All meetings")
-                case .allNotes: NotesList(binder: nil).navigationTitle("All notes")
+                case .allTodos: TodoBoard(binder: nil, allowsAdding: true).navigationTitle("To-dos")
+                case .allMeetings: MeetingsList(binder: nil).navigationTitle("Meetings")
+                case .allNotes: NotesList(binder: nil).navigationTitle("Notes")
                 case .binder(let binder): BinderDetailView(binder: binder)
                 }
             }
             .navigationDestination(for: NoteSummary.self) { NoteDetailView(summary: $0) }
             .navigationDestination(for: MeetingSummary.self) { MeetingDetailView(summary: $0) }
-            .macToolbar()
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { asking = true } label: { Image(systemName: "sparkles") }
+                        .accessibilityLabel("Ask")
+                }
+                ToolbarItem(placement: .topBarTrailing) { MacStatusButton() }
+            }
+            .sheet(isPresented: $asking) { AskView() }
             .refreshable { await load() }
-            .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings")) { await load() }
+            .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings") + connection.revision("todos")) {
+                await load()
+            }
         }
     }
 
     private func load() async {
         let result = await connection.fetch("list_binders", cache: "binders", as: [BinderInfo].self)
         if let value = result.value { binders = value }
-        // For development: `-openFirst YES` opens the first binder, as the Simulator can't be tapped from a script.
-        if UserDefaults.standard.bool(forKey: "openFirst"), path.isEmpty, let fullest = binders.filter({ !$0.archived }).max(by: { $0.meetings + $0.notes < $1.meetings + $1.notes }) {
-            path.append(Place.binder(fullest))
+        if let todos = await connection.fetch("list_todos", ["status": "open"], cache: "todos-open", as: [Todo].self).value {
+            let open = TodoBoard.deduplicated(todos)
+            openTodos = open.count
+            todosByBinder = Dictionary(grouping: open.compactMap(\.binder), by: { $0 }).mapValues(\.count)
+        }
+        openForDevelopment()
+    }
+
+    /// For development, as the Simulator can't be tapped from a script: `-open todos|meetings|notes` shows that list, and
+    /// `-openFirst YES` opens the binder with the most in it.
+    private func openForDevelopment() {
+        guard path.isEmpty else { return }
+        switch UserDefaults.standard.string(forKey: "open") {
+        case "todos": path.append(Place.allTodos)
+        case "meetings": path.append(Place.allMeetings)
+        case "notes": path.append(Place.allNotes)
+        default:
+            if UserDefaults.standard.bool(forKey: "openFirst"),
+               let fullest = binders.filter({ !$0.archived }).max(by: { $0.meetings + $0.notes < $1.meetings + $1.notes }) {
+                path.append(Place.binder(fullest))
+            }
         }
     }
 }
 
 struct BinderRow: View {
     let binder: BinderInfo
+    var openTodos = 0
 
     var body: some View {
         HStack(spacing: 12) {
@@ -72,14 +112,15 @@ struct BinderRow: View {
                     Text(binder.name).font(.headline)
                     if binder.shared { Image(systemName: "person.2").font(.caption).foregroundStyle(.secondary) }
                 }
-                Text(binder.counts).font(.caption).foregroundStyle(.secondary)
+                Text((openTodos > 0 ? (openTodos == 1 ? "1 to-do · " : "\(openTodos) to-dos · ") : "") + binder.counts)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
     }
 }
 
-/// One binder: its meetings, notes and to-dos, a tap apart.
+/// One binder: its to-dos, meetings and notes, a tap apart. New to-dos and notes go into it.
 struct BinderDetailView: View {
     @Environment(MacConnection.self) private var connection
     let binder: BinderInfo
@@ -87,21 +128,21 @@ struct BinderDetailView: View {
     @State private var writing = false
 
     enum Section: String, CaseIterable {
-        case meetings = "Meetings", notes = "Notes", todos = "To-dos"
+        case todos = "To-dos", meetings = "Meetings", notes = "Notes"
     }
 
     init(binder: BinderInfo) {
         self.binder = binder
         let asked = UserDefaults.standard.string(forKey: "section").flatMap { Section(rawValue: $0) }
-        _section = State(initialValue: asked ?? (binder.meetings > 0 ? .meetings : .notes))
+        _section = State(initialValue: asked ?? .todos)
     }
 
     var body: some View {
         Group {
             switch section {
+            case .todos: TodoBoard(binder: binder.name, allowsAdding: true)
             case .meetings: MeetingsList(binder: binder.name)
             case .notes: NotesList(binder: binder.name)
-            case .todos: TodoBoard(binder: binder.name)
             }
         }
         .safeAreaInset(edge: .top) {

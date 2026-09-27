@@ -142,7 +142,7 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
 | `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
 | `add_meeting` (title, notes, date, attendees, duration_minutes, app, binder) | A meeting that happened elsewhere, from its notes or transcript, so it is searchable with the rest |
-| `add_todo` (text) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date; done or open (ticks the checkbox where it lives), or dismiss a promise |
+| `add_todo` (text, binder) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date, in the named binder or the current one; done or open (ticks the checkbox where it lives), or dismiss a promise |
 | `add_to_calendar` (text) | An event from a phrase such as "lunch with Sam tomorrow at noon" |
 
 Reads go straight to the database. Writes are handed to the running app, which does them and answers with the new

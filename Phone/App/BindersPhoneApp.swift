@@ -24,29 +24,14 @@ struct BindersPhoneApp: App {
     }
 }
 
-enum PhoneTab: String {
-    case todos, binders, ask
-}
-
 struct RootView: View {
     @Environment(MacConnection.self) private var connection
-    @State private var tab = PhoneTab(rawValue: UserDefaults.standard.string(forKey: "tab") ?? "") ?? .todos
 
     var body: some View {
         if connection.mac == nil {
             PairingView()
         } else {
-            TabView(selection: $tab) {
-                BoardView()
-                    .tabItem { Label("To-dos", systemImage: "checklist") }
-                    .tag(PhoneTab.todos)
-                BindersView()
-                    .tabItem { Label("Binders", systemImage: "books.vertical") }
-                    .tag(PhoneTab.binders)
-                AskView()
-                    .tabItem { Label("Ask", systemImage: "sparkles") }
-                    .tag(PhoneTab.ask)
-            }
+            BindersView()
         }
     }
 }

@@ -934,6 +934,11 @@ open reports/import.html
             let text = line.trimmingCharacters(in: .whitespaces)
             if text == "pair" {
                 await printPairing()
+            } else if text.hasPrefix("todo-in "), let bar = text.firstIndex(of: "|") {
+                // "todo-in Harbor launch|call Sam": a to-do in a named binder.
+                let binder = String(text[text.index(text.startIndex, offsetBy: 8)..<bar])
+                let result = await InboxCommands.perform(InboxRequest(action: "add_todo", fields: ["text": String(text[text.index(after: bar)...]), "binder": binder]), controller: controller)
+                print("TODO: \(result.ok ? result.message : result.error ?? "failed")")
             } else if text.hasPrefix("todo ") {
                 let result = await InboxCommands.perform(InboxRequest(action: "add_todo", fields: ["text": String(text.dropFirst(5))]), controller: controller)
                 print("TODO: \(result.message)")

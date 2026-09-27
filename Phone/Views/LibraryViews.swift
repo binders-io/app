@@ -221,6 +221,7 @@ struct MeetingDetailView: View {
 
 struct AskView: View {
     @Environment(MacConnection.self) private var connection
+    @Environment(\.dismiss) private var dismiss
     @State private var question = UserDefaults.standard.string(forKey: "ask") ?? ""
     @State private var answer: Answer?
     @State private var asking = false
@@ -273,7 +274,9 @@ struct AskView: View {
                 .padding()
             }
             .navigationTitle("Ask")
-            .macToolbar()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .task {
                 if !question.isEmpty, answer == nil {
                     for _ in 0..<50 where !connection.isConnected { try? await Task.sleep(for: .milliseconds(200)) }

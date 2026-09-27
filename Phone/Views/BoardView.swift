@@ -1,17 +1,7 @@
 import SwiftUI
 
-/// The to-do board on its own tab: everything, with a field to add to-dos.
-struct BoardView: View {
-    var body: some View {
-        NavigationStack {
-            TodoBoard(binder: nil, allowsAdding: true)
-                .navigationTitle("To-dos")
-                .macToolbar()
-        }
-    }
-}
-
-/// Promises, asks and the checklists in meetings and notes, grouped by where they came from; all of them, or one binder's.
+/// Promises, asks and the checklists in meetings and notes. One binder's are grouped by where they came from; all of them
+/// are grouped by binder, with where each came from underneath.
 struct TodoBoard: View {
     @Environment(MacConnection.self) private var connection
     let binder: String?
@@ -27,7 +17,7 @@ struct TodoBoard: View {
             if allowsAdding {
                 Section {
                     HStack {
-                        TextField("Add a to-do, like “call Sam tomorrow at 3”", text: $newTodo)
+                        TextField(binder.map { "Add a to-do to \($0)" } ?? "Add a to-do, like “call Sam tomorrow at 3”", text: $newTodo)
                             .submitLabel(.done)
                             .onSubmit(add)
                         if adding { ProgressView() } else if !newTodo.isEmpty {
@@ -43,14 +33,14 @@ struct TodoBoard: View {
             ForEach(groups, id: \.title) { group in
                 Section(group.title) {
                     ForEach(group.items) { todo in
-                        TodoRow(todo: todo) { toggle(todo) }
+                        TodoRow(todo: todo, caption: binder == nil ? todo.source : nil) { toggle(todo) }
                     }
                 }
             }
             if !done.isEmpty {
                 Section("Done") {
                     ForEach(done.prefix(15)) { todo in
-                        TodoRow(todo: todo) { toggle(todo) }
+                        TodoRow(todo: todo, caption: binder == nil ? todo.source : nil) { toggle(todo) }
                     }
                 }
             }
@@ -79,7 +69,7 @@ struct TodoBoard: View {
         var order: [String] = []
         var byTitle: [String: [Todo]] = [:]
         for todo in open {
-            let title = todo.source.isEmpty ? "To-dos" : todo.source
+            let title = binder == nil ? ((todo.binder ?? "").isEmpty ? "No binder" : todo.binder!) : (todo.source.isEmpty ? "To-dos" : todo.source)
             if byTitle[title] == nil { order.append(title) }
             byTitle[title, default: []].append(todo)
         }
@@ -123,7 +113,9 @@ struct TodoBoard: View {
         Task {
             defer { adding = false }
             do {
-                _ = try await connection.call("add_todo", ["text": text])
+                var arguments: [String: Any] = ["text": text]
+                if let binder { arguments["binder"] = binder }
+                _ = try await connection.call("add_todo", arguments)
                 newTodo = ""
                 await load()
             } catch {
@@ -135,6 +127,8 @@ struct TodoBoard: View {
 
 struct TodoRow: View {
     let todo: Todo
+    /// Where it came from, when the list isn't already grouped that way.
+    var caption: String? = nil
     let toggle: () -> Void
 
     var body: some View {
@@ -150,6 +144,9 @@ struct TodoRow: View {
                 Text(todo.task)
                     .strikethrough(todo.isDone)
                     .foregroundStyle(todo.isDone ? .secondary : .primary)
+                if let caption, !caption.isEmpty {
+                    Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 HStack(spacing: 8) {
                     if let owner = todo.ownerName { Chip(text: owner, symbol: "person") }
                     if let due = todo.dueDate { Chip(text: due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()), symbol: "calendar", urgent: due < .now && !todo.isDone) }

@@ -95,7 +95,13 @@ enum InboxCommands {
         case "add_todo":
             let text = field("text")
             guard !text.isEmpty else { return .failure("text is required") }
+            // Into the named binder, when one is given; otherwise the current one.
+            if !field("binder").isEmpty, binder(named: field("binder")) == nil { return .failure(noBinder(field("binder"))) }
             let added = controller.commitments.addSpoken(text)
+            if !field("binder").isEmpty, let target = binder(named: field("binder")) {
+                added.commitment.binderID = target.id
+                store.save()
+            }
             return InboxResult(ok: true, id: added.commitment.id.uuidString, message: added.line)
 
         case "add_to_calendar":
