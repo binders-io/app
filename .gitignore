@@ -13,3 +13,4 @@ site/download/
 site/.deploy.env
 dist/
 docs/internal/
+build-phone-sim/

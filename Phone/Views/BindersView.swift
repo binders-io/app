@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// Home: the binders, as on the Mac, each holding its to-dos, meetings and notes. Above them, the same three across every
+/// Home: the binders, as on the Mac, each holding its to-dos, board, meetings and notes. Above them, the same across every
 /// binder; Ask is a button, since it looks across all of it.
 struct BindersView: View {
     @Environment(MacConnection.self) private var connection
     @State private var binders: [BinderInfo] = []
     @State private var openTodos: Int?
     @State private var todosByBinder: [String: Int] = [:]
+    /// Cards waiting on you: an agent's question, or finished work to check.
+    @State private var needsYou = 0
     @State private var path = NavigationPath()
     @State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
 
     enum Place: Hashable {
-        case allTodos, allMeetings, allNotes
+        case allTodos, allTasks, allMeetings, allNotes
         case binder(BinderInfo)
     }
 
@@ -25,6 +27,13 @@ struct BindersView: View {
                             Label("To-dos", systemImage: "checklist")
                             Spacer()
                             if let openTodos, openTodos > 0 { Text("\(openTodos)").foregroundStyle(.secondary) }
+                        }
+                    }
+                    NavigationLink(value: Place.allTasks) {
+                        HStack {
+                            Label("Board", systemImage: "rectangle.split.3x1")
+                            Spacer()
+                            if needsYou > 0 { Text("\(needsYou) need you").foregroundStyle(.orange) }
                         }
                     }
                     NavigationLink(value: Place.allMeetings) { Label("Meetings", systemImage: "person.2.wave.2") }
@@ -48,6 +57,7 @@ struct BindersView: View {
             .navigationDestination(for: Place.self) { place in
                 switch place {
                 case .allTodos: TodoBoard(binder: nil, allowsAdding: true).navigationTitle("To-dos")
+                case .allTasks: CardBoardView(binder: nil).navigationTitle("Board")
                 case .allMeetings: MeetingsList(binder: nil).navigationTitle("Meetings")
                 case .allNotes: NotesList(binder: nil).navigationTitle("Notes")
                 case .binder(let binder): BinderDetailView(binder: binder)
@@ -55,6 +65,7 @@ struct BindersView: View {
             }
             .navigationDestination(for: NoteSummary.self) { NoteDetailView(summary: $0) }
             .navigationDestination(for: MeetingSummary.self) { MeetingDetailView(summary: $0) }
+            .navigationDestination(for: CardLink.self) { CardDetailView(id: $0.id) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { asking = true } label: { Image(systemName: "sparkles") }
@@ -64,7 +75,8 @@ struct BindersView: View {
             }
             .sheet(isPresented: $asking) { AskView() }
             .refreshable { await load() }
-            .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings") + connection.revision("todos")) {
+            .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings") + connection.revision("todos")
+                  + connection.revision("tasks")) {
                 await load()
             }
         }
@@ -78,6 +90,9 @@ struct BindersView: View {
             openTodos = open.count
             todosByBinder = Dictionary(grouping: open.compactMap(\.binder), by: { $0 }).mapValues(\.count)
         }
+        if let cards = await connection.fetch("list_tasks", cache: "tasks-all", as: [Card].self).value {
+            needsYou = cards.filter { $0.board == .blocked || $0.board == .review }.count
+        }
         openForDevelopment()
     }
 
@@ -87,6 +102,7 @@ struct BindersView: View {
         guard path.isEmpty else { return }
         switch UserDefaults.standard.string(forKey: "open") {
         case "todos": path.append(Place.allTodos)
+        case "board": path.append(Place.allTasks)
         case "meetings": path.append(Place.allMeetings)
         case "notes": path.append(Place.allNotes)
         default:
@@ -120,7 +136,7 @@ struct BinderRow: View {
     }
 }
 
-/// One binder: its to-dos, meetings and notes, a tap apart. New to-dos and notes go into it.
+/// One binder: its to-dos, board, meetings and notes, a tap apart. New to-dos, cards and notes go into it.
 struct BinderDetailView: View {
     @Environment(MacConnection.self) private var connection
     let binder: BinderInfo
@@ -128,7 +144,7 @@ struct BinderDetailView: View {
     @State private var writing = false
 
     enum Section: String, CaseIterable {
-        case todos = "To-dos", meetings = "Meetings", notes = "Notes"
+        case todos = "To-dos", board = "Board", meetings = "Meetings", notes = "Notes"
     }
 
     init(binder: BinderInfo) {
@@ -141,6 +157,7 @@ struct BinderDetailView: View {
         Group {
             switch section {
             case .todos: TodoBoard(binder: binder.name, allowsAdding: true)
+            case .board: CardBoardView(binder: binder.name)
             case .meetings: MeetingsList(binder: binder.name)
             case .notes: NotesList(binder: binder.name)
             }

@@ -1,4 +1,5 @@
 import Foundation
+import BindersKit
 
 // What the Mac's tools return (see docs/AUTOMATIONS.md), decoded with snake_case keys.
 
@@ -15,14 +16,71 @@ struct Todo: Decodable, Identifiable, Hashable {
     let sourceId: String?
     let binder: String?
     let created: String?
+    /// The card it's on, when it's on a board.
+    let cardId: String?
+    let cardColumn: String?
 
     var isDone: Bool { status == "done" }
+    var isOnBoard: Bool { !(cardId ?? "").isEmpty }
     var dueDate: Date? { due.flatMap(Date.init(iso:)) }
     /// Whose it is, when it isn't simply yours.
     var ownerName: String? {
         guard let owner, !owner.isEmpty, owner != "You" else { return nil }
         return owner
     }
+}
+
+/// A card on a binder's board, as list_tasks gives it.
+struct Card: Decodable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let column: String
+    let assignee: String
+    let assigneeIsAgent: Bool
+    let claimExpires: String
+    let binder: String
+    let due: String
+    let links: Int
+    let updated: String
+    let preview: String
+    let todo: String?
+
+    var board: BoardColumn { BoardColumn(rawValue: column) ?? .backlog }
+    /// Minutes left on an agent's claim.
+    var minutesLeft: Int? {
+        guard assigneeIsAgent, let date = Date(iso: claimExpires) else { return nil }
+        return max(0, Int(date.timeIntervalSinceNow / 60))
+    }
+}
+
+/// One card in full, as get_task gives it.
+struct CardDetail: Decodable {
+    let id: String
+    let title: String
+    let column: String
+    let assignee: String
+    let assigneeIsAgent: Bool
+    let claimExpires: String
+    let binder: String
+    let due: String
+    let details: String
+    let links: [String]
+    let source: String
+    let todo: String?
+    let timeline: [CardEvent]
+
+    var board: BoardColumn { BoardColumn(rawValue: column) ?? .backlog }
+    /// The agent's question the card is waiting on.
+    var question: CardEvent? { board == .blocked ? timeline.last { $0.kind == "question" } : nil }
+}
+
+struct CardEvent: Decodable, Hashable {
+    let when: String
+    let who: String
+    let agent: Bool
+    let kind: String
+    let text: String
+    let to: String
 }
 
 struct BinderInfo: Decodable, Identifiable, Hashable {

@@ -1,4 +1,5 @@
 import SwiftUI
+import BindersKit
 
 /// Promises, asks and the checklists in meetings and notes. One binder's are grouped by where they came from; all of them
 /// are grouped by binder, with where each came from underneath.
@@ -11,6 +12,7 @@ struct TodoBoard: View {
     @State private var newTodo = ""
     @State private var adding = false
     @State private var problem: String?
+    @State private var openCard: CardLink?
 
     var body: some View {
         List {
@@ -34,6 +36,22 @@ struct TodoBoard: View {
                 Section(group.title) {
                     ForEach(group.items) { todo in
                         TodoRow(todo: todo, caption: binder == nil ? todo.source : nil) { toggle(todo) }
+                            .swipeActions(edge: .trailing) {
+                                if let card = todo.cardId, !card.isEmpty {
+                                    Button { openCard = CardLink(id: card) } label: { Label("Card", systemImage: "rectangle.split.3x1") }
+                                        .tint(.accentColor)
+                                } else {
+                                    Button { putOnBoard(todo) } label: { Label("Board", systemImage: "rectangle.stack.badge.plus") }
+                                        .tint(.accentColor)
+                                }
+                            }
+                            .contextMenu {
+                                if let card = todo.cardId, !card.isEmpty {
+                                    Button("Open Card") { openCard = CardLink(id: card) }
+                                } else {
+                                    Button("Add to Board") { putOnBoard(todo) }
+                                }
+                            }
                     }
                 }
             }
@@ -51,8 +69,9 @@ struct TodoBoard: View {
                                        description: Text("Promises you make, asks, and the checklists in your meetings and notes show up here."))
             }
         }
+        .navigationDestination(item: $openCard) { CardDetailView(id: $0.id) }
         .refreshable { await load() }
-        .task(id: connection.revision("todos")) { await load() }
+        .task(id: connection.revision("todos") + connection.revision("tasks")) { await load() }
         .alert("Couldn't update the Mac", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(problem ?? "") }
@@ -106,6 +125,19 @@ struct TodoBoard: View {
         }
     }
 
+    /// A card in Ready on the to-do's binder's board. The to-do stays open until the card is done.
+    private func putOnBoard(_ todo: Todo) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task {
+            do {
+                _ = try await connection.call("create_task", ["todo": todo.id, "column": "ready"])
+                await load()
+            } catch {
+                problem = error.localizedDescription
+            }
+        }
+    }
+
     private func add() {
         let text = newTodo.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !adding else { return }
@@ -148,6 +180,10 @@ struct TodoRow: View {
                     Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 HStack(spacing: 8) {
+                    if !todo.isDone, todo.isOnBoard {
+                        Chip(text: "On board · " + (todo.cardColumn.flatMap(BoardColumn.init(rawValue:))?.title ?? ""), symbol: "rectangle.split.3x1",
+                             tint: .accentColor)
+                    }
                     if let owner = todo.ownerName { Chip(text: owner, symbol: "person") }
                     if let due = todo.dueDate { Chip(text: due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()), symbol: "calendar", urgent: due < .now && !todo.isDone) }
                     else if let said = todo.dueAsSaid, !said.isEmpty { Chip(text: said, symbol: "calendar") }
@@ -162,16 +198,18 @@ struct Chip: View {
     let text: String
     let symbol: String
     var urgent = false
+    var tint: Color = .secondary
 
     var body: some View {
+        let color = urgent ? Color.red : tint
         HStack(spacing: 4) {
             Image(systemName: symbol).imageScale(.small)
-            Text(text)
+            Text(text).lineLimit(1)
         }
             .font(.caption)
-            .foregroundStyle(urgent ? Color.red : Color.secondary)
+            .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(Capsule().fill((urgent ? Color.red : Color.secondary).opacity(0.12)))
+            .background(Capsule().fill(color.opacity(0.12)))
     }
 }
