@@ -136,7 +136,7 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `list_binders` | Your binders with their counts |
 | `list_meetings` (limit, binder) · `get_meeting` (id, include_transcript) | Meetings, and one in full |
 | `list_notes` (limit, binder) · `get_note` (id) | Notes, and one in full |
-| `list_todos` (status) | Everything on the board: promises, asks, to-dos, and the checklist items in meeting notes, notes and digests |
+| `list_todos` (status) | Every to-do: promises, asks, to-dos, and the checklist items in meeting notes, notes and digests, with the card each is on, if any |
 | `recent_dictations` (limit) | What you dictated lately |
 | `add_to_knowledge` (title, text, source, binder) | Anything worth remembering: a fact, a document's text, a web page, an email. Kept under the title with its source, so search and answers can cite it |
 | `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
@@ -153,7 +153,7 @@ binder lets them finish.
 | Tool | Does |
 |---|---|
 | `list_tasks` (binder, column, mine, agent) · `get_task` (id) | Cards (everything but Done unless you ask), and one card with its links and timeline |
-| `create_task` (title, details, binder, column) | A new card in Backlog or Ready |
+| `create_task` (title, todo, details, binder, column) | A new card in Backlog or Ready. With `todo` (an id from `list_todos`), the card is made from that to-do, in its binder, and the to-do is ticked off when the card is done; a to-do that already has a card returns that card |
 | `claim_task` (id, agent) | Takes a card; one owner at a time. A Ready or Backlog card moves to In progress |
 | `update_task` (id, progress, links, column, agent) | A progress report and links (it keeps the claim), or a move |
 | `ask_on_task` (id, question, agent) · `comment_task` (id, text, agent) | A question for you (the card waits in Blocked until you answer), or a comment |

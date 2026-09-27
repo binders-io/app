@@ -89,7 +89,7 @@ enum DemoData {
             return record
         }
 
-        _ = meeting(meetingTitle, in: harbor, daysAgo: 1, hour: 14, minutes: 47, app: "Zoom",
+        let review = meeting(meetingTitle, in: harbor, daysAgo: 1, hour: 14, minutes: 47, app: "Zoom",
                     attendees: ["Jonas Lindqvist", "Priya Raman", "Tomás Ferreira"],
                     summary: """
                     ## Summary
@@ -257,13 +257,16 @@ enum DemoData {
 
         // The Harbor launch board: people and agents, a card in every column.
         let claude = BoardActor(name: "Claude Code · harbor-web", kind: .agent), cursor = BoardActor(name: "Cursor · harbor-web", kind: .agent)
+        /// `todo` is an action item in the launch review that the card was made from.
         func card(_ title: String, _ column: BoardColumn, details: String = "", holder: BoardActor? = nil, minutesLeft: Double = 0,
-                  links: [String] = [], source: String? = nil, events: [(TaskEvent.Kind, BoardActor, String, Double)]) {
+                  links: [String] = [], source: String? = nil, todo: String? = nil, events: [(TaskEvent.Kind, BoardActor, String, Double)]) {
             let card = TaskCard(title: title, binderID: harbor.id, column: column)
             card.details = details
             card.links = links
             card.sourceTitle = source
             card.sourceKind = source == nil ? nil : "meeting"
+            card.sourceID = source == nil ? nil : review.id.uuidString
+            card.sourceRef = todo.map { BoardTaskReference(place: .meeting, id: review.id, text: $0).string }
             if let holder {
                 card.assignee = holder.name
                 card.assigneeIsAgent = holder.isAgent
@@ -281,11 +284,13 @@ enum DemoData {
         }
         card("Rewrite the status page wording", .backlog, events: [(.created, .you, "", 70)])
         card("Fix the import timeout above 20,000 rows", .ready, details: "Tomás has a batching fix in review. Run the import test on staging with 50k rows before Monday.",
-             source: meetingTitle, events: [(.created, .you, "From Launch readiness review", 22)])
+             source: meetingTitle, todo: "merge the batching fix and rerun the 50k import test",
+             events: [(.created, .you, "From Launch readiness review", 22)])
         card("Draft the changelog post", .inProgress, details: "One post for the 28th: batched imports, annual plans, the new onboarding emails.",
              holder: claude, minutesLeft: 24, links: ["https://github.com/example/harbor-web/pull/214"],
              events: [(.created, .you, "", 5), (.claimed, claude, "", 2), (.progress, claude, "Drafted the post from the launch checklist and yesterday's review notes.\n→ https://github.com/example/harbor-web/pull/214", 0.6)])
         card("Update the pricing comparison table", .blocked, details: "The comparison table on the pricing page still shows last year's plans.", holder: cursor, minutesLeft: 18,
+             source: meetingTitle, todo: "finish the pricing comparison table",
              events: [(.created, .you, "", 26), (.claimed, cursor, "", 1.5), (.progress, cursor, "Rebuilt the table with the three current plans.", 0.9),
                       (.question, cursor, "Should annual plans show the 15% discount in the table, or only on the pricing page itself?", 0.3)])
         card("Write onboarding email 5", .review, details: "The fifth onboarding email: tips for importing a large workspace.",

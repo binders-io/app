@@ -43,7 +43,7 @@ enum MCPServer {
         MCPTool(name: "get_note", description: "One note in full.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
         ]),
-        MCPTool(name: "list_todos", description: "The user's to-dos, as on their board: promises they made in messages, asks they made of others, to-dos they added, and the checklist items in meeting notes, notes and note digests. Each has an id for set_todo_status.", parameters: [
+        MCPTool(name: "list_todos", description: "The user's to-dos: promises they made in messages, asks they made of others, to-dos they added, and the checklist items in meeting notes, notes and note digests. Each has an id for set_todo_status and create_task; card_id and card_column say when one is already on a board.", parameters: [
             MCPToolParameter(name: "status", description: "Which ones. Default open.", options: ["open", "done", "dismissed", "all"]),
         ]),
         MCPTool(name: "recent_dictations", description: "What the user dictated recently, newest first.", parameters: [
@@ -66,8 +66,9 @@ enum MCPServer {
         MCPTool(name: "get_task", description: "One card in full: its description, links, who has it, and its timeline of moves, progress reports, questions and answers.", parameters: [
             MCPToolParameter(name: "id", description: "The card's id, from list_tasks or create_task.", required: true),
         ]),
-        MCPTool(name: "create_task", description: "Put a new card on a binder's board. Returns its id.", parameters: [
-            MCPToolParameter(name: "title", description: "What needs doing, in a few words.", required: true),
+        MCPTool(name: "create_task", description: "Put a new card on a binder's board, or turn a to-do into one. Returns its id.", parameters: [
+            MCPToolParameter(name: "title", description: "What needs doing, in a few words. Required unless you give todo."),
+            MCPToolParameter(name: "todo", description: "A to-do's id from list_todos. The card goes to the to-do's binder, takes its words unless you give a title, and stays linked: the to-do is ticked off when the card is done. A to-do that already has a card returns that card."),
             MCPToolParameter(name: "details", description: "More about it, in Markdown if you like."),
             MCPToolParameter(name: "binder", description: "The binder's name; see list_binders. Default: the user's current binder."),
             MCPToolParameter(name: "column", description: "Where it starts. Default backlog.", options: ["backlog", "ready"]),
@@ -290,6 +291,14 @@ enum MCPServer {
                  "created": AutomationPayload.iso(todo.createdAt)] as [String: Any]
             }
             if wanted != "dismissed" { items += checklistItems(status: wanted) }
+            // Which ones are already on a board.
+            let linked = ((try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.sourceRef != nil }))) ?? [])
+                .reduce(into: [String: TaskCard]()) { cards, card in if let todo = card.sourceRef { cards[todo] = card } }
+            for index in items.indices {
+                let card = (items[index]["id"] as? String).flatMap { linked[$0] }
+                items[index]["card_id"] = card?.id.uuidString ?? ""
+                items[index]["card_column"] = card?.column.rawValue ?? ""
+            }
             return json(items)
         case "recent_dictations":
             let records = Store.shared.recentTranscripts(limit: integer("limit", default: 20, max: 50) * 2)
@@ -349,8 +358,9 @@ enum MCPServer {
             }
             return json(result)
         case "create_task":
-            guard !string("title").isEmpty else { throw MCPCore.ToolFailure("title is required") }
-            return try await boardWrite(name, ["title": string("title"), "details": string("details"), "binder": string("binder"), "column": string("column")])
+            guard !string("title").isEmpty || !string("todo").isEmpty else { throw MCPCore.ToolFailure("Give a title, or a todo id from list_todos") }
+            return try await boardWrite(name, ["title": string("title"), "todo": string("todo"), "details": string("details"), "binder": string("binder"),
+                                               "column": string("column")])
         case "claim_task":
             return try await boardWrite(name, [:])
         case "update_task":
@@ -381,7 +391,8 @@ enum MCPServer {
                 "assignee": held || card.column == .done || card.column == .review ? (card.assignee ?? "") : "",
                 "assignee_is_agent": card.assigneeIsAgent, "claim_expires": held ? card.claimExpiresAt.map(AutomationPayload.iso) ?? "" : "",
                 "binder": Store.shared.binder(card.binderID)?.name ?? "", "due": card.dueAt.map(AutomationPayload.iso) ?? "",
-                "links": card.links.count, "updated": AutomationPayload.iso(card.updatedAt), "preview": String(card.details.prefix(200))]
+                "links": card.links.count, "updated": AutomationPayload.iso(card.updatedAt), "preview": String(card.details.prefix(200)),
+                "todo": card.sourceRef ?? ""]
     }
 
     /// Hands a write to the running app through the inbox and waits for its answer. The app is the only writer, so its

@@ -23,6 +23,8 @@ final class TaskCard {
     var sourceKind: String?
     var sourceID: String?
     var sourceTitle: String?
+    /// The to-do this card was made from, as list_todos names it; it's ticked off when the card is done.
+    var sourceRef: String?
     var createdBy: String = "You"
     var createdAt: Date
     var updatedAt: Date

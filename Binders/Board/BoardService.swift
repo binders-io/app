@@ -9,6 +9,8 @@ import BindersKit
 final class BoardService {
     @ObservationIgnored private var sweeper: Timer?
     @ObservationIgnored private var store: Store { Store.shared }
+    /// For keeping promises when their cards are done.
+    @ObservationIgnored weak var commitments: CommitmentService?
 
     /// Every minute, cards whose agent went quiet go back to Ready.
     func start() {
@@ -29,6 +31,11 @@ final class BoardService {
         return binderID.map { id in all.filter { $0.binderID == id } } ?? all
     }
 
+    /// The card made from this to-do, if there is one.
+    func card(forTodo id: String) -> TaskCard? {
+        (try? store.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.sourceRef == id })))?.first
+    }
+
     func timeline(_ id: UUID) -> [TaskEvent] {
         (try? store.context.fetch(FetchDescriptor<TaskEvent>(predicate: #Predicate { $0.taskID == id }, sortBy: [SortDescriptor(\.createdAt)]))) ?? []
     }
@@ -41,7 +48,7 @@ final class BoardService {
 
     @discardableResult
     func create(title: String, details: String = "", binderID: UUID?, column: BoardColumn = .backlog, due: Date? = nil,
-                source: (kind: String, id: String, title: String)? = nil, by actor: BoardActor) -> TaskCard {
+                source: (kind: String, id: String, title: String)? = nil, sourceRef: String? = nil, by actor: BoardActor) -> TaskCard {
         let card = TaskCard(title: title.trimmingCharacters(in: .whitespacesAndNewlines), binderID: binderID ?? store.defaultBinder().id,
                             column: column == .done ? .backlog : column)
         card.details = details
@@ -52,9 +59,23 @@ final class BoardService {
             card.sourceID = source.id
             card.sourceTitle = source.title
         }
+        card.sourceRef = sourceRef
         store.context.insert(card)
         log(card, .created, by: actor, text: source.map { "From \($0.title)" } ?? "", to: card.column)
         return card
+    }
+
+    /// A card for a to-do, linked to it so the to-do is ticked off when the card is done. A to-do that already has a card
+    /// gets that one back.
+    @discardableResult
+    func create(from todo: TodoItem, column: BoardColumn = .ready, binderID: UUID? = nil, title: String? = nil, details: String = "",
+                by actor: BoardActor) -> (card: TaskCard, existed: Bool) {
+        if let card = card(forTodo: todo.id) { return (card, true) }
+        let owner = todo.owner.flatMap { $0.isEmpty || $0 == TranscriptSegment.you ? nil : $0 }
+        let card = create(title: title ?? todo.text, details: details.isEmpty ? (owner.map { "For \($0)." } ?? "") : details,
+                          binderID: binderID ?? todo.binderID, column: column, due: todo.due,
+                          source: (todo.sourceKind, todo.sourceID.uuidString, todo.sourceTitle), sourceRef: todo.id, by: actor)
+        return (card, false)
     }
 
     func claim(_ card: TaskCard, by actor: BoardActor) throws {
@@ -69,6 +90,7 @@ final class BoardService {
         card.state = try BoardRules.move(card.state, to: column, by: actor, agentsMayFinish: agentsMayFinish(card), at: Date())
         card.position = Date().timeIntervalSinceReferenceDate
         log(card, .moved, by: actor, from: before, to: column)
+        follow(card, from: before)
     }
 
     /// A progress report, with any links it brings. Keeps an agent's claim alive.
@@ -106,6 +128,7 @@ final class BoardService {
         card.state = try BoardRules.complete(card.state, by: actor, agentsMayFinish: agentsMayFinish(card), at: Date())
         card.position = Date().timeIntervalSinceReferenceDate
         log(card, .completed, by: actor, text: summary, from: before, to: card.column)
+        follow(card, from: before)
     }
 
     func edit(_ card: TaskCard, title: String? = nil, details: String? = nil, due: Date?? = nil, by actor: BoardActor) {
@@ -132,6 +155,14 @@ final class BoardService {
             card.state = next
             log(card, .lapsed, by: BoardActor(name: who, kind: .agent), text: "\(who) went quiet for \(Int(BoardRules.lease / 60)) minutes, so the card is free again.",
                 from: before, to: card.column)
+        }
+    }
+
+    /// A card's to-do is ticked off when the card reaches Done, and opened again if the card leaves Done.
+    private func follow(_ card: TaskCard, from before: BoardColumn) {
+        guard let todo = card.sourceRef, (before == .done) != (card.column == .done) else { return }
+        if Todos.setDone(todo, card.column == .done, commitments: commitments) == nil {
+            Log.app.info("A card's to-do has changed or is gone, so it wasn't ticked")
         }
     }
 

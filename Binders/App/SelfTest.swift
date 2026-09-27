@@ -1077,6 +1077,45 @@ open reports/import.html
               "where agents may finish, complete_task goes straight to Done")
         check(!(await call("claim_task", ["id": UUID().uuidString], as: agentA)).ok, "an unknown card is refused")
 
+        // To-dos become cards and stay linked: a card that's done ticks its to-do off where it lives.
+        let prep = NoteItem(text: "Launch prep\n\n- [ ] Draft the launch email\n- [ ] Book the venue")
+        prep.binderID = launch.id
+        Store.shared.insert(prep)
+        let todos = list((await call("list_todos", [:], as: agentA)).text)
+        guard let email = todos.first(where: { ($0["task"] as? String) == "Draft the launch email" })?["id"] as? String else {
+            print("BOARD_FAILED: list_todos doesn't have the note's to-do")
+            return 1
+        }
+        let fromTodo = await call("create_task", ["todo": email, "column": "ready"], as: agentA)
+        let farmed = controller.board.card(forTodo: email)
+        check(fromTodo.ok && farmed?.title == "Draft the launch email" && farmed?.binderID == launch.id && farmed?.column == .ready,
+              "create_task turns a to-do into a card in its binder: \(fromTodo.text)")
+        let again = await call("create_task", ["todo": email], as: agentB)
+        let sameTodo = ((try? Store.shared.context.fetch(FetchDescriptor<TaskCard>())) ?? []).filter { $0.sourceRef == email }
+        check(again.ok && object(again.text)["id"] as? String == farmed?.id.uuidString && sameTodo.count == 1,
+              "the same to-do doesn't get a second card: \(again.text)")
+        let listed = list((await call("list_todos", [:], as: agentA)).text).first { ($0["id"] as? String) == email }
+        check(listed?["card_id"] as? String == farmed?.id.uuidString && listed?["card_column"] as? String == "ready", "list_todos says it's on the board")
+        let entries = TaskCollector.collect(meetings: [], notes: [prep], openMeeting: { _ in }, openNote: { _ in })
+        check(entries.contains { $0.ref == email }, "the to-do lists name a to-do the way list_todos does")
+        if let farmed {
+            check((try? controller.board.move(farmed, to: .done, by: .you)) != nil
+                  && prep.text.contains("- [x] Draft the launch email") && prep.text.contains("- [ ] Book the venue"),
+                  "finishing the card ticks its to-do off in the note, and only that one")
+            check((try? controller.board.move(farmed, to: .ready, by: .you)) != nil && prep.text.contains("- [ ] Draft the launch email"),
+                  "taking the card out of Done opens the to-do again")
+        }
+        let promise = controller.commitments.addSpoken("send Dana the pricing sheet").commitment
+        promise.binderID = launch.id
+        if let item = Todos.find(promise.id.uuidString) {
+            let card = controller.board.create(from: item, by: .you).card
+            check(card.sourceRef == promise.id.uuidString && (try? controller.board.move(card, to: .done, by: .you)) != nil && promise.status == "done",
+                  "a promise is kept when its card is done")
+        } else {
+            check(false, "a promise can be found by its id")
+        }
+        check(!(await call("create_task", ["todo": "note:\(UUID().uuidString):0badf00d"], as: agentA)).ok, "a to-do that's gone is refused")
+
         print(failures == 0 ? "BOARD_OK" : "BOARD_FAILED: \(failures)")
         return failures == 0 ? 0 : 1
     }
@@ -1293,6 +1332,15 @@ open reports/import.html
             await render(CardDetailView(card: blocked).environment(controller).modelContainer(Store.shared.container),
                          size: NSSize(width: 760, height: 560), name: "demo-card", directory: directory)
         }
+        // Adding to-dos to the board: the launch's open to-dos without a card, two of them ticked.
+        let carded = Set(controller.board.cards(in: harbor.id).compactMap(\.sourceRef))
+        let waiting = TaskCollector.collect(meetings: meetings.filter { $0.binderID == harbor.id }, notes: notes.filter { $0.binderID == harbor.id },
+                                            commitments: Store.shared.commitments().filter { $0.binderID == harbor.id },
+                                            openMeeting: { _ in }, openNote: { _ in })
+            .filter { !$0.done && !carded.contains($0.ref) }
+        await render(TodoPickerSheet(binder: harbor, todos: waiting, chosen: Set(waiting.prefix(2).map(\.ref)))
+                        .environment(controller).modelContainer(Store.shared.container),
+                     size: NSSize(width: 560, height: 640), name: "demo-add-todos", directory: directory)
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
         for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp, .phone] {

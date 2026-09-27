@@ -8,6 +8,8 @@ struct TaskEntry: Identifiable {
 
     let id: String
     let kind: Kind
+    /// The to-do's id as list_todos gives it, which is also what links it to a card.
+    let ref: String
     let owner: String?
     let text: String
     let done: Bool
@@ -20,6 +22,16 @@ struct TaskEntry: Identifiable {
     var due: Date? = nil
     /// Commitments the model got wrong can be waved away.
     var dismiss: (() -> Void)? = nil
+
+    var todo: TodoItem {
+        let kind = switch kind {
+        case .meeting: "meeting"
+        case .note: "note"
+        case .commitment: "commitment"
+        }
+        return TodoItem(id: ref, text: text, owner: owner, done: done, due: due, binderID: binderID, sourceKind: kind,
+                        sourceID: sourceID, sourceTitle: sourceTitle)
+    }
 }
 
 /// What the board may do with a commitment.
@@ -42,29 +54,30 @@ enum TaskCollector {
             return a.createdAt > b.createdAt
         }
         for record in live {
-            entries.append(TaskEntry(id: "c:\(record.id.uuidString)", kind: .commitment, owner: record.owner, text: record.task,
+            entries.append(TaskEntry(id: "c:\(record.id.uuidString)", kind: .commitment, ref: record.id.uuidString, owner: record.owner, text: record.task,
                                      done: record.status == "done", sourceID: record.sourceWritingID ?? record.id, sourceTitle: record.sourceTitle,
                                      sourceDate: record.createdAt, binderID: record.binderID,
                                      toggle: { commitmentActions?.toggle(record) }, open: { commitmentActions?.open(record) },
                                      due: record.dueAt, dismiss: { commitmentActions?.dismiss(record) }))
         }
-        func scan(_ markdown: String, id: String, kind: TaskEntry.Kind, sourceID: UUID, title: String, date: Date, binderID: UUID?,
-                  write: @escaping (String) -> Void, open: @escaping () -> Void) {
+        func scan(_ markdown: String, id: String, kind: TaskEntry.Kind, place: BoardTaskReference.Place, sourceID: UUID, title: String, date: Date,
+                  binderID: UUID?, write: @escaping (String) -> Void, open: @escaping () -> Void) {
             for (index, line) in markdown.components(separatedBy: "\n").enumerated() {
                 guard let task = NotesEditing.task(from: line), !task.text.isEmpty else { continue }
-                entries.append(TaskEntry(id: "\(id):\(index)", kind: kind, owner: task.owner, text: task.text, done: task.done,
+                entries.append(TaskEntry(id: "\(id):\(index)", kind: kind, ref: BoardTaskReference(place: place, id: sourceID, text: task.text).string,
+                                         owner: task.owner, text: task.text, done: task.done,
                                          sourceID: sourceID, sourceTitle: title, sourceDate: date, binderID: binderID,
                                          toggle: { write(NotesEditing.toggleCheckbox(in: markdown, line: index)) }, open: open))
             }
         }
         for meeting in meetings {
-            scan(meeting.summary, id: "m:\(meeting.id.uuidString)", kind: .meeting, sourceID: meeting.id, title: meeting.title,
+            scan(meeting.summary, id: "m:\(meeting.id.uuidString)", kind: .meeting, place: .meeting, sourceID: meeting.id, title: meeting.title,
                  date: meeting.createdAt, binderID: meeting.binderID, write: { meeting.summary = $0 }, open: { openMeeting(meeting) })
         }
         for note in notes {
-            scan(note.digest, id: "d:\(note.id.uuidString)", kind: .note, sourceID: note.id, title: note.title,
+            scan(note.digest, id: "d:\(note.id.uuidString)", kind: .note, place: .digest, sourceID: note.id, title: note.title,
                  date: note.updatedAt, binderID: note.binderID, write: { note.digest = $0 }, open: { openNote(note) })
-            scan(note.text, id: "n:\(note.id.uuidString)", kind: .note, sourceID: note.id, title: note.title,
+            scan(note.text, id: "n:\(note.id.uuidString)", kind: .note, place: .note, sourceID: note.id, title: note.title,
                  date: note.updatedAt, binderID: note.binderID, write: { note.text = $0 }, open: { openNote(note) })
         }
         return entries
@@ -80,6 +93,14 @@ struct TaskBoard: View {
     /// Names the binder a task lives in, when tasks come from several binders.
     var binderName: ((UUID?) -> String?)? = nil
     @State private var ownerFilter: String?
+    /// Cards made from to-dos, to show which to-dos are on a board.
+    @Query(filter: #Predicate<TaskCard> { $0.sourceRef != nil }) private var linkedCards: [TaskCard]
+    @State private var hovered: String?
+    @State private var openCard: TaskCard?
+
+    private var cardsByTodo: [String: TaskCard] {
+        linkedCards.reduce(into: [:]) { cards, card in if let todo = card.sourceRef { cards[todo] = card } }
+    }
 
     private var openTasks: [TaskEntry] { tasks.filter { !$0.done && (ownerFilter == nil || $0.owner == ownerFilter) } }
     private var doneTasks: [TaskEntry] { tasks.filter { $0.done && (ownerFilter == nil || $0.owner == ownerFilter) } }
@@ -124,6 +145,7 @@ struct TaskBoard: View {
     }
 
     var body: some View {
+        let cards = cardsByTodo
         VStack(alignment: .leading, spacing: 14) {
             if !owners.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -155,7 +177,7 @@ struct TaskBoard: View {
                         Spacer(minLength: 0)
                         if let name = binderName?(group.binderID) { Badge(text: name, color: .secondary) }
                     }
-                    ForEach(group.tasks) { row($0) }
+                    ForEach(group.tasks) { row($0, card: cards[$0.ref]) }
                 }
             }
             if let limit, openTasks.count > limit {
@@ -164,7 +186,7 @@ struct TaskBoard: View {
             if !doneTasks.isEmpty, limit == nil {
                 DisclosureGroup("Done (\(doneTasks.count))") {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(doneTasks) { row($0) }
+                        ForEach(doneTasks) { row($0, card: nil) }
                     }
                     .padding(.top, 6)
                 }
@@ -172,9 +194,12 @@ struct TaskBoard: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .sheet(item: $openCard) { card in
+            CardDetailView(card: card).environment(controller)
+        }
     }
 
-    private func row(_ task: TaskEntry) -> some View {
+    private func row(_ task: TaskEntry, card: TaskCard?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Button(action: task.toggle) {
                 Image(systemName: task.done ? "checkmark.square.fill" : "square").font(.system(size: 15))
@@ -192,6 +217,24 @@ struct TaskBoard: View {
                 Badge(text: CommitmentService.dueLabel(due), color: overdue ? .red : (Calendar.current.isDateInToday(due) ? .orange : .secondary))
             }
             Spacer(minLength: 0)
+            if let card, !task.done {
+                Button { openCard = card } label: {
+                    Badge(text: "On board · \(card.column.title)", color: .accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Open the card. The to-do is ticked off when the card is done.")
+            } else if !task.done {
+                // Shown on hover, so the list stays quiet.
+                Button { moveToBoard(task) } label: {
+                    Image(systemName: "rectangle.stack.badge.plus").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Add to the board")
+                .accessibilityLabel("Add to the board")
+                .opacity(hovered == task.id ? 1 : 0)
+                .allowsHitTesting(hovered == task.id)
+            }
             if let dismiss = task.dismiss, !task.done {
                 Button(action: dismiss) { Image(systemName: "xmark.circle").font(.caption) }
                     .buttonStyle(.plain)
@@ -200,24 +243,22 @@ struct TaskBoard: View {
             }
         }
         .padding(.leading, 4)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside { hovered = task.id } else if hovered == task.id { hovered = nil }
+        }
         .contextMenu {
-            if !task.done {
-                Button("Move to Board") { moveToBoard(task) }
+            if let card, !task.done {
+                Button("Open Card") { openCard = card }
+            } else if !task.done {
+                Button("Add to Board") { moveToBoard(task) }
             }
         }
     }
 
-    /// Turns a to-do into a card on its binder's board, linked back to where it came from, and ticks the to-do off.
+    /// Puts a to-do on its binder's board, in Ready. It stays open here, marked as on the board, until its card is done.
     private func moveToBoard(_ task: TaskEntry) {
-        let kind = switch task.kind {
-        case .meeting: "meeting"
-        case .note: "note"
-        case .commitment: "commitment"
-        }
-        let owner = task.owner.map { "\($0): " } ?? ""
-        controller.board.create(title: task.text, details: owner.isEmpty ? "" : "For \(owner.dropLast(2)).", binderID: task.binderID,
-                                column: .ready, due: task.due, source: (kind, task.sourceID.uuidString, task.sourceTitle), by: .you)
-        task.toggle()
+        controller.board.create(from: task.todo, column: .ready, by: .you)
     }
 
     private func chip(_ label: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {

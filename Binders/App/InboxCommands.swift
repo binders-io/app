@@ -120,32 +120,11 @@ enum InboxCommands {
 
     /// Ticks or unticks a checklist item in a meeting's notes, a note's digest or a note, found by its words.
     private static func setTask(_ reference: BoardTaskReference, done: Bool) -> InboxResult {
-        let store = Store.shared
-        let id = reference.id
-        let gone = InboxResult.failure("That to-do has changed or is gone. list_todos has the current ones.")
-        let result: (markdown: String, task: TaskLine)
-        switch reference.place {
-        case .meeting:
-            guard let meeting = (try? store.context.fetch(FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == id })))?.first,
-                  let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: meeting.summary) else { return gone }
-            meeting.summary = found.markdown
-            result = found
-        case .digest, .note:
-            guard let note = (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })))?.first else { return gone }
-            if reference.place == .digest {
-                guard let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: note.digest) else { return gone }
-                note.digest = found.markdown
-                result = found
-            } else {
-                guard let found = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: note.text) else { return gone }
-                note.text = found.markdown
-                note.updatedAt = Date()
-                result = found
-            }
-        }
-        store.save()
-        return InboxResult(ok: true, id: reference.string, message: "“\(result.task.text)” is now \(done ? "done" : "open")")
+        guard let text = Todos.setDone(reference.string, done, commitments: nil) else { return .failure(todoGone) }
+        return InboxResult(ok: true, id: reference.string, message: "“\(text)” is now \(done ? "done" : "open")")
     }
+
+    private static let todoGone = "That to-do has changed or is gone. list_todos has the current ones."
 
     /// A change to a card, by the actor named in the request (an agent over MCP, or you from the phone).
     private static func boardAction(_ action: String, field: (String) -> String, controller: DictationController) -> InboxResult {
@@ -153,9 +132,21 @@ enum InboxCommands {
         let actor = BoardActor(name: field("actor").isEmpty ? "AI agent" : field("actor"),
                                kind: BoardActor.Kind(rawValue: field("actor_kind")) ?? .agent)
         if action == "create_task" {
+            let column: BoardColumn = BoardColumn(loose: field("column")) == .ready ? .ready : .backlog
+            if !field("todo").isEmpty {
+                // A card for a to-do goes to the to-do's binder unless another is named, and stays linked to it.
+                guard let todo = Todos.find(field("todo")) else { return .failure(todoGone) }
+                if !field("binder").isEmpty, binder(named: field("binder")) == nil { return .failure(noBinder(field("binder"))) }
+                let target = field("binder").isEmpty ? nil : binder(named: field("binder"))?.id
+                let made = board.create(from: todo, column: column, binderID: target, title: field("title").isEmpty ? nil : field("title"),
+                                        details: field("details"), by: actor)
+                let name = Store.shared.binder(made.card.binderID)?.name ?? "binder's"
+                return InboxResult(ok: true, id: made.card.id.uuidString, message: made.existed
+                    ? "That to-do is already on the \(name) board as “\(made.card.title)”, in \(made.card.column.title)."
+                    : "Card “\(made.card.title)” added to the \(name) board, in \(made.card.column.title). The to-do is ticked off when the card is done.")
+            }
             guard !field("title").isEmpty else { return .failure("title is required") }
             guard let target = binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
-            let column: BoardColumn = BoardColumn(loose: field("column")) == .ready ? .ready : .backlog
             let card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
             return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to the \(target.name) board, in \(card.column.title)")
         }

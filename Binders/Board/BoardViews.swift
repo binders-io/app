@@ -26,6 +26,7 @@ struct BoardView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+                AddTodosButton(binder: binder)
                 Toggle("Agents can finish cards", isOn: $binder.agentsMayFinish)
                     .toggleStyle(.switch)
                     .controlSize(.small)
@@ -408,5 +409,155 @@ struct EventRow: View {
         case .lapsed: .secondary
         default: .accentColor
         }
+    }
+}
+
+/// "Add To-dos": the binder's open to-dos that aren't on its board yet, to pick from and turn into cards.
+struct AddTodosButton: View {
+    @Environment(DictationController.self) private var controller
+    let binder: BinderRecord
+    @Query private var meetings: [MeetingRecord]
+    @Query private var notes: [NoteItem]
+    @Query private var commitments: [CommitmentRecord]
+    @Query(filter: #Predicate<TaskCard> { $0.sourceRef != nil }) private var linkedCards: [TaskCard]
+    @State private var picking = false
+
+    init(binder: BinderRecord) {
+        self.binder = binder
+        let id = binder.id
+        _meetings = Query(filter: #Predicate<MeetingRecord> { $0.binderID == id }, sort: [SortDescriptor(\MeetingRecord.createdAt, order: .reverse)])
+        _notes = Query(filter: #Predicate<NoteItem> { $0.binderID == id }, sort: [SortDescriptor(\NoteItem.updatedAt, order: .reverse)])
+        _commitments = Query(filter: #Predicate<CommitmentRecord> { $0.binderID == id }, sort: [SortDescriptor(\CommitmentRecord.createdAt, order: .reverse)])
+    }
+
+    /// Open to-dos from the binder's meetings, notes and promises, without the ones that already have a card.
+    private var waiting: [TaskEntry] {
+        let carded = Set(linkedCards.compactMap(\.sourceRef))
+        return TaskCollector.collect(meetings: Array(meetings.prefix(60)), notes: Array(notes.prefix(120)), commitments: Array(commitments.prefix(100)),
+                                     openMeeting: { _ in }, openNote: { _ in })
+            .filter { !$0.done && !carded.contains($0.ref) }
+    }
+
+    var body: some View {
+        let waiting = waiting
+        Button { picking = true } label: {
+            Label(waiting.isEmpty ? "Add To-dos" : "Add To-dos (\(waiting.count))", systemImage: "rectangle.stack.badge.plus")
+        }
+        .controlSize(.small)
+        .disabled(waiting.isEmpty)
+        .help(waiting.isEmpty ? "Every open to-do in this binder is on the board." : "Turn to-dos from this binder's meetings, notes and promises into cards")
+        .sheet(isPresented: $picking) {
+            TodoPickerSheet(binder: binder, todos: waiting).environment(controller)
+        }
+    }
+}
+
+/// Pick to-dos to put on the board. Each card stays linked to its to-do, which is ticked off when the card is done.
+struct TodoPickerSheet: View {
+    @Environment(DictationController.self) private var controller
+    @Environment(\.dismiss) private var dismiss
+    let binder: BinderRecord
+    let todos: [TaskEntry]
+    @State private var chosen: Set<String>
+    @State private var column: BoardColumn = .ready
+
+    init(binder: BinderRecord, todos: [TaskEntry], chosen: Set<String> = []) {
+        self.binder = binder
+        self.todos = todos
+        _chosen = State(initialValue: chosen)
+    }
+
+    private struct Source: Identifiable {
+        let id: UUID
+        let kind: TaskEntry.Kind
+        let title: String
+        let date: Date
+        var todos: [TaskEntry]
+    }
+
+    private var sources: [Source] {
+        var ordered: [Source] = []
+        var index: [UUID: Int] = [:]
+        for todo in todos {
+            if let at = index[todo.sourceID] {
+                ordered[at].todos.append(todo)
+            } else {
+                index[todo.sourceID] = ordered.count
+                ordered.append(Source(id: todo.sourceID, kind: todo.kind, title: todo.sourceTitle, date: todo.sourceDate, todos: [todo]))
+            }
+        }
+        return ordered
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Add to-dos to the \(binder.name) board").font(.headline)
+                Text("Open to-dos from this binder's meetings, notes and promises. Each stays open where it is, marked as on the board, and is ticked off when its card is done.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button(chosen.count == todos.count ? "Select None" : "Select All") {
+                    chosen = chosen.count == todos.count ? [] : Set(todos.map(\.ref))
+                }
+                Spacer()
+                Picker("Add to", selection: $column) {
+                    Text(BoardColumn.backlog.title).tag(BoardColumn.backlog)
+                    Text(BoardColumn.ready.title).tag(BoardColumn.ready)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(sources) { source in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: source.kind == .meeting ? "person.2.wave.2" : (source.kind == .commitment ? "hand.raised" : "note.text"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(source.title).font(.callout.weight(.medium)).lineLimit(1)
+                                Text(source.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            ForEach(source.todos) { todo in
+                                Toggle(isOn: Binding(get: { chosen.contains(todo.ref) },
+                                                     set: { if $0 { chosen.insert(todo.ref) } else { chosen.remove(todo.ref) } })) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        if let owner = todo.owner { OwnerChip(name: owner) }
+                                        Text(todo.text).fixedSize(horizontal: false, vertical: true)
+                                        if let due = todo.due {
+                                            Badge(text: CommitmentService.dueLabel(due), color: due < Date() ? .red : .secondary)
+                                        }
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 160, maxHeight: 420)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(chosen.count == 1 ? "Add 1 Card" : "Add \(chosen.count) Cards", action: add)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(chosen.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+    }
+
+    /// Newest on top, in the order they're listed.
+    private func add() {
+        for todo in todos.reversed() where chosen.contains(todo.ref) {
+            controller.board.create(from: todo.todo, column: column, binderID: binder.id, by: .you)
+        }
+        dismiss()
     }
 }
