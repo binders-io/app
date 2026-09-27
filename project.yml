@@ -46,6 +46,10 @@ targets:
             CFBundleTypeRole: Viewer
         NSLocalNetworkUsageDescription: Binders lets the iPhones you pair with this Mac connect to it over your network, so your notes and to-dos stay on your own devices.
         NSBonjourServices: [_binders._tcp]
+        # A model server you run yourself (Ollama, llama.cpp, vLLM) is usually plain http, often on another machine over
+        # Tailscale, and macOS only lets an app reach that if it allows it. Binders' own addresses are all https.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         NSMicrophoneUsageDescription: Binders listens only while you hold your dictation shortcut or record a meeting, and transcribes on this Mac.
         NSAudioCaptureUsageDescription: Binders records what other meeting participants say so it can take notes on this Mac.
         NSCalendarsFullAccessUsageDescription: Binders uses your calendar to title meetings and name attendees in meeting notes, and to add the events you ask for out loud.
