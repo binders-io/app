@@ -73,6 +73,7 @@ enum TaskCollector {
 
 /// Open to-dos with their owners, grouped by where they came from and filterable by person; done ones fold away underneath.
 struct TaskBoard: View {
+    @Environment(DictationController.self) private var controller
     let tasks: [TaskEntry]
     /// Show at most this many open tasks (Home shows a handful).
     var limit: Int? = nil
@@ -199,6 +200,24 @@ struct TaskBoard: View {
             }
         }
         .padding(.leading, 4)
+        .contextMenu {
+            if !task.done {
+                Button("Move to Board") { moveToBoard(task) }
+            }
+        }
+    }
+
+    /// Turns a to-do into a card on its binder's board, linked back to where it came from, and ticks the to-do off.
+    private func moveToBoard(_ task: TaskEntry) {
+        let kind = switch task.kind {
+        case .meeting: "meeting"
+        case .note: "note"
+        case .commitment: "commitment"
+        }
+        let owner = task.owner.map { "\($0): " } ?? ""
+        controller.board.create(title: task.text, details: owner.isEmpty ? "" : "For \(owner.dropLast(2)).", binderID: task.binderID,
+                                column: .ready, due: task.due, source: (kind, task.sourceID.uuidString, task.sourceTitle), by: .you)
+        task.toggle()
     }
 
     private func chip(_ label: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {

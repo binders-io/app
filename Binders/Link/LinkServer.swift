@@ -306,6 +306,7 @@ final class LinkServer {
             case "CommitmentRecord": kinds.insert("todos")
             case "BinderRecord": kinds.insert("binders")
             case "TranscriptRecord": kinds.insert("dictations")
+            case "TaskCard", "TaskEvent": kinds.insert("tasks")
             default: kinds.insert("other")
             }
         }
@@ -319,7 +320,8 @@ final class LinkServer {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         return await MCPCore.handle(message, serverName: "binders", serverVersion: version, instructions: MCPServer.instructions,
                                     tools: MCPServer.tools, call: { name, arguments in
-            try await MCPServer.call(name, arguments, knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller))
+            // On the phone, it's you.
+            try await MCPServer.call(name, arguments, knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller), actor: .you)
         })
     }
 

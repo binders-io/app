@@ -145,6 +145,20 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `add_todo` (text, binder) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date, in the named binder or the current one; done or open (ticks the checkbox where it lives), or dismiss a promise |
 | `add_to_calendar` (text) | An event from a phrase such as "lunch with Sam tomorrow at noon" |
 
+**The board.** Each binder has a board of cards that people and agents pick up: Backlog, Ready, In progress, Blocked,
+Review, Done. An agent names itself with `agent` (default: the app it runs in). A claim lasts 30 minutes and every update
+extends it; a claim that lapses sends the card back to Ready. Agents hand finished work over for review unless the
+binder lets them finish.
+
+| Tool | Does |
+|---|---|
+| `list_tasks` (binder, column, mine, agent) · `get_task` (id) | Cards (everything but Done unless you ask), and one card with its links and timeline |
+| `create_task` (title, details, binder, column) | A new card in Backlog or Ready |
+| `claim_task` (id, agent) | Takes a card; one owner at a time. A Ready or Backlog card moves to In progress |
+| `update_task` (id, progress, links, column, agent) | A progress report and links (it keeps the claim), or a move |
+| `ask_on_task` (id, question, agent) · `comment_task` (id, text, agent) | A question for you (the card waits in Blocked until you answer), or a comment |
+| `release_task` (id, note, agent) · `complete_task` (id, summary, agent) | Lets go with a note for the next one, or finishes with a summary |
+
 Reads go straight to the database. Writes are handed to the running app, which does them and answers with the new
 item's id, so its windows update, reminders get scheduled and the index picks the item up within seconds; if the app
 isn't running, macOS launches it. Nothing can be deleted this way.

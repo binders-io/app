@@ -255,6 +255,45 @@ enum DemoData {
         _ = writing("Thanks for the debrief notes. I agree with the panel, let's move to the final conversation next week.",
                     app: "Mail", bundle: "com.apple.mail", source: "mail", to: "Amara Osei", subject: "Re: Design candidate", in: hiring, hoursAgo: 50)
 
+        // The Harbor launch board: people and agents, a card in every column.
+        let claude = BoardActor(name: "Claude Code · harbor-web", kind: .agent), cursor = BoardActor(name: "Cursor · harbor-web", kind: .agent)
+        func card(_ title: String, _ column: BoardColumn, details: String = "", holder: BoardActor? = nil, minutesLeft: Double = 0,
+                  links: [String] = [], source: String? = nil, events: [(TaskEvent.Kind, BoardActor, String, Double)]) {
+            let card = TaskCard(title: title, binderID: harbor.id, column: column)
+            card.details = details
+            card.links = links
+            card.sourceTitle = source
+            card.sourceKind = source == nil ? nil : "meeting"
+            if let holder {
+                card.assignee = holder.name
+                card.assigneeIsAgent = holder.isAgent
+                card.claimExpiresAt = holder.isAgent && column != .done && column != .review ? Date().addingTimeInterval(minutesLeft * 60) : nil
+            }
+            card.createdAt = Date().addingTimeInterval(-(events.first?.3 ?? 1) * 3600)
+            card.updatedAt = Date().addingTimeInterval(-(events.last?.3 ?? 1) * 3600)
+            card.position = card.updatedAt.timeIntervalSinceReferenceDate
+            context.insert(card)
+            for (kind, who, text, hoursAgo) in events {
+                let event = TaskEvent(taskID: card.id, kind: kind, author: who, text: text, to: kind == .moved || kind == .completed ? column : nil)
+                event.createdAt = Date().addingTimeInterval(-hoursAgo * 3600)
+                context.insert(event)
+            }
+        }
+        card("Rewrite the status page wording", .backlog, events: [(.created, .you, "", 70)])
+        card("Fix the import timeout above 20,000 rows", .ready, details: "Tomás has a batching fix in review. Run the import test on staging with 50k rows before Monday.",
+             source: meetingTitle, events: [(.created, .you, "From Launch readiness review", 22)])
+        card("Draft the changelog post", .inProgress, details: "One post for the 28th: batched imports, annual plans, the new onboarding emails.",
+             holder: claude, minutesLeft: 24, links: ["https://github.com/example/harbor-web/pull/214"],
+             events: [(.created, .you, "", 5), (.claimed, claude, "", 2), (.progress, claude, "Drafted the post from the launch checklist and yesterday's review notes.\n→ https://github.com/example/harbor-web/pull/214", 0.6)])
+        card("Update the pricing comparison table", .blocked, details: "The comparison table on the pricing page still shows last year's plans.", holder: cursor, minutesLeft: 18,
+             events: [(.created, .you, "", 26), (.claimed, cursor, "", 1.5), (.progress, cursor, "Rebuilt the table with the three current plans.", 0.9),
+                      (.question, cursor, "Should annual plans show the 15% discount in the table, or only on the pricing page itself?", 0.3)])
+        card("Write onboarding email 5", .review, details: "The fifth onboarding email: tips for importing a large workspace.",
+             holder: BoardActor(name: "Claude Code · harbor-emails", kind: .agent),
+             events: [(.created, .you, "", 30), (.claimed, BoardActor(name: "Claude Code · harbor-emails", kind: .agent), "", 6),
+                      (.completed, BoardActor(name: "Claude Code · harbor-emails", kind: .agent), "Drafted email 5 in the team's voice; it links to the new import guide. Worth a look: the troubleshooting paragraph.", 1)])
+        card("Migrate billing to the new provider", .done, holder: .you, events: [(.created, .you, "", 120), (.completed, .you, "Moved all 412 beta accounts.", 48)])
+
         // Two weeks of dictation for the activity chart and the stats.
         let apps = [("Slack", "com.tinyspeck.slackmacgap", "chat"), ("Mail", "com.apple.mail", "email"), ("Notes", "com.apple.Notes", "notes"),
                     ("Microsoft Teams", "com.microsoft.teams2", "chat"), ("Xcode", "com.apple.dt.Xcode", "code")]

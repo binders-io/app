@@ -107,6 +107,8 @@ final class BinderRecord {
     var isTeamCopy: Bool = false
     var teamAuthorName: String?
     var teamAuthorID: String?
+    /// On this binder's board, agents may move cards to Done themselves instead of handing them over for review.
+    var agentsMayFinish: Bool = false
 
     static let paletteSize = 8
 
@@ -340,7 +342,7 @@ final class Store {
     init(url: URL) {
         let schema = Schema([TranscriptRecord.self, DictionaryWord.self, SnippetItem.self, NoteItem.self,
                              MeetingRecord.self, MeetingSegmentRecord.self, BinderRecord.self, WritingRecord.self,
-                             CommitmentRecord.self])
+                             CommitmentRecord.self, TaskCard.self, TaskEvent.self])
         let configuration = ModelConfiguration(schema: schema, url: url)
         do {
             container = try ModelContainer(for: schema, configurations: [configuration])

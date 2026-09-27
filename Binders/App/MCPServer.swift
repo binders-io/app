@@ -12,6 +12,10 @@ enum MCPServer {
         Binders is the user's private, local knowledge base on this Mac: meeting notes, notes, dictations and writing they \
         chose to keep. Nothing here leaves the machine. Use search_knowledge for facts and quotes, ask_knowledge for a \
         written answer with sources, and the list/get tools to read whole items. Dates are ISO 8601, local time.
+
+        Each binder also has a board of cards that people and agents pick up. To work on one: list_tasks (column ready), \
+        claim_task, report with update_task as you go (it keeps your claim; a claim lapses after 30 minutes of silence), \
+        ask_on_task if you need the user, and complete_task with a summary when you're done. Say who you are with `agent`.
         """
 
     static let tools: [MCPTool] = [
@@ -53,6 +57,53 @@ enum MCPServer {
             MCPToolParameter(name: "id", description: "The to-do's id, from list_todos or add_todo.", required: true),
             MCPToolParameter(name: "status", description: "The new status.", required: true, options: ["open", "done", "dismissed"]),
         ]),
+        MCPTool(name: "list_tasks", description: "Cards on the binders' boards, where people and agents pick up work: what's ready, in progress, blocked or waiting for review. Everything but Done unless you ask for a column.", parameters: [
+            MCPToolParameter(name: "binder", description: "Only this binder's board; see list_binders."),
+            MCPToolParameter(name: "column", description: "Only this column.", options: ["backlog", "ready", "in_progress", "blocked", "review", "done"]),
+            MCPToolParameter(name: "mine", type: "boolean", description: "Only the cards you (the agent named in `agent`) hold."),
+            MCPToolParameter(name: "agent", description: "Your name on the board, as used with claim_task."),
+        ]),
+        MCPTool(name: "get_task", description: "One card in full: its description, links, who has it, and its timeline of moves, progress reports, questions and answers.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id, from list_tasks or create_task.", required: true),
+        ]),
+        MCPTool(name: "create_task", description: "Put a new card on a binder's board. Returns its id.", parameters: [
+            MCPToolParameter(name: "title", description: "What needs doing, in a few words.", required: true),
+            MCPToolParameter(name: "details", description: "More about it, in Markdown if you like."),
+            MCPToolParameter(name: "binder", description: "The binder's name; see list_binders. Default: the user's current binder."),
+            MCPToolParameter(name: "column", description: "Where it starts. Default backlog.", options: ["backlog", "ready"]),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: "claim_task", description: "Grab a card to work on it. One owner at a time; a Ready or Backlog card moves to In progress. Your claim lasts 30 minutes and every update extends it.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board, such as \"Claude Code · binders-io/app\". Default: the app you run in."),
+        ]),
+        MCPTool(name: "update_task", description: "Report progress on a card you hold (it keeps your claim), add links such as pull requests or files, or move it to another column.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "progress", description: "What you did or found since the last update."),
+            MCPToolParameter(name: "links", description: "URLs or file paths, one per line or comma-separated."),
+            MCPToolParameter(name: "column", description: "Move it here.", options: ["backlog", "ready", "in_progress", "blocked", "review", "done"]),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: "ask_on_task", description: "Ask the user a question about a card. It moves to Blocked until they answer; get_task shows the answer.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "question", description: "What you need to know.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: "comment_task", description: "Add a comment to a card's timeline.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "text", description: "The comment.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: "release_task", description: "Let go of a card you hold, with a note for whoever picks it up next. It goes back to Ready.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "note", description: "Where you got to, and what's left."),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: "complete_task", description: "Finish a card with a summary of what was done. It goes to Review for the user, unless they let agents finish cards in that binder.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "summary", description: "What was done, and anything the user should check.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
         MCPTool(name: "add_to_calendar", description: "Add an event to the user's calendar from a phrase such as \"lunch with Sam tomorrow at noon\". Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "What and when.", required: true),
         ]),
@@ -85,6 +136,8 @@ enum MCPServer {
     ]
 
     private static let knowledge = KnowledgeService()
+    /// The host that connected ("claude-code"), from its initialize message: an agent's default name on the board.
+    private static var clientName = "AI agent"
     private static let writeLock = NSLock()
     /// Requests still being answered; when the host closes the pipe, the server leaves once they are done.
     private static var pending = 0
@@ -117,9 +170,14 @@ enum MCPServer {
             write(MCPCore.parseError())
             return
         }
+        if message["method"] as? String == "initialize",
+           let info = (message["params"] as? [String: Any])?["clientInfo"] as? [String: Any] {
+            clientName = (info["title"] as? String) ?? BoardRules.agentName(fromClient: info["name"] as? String ?? "")
+        }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let agent = BoardActor(name: clientName, kind: .agent)
         guard let reply = await MCPCore.handle(message, serverName: "binders", serverVersion: version, instructions: instructions, tools: tools,
-                                               call: { name, arguments in try await call(name, arguments, knowledge: knowledge, write: handOff) }) else { return }
+                                               call: { name, arguments in try await call(name, arguments, knowledge: knowledge, write: handOff, actor: agent) }) else { return }
         write(reply)
     }
 
@@ -138,8 +196,20 @@ enum MCPServer {
     typealias Writer = (_ action: String, _ fields: [String: String]) async throws -> String
 
     /// Runs one tool. Shared by `Binders --mcp` and the phone link, which differ only in how they write.
-    static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write: Writer) async throws -> String {
+    static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write: Writer,
+                     actor: BoardActor = BoardActor(name: "AI agent", kind: .agent)) async throws -> String {
         func string(_ key: String) -> String { (arguments[key] as? String ?? "").trimmed }
+        /// Who is acting on the board: the agent's own name if it gave one, else the app it runs in; a person as themselves.
+        func acting() -> BoardActor {
+            guard actor.isAgent else { return actor }
+            let named = string("agent")
+            return named.isEmpty ? actor : BoardActor(name: String(named.prefix(80)), kind: .agent)
+        }
+        func boardWrite(_ action: String, _ fields: [String: String]) async throws -> String {
+            guard !string("id").isEmpty || action == "create_task" else { throw MCPCore.ToolFailure("id is required") }
+            let who = acting()
+            return try await write(action, fields.merging(["id": string("id"), "actor": who.name, "actor_kind": who.kind.rawValue]) { a, _ in a })
+        }
         func integer(_ key: String, default value: Int, max cap: Int) -> Int {
             let asked = (arguments[key] as? Int) ?? (arguments[key] as? Double).map(Int.init) ?? value
             return min(max(1, asked), cap)
@@ -252,9 +322,66 @@ enum MCPServer {
         case "set_todo_status":
             guard !string("id").isEmpty, !string("status").isEmpty else { throw MCPCore.ToolFailure("id and status are required") }
             return try await write(name, ["id": string("id"), "status": string("status")])
+        case "list_tasks":
+            let binder = binderID(named: string("binder"))
+            if !string("binder").isEmpty, binder == nil { throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.") }
+            let column = BoardColumn(loose: string("column"))
+            let me = acting().name
+            let now = Date()
+            let cards = ((try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(sortBy: [SortDescriptor(\.position, order: .reverse)]))) ?? [])
+                .filter { binder == nil || $0.binderID == binder }
+                .filter { card in column.map { card.column == $0 } ?? (card.column != .done) }
+                .filter { arguments["mine"] as? Bool != true || ($0.assignee == me && BoardRules.isClaimed($0.state, at: now)) }
+            return json(cards.prefix(100).map { describe($0, now: now) })
+        case "get_task":
+            guard let id = UUID(uuidString: string("id")),
+                  let card = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == id })))?.first else {
+                throw MCPCore.ToolFailure("No card with that id. list_tasks shows them.")
+            }
+            let events = (try? Store.shared.context.fetch(FetchDescriptor<TaskEvent>(predicate: #Predicate { $0.taskID == id }, sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+            var result = describe(card, now: Date())
+            result["details"] = card.details
+            result["links"] = card.links
+            result["source"] = card.sourceTitle ?? ""
+            result["timeline"] = events.suffix(60).map { event in
+                ["when": AutomationPayload.iso(event.createdAt), "who": event.author, "agent": event.authorIsAgent, "kind": event.kindRaw,
+                 "text": event.text, "to": event.toColumn ?? ""] as [String: Any]
+            }
+            return json(result)
+        case "create_task":
+            guard !string("title").isEmpty else { throw MCPCore.ToolFailure("title is required") }
+            return try await boardWrite(name, ["title": string("title"), "details": string("details"), "binder": string("binder"), "column": string("column")])
+        case "claim_task":
+            return try await boardWrite(name, [:])
+        case "update_task":
+            guard !string("progress").isEmpty || !string("links").isEmpty || !string("column").isEmpty else {
+                throw MCPCore.ToolFailure("Give progress, links or a column")
+            }
+            if !string("column").isEmpty, BoardColumn(loose: string("column")) == nil { throw MCPCore.ToolFailure("column must be one of backlog, ready, in_progress, blocked, review, done") }
+            return try await boardWrite(name, ["progress": string("progress"), "links": string("links"), "column": string("column")])
+        case "ask_on_task":
+            guard !string("question").isEmpty else { throw MCPCore.ToolFailure("question is required") }
+            return try await boardWrite(name, ["text": string("question")])
+        case "comment_task":
+            guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
+            return try await boardWrite(name, ["text": string("text")])
+        case "release_task":
+            return try await boardWrite(name, ["text": string("note")])
+        case "complete_task":
+            guard !string("summary").isEmpty else { throw MCPCore.ToolFailure("summary is required") }
+            return try await boardWrite(name, ["text": string("summary")])
         default:
             throw MCPCore.ToolFailure("No tool named \(name)")
         }
+    }
+
+    private static func describe(_ card: TaskCard, now: Date) -> [String: Any] {
+        let held = BoardRules.isClaimed(card.state, at: now)
+        return ["id": card.id.uuidString, "title": card.title, "column": card.column.rawValue,
+                "assignee": held || card.column == .done || card.column == .review ? (card.assignee ?? "") : "",
+                "assignee_is_agent": card.assigneeIsAgent, "claim_expires": held ? card.claimExpiresAt.map(AutomationPayload.iso) ?? "" : "",
+                "binder": Store.shared.binder(card.binderID)?.name ?? "", "due": card.dueAt.map(AutomationPayload.iso) ?? "",
+                "links": card.links.count, "updated": AutomationPayload.iso(card.updatedAt), "preview": String(card.details.prefix(200))]
     }
 
     /// Hands a write to the running app through the inbox and waits for its answer. The app is the only writer, so its

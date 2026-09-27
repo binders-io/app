@@ -572,6 +572,17 @@ enum SelfTest {
             }
             return 0
         }
+        if let path = value("--selftest-store-check") {
+            // Opens a copy of a store (never the real one) and counts what's in it: a check that a new schema migrates.
+            let store = Store(url: URL(fileURLWithPath: path))
+            func count<T: PersistentModel>(_ type: T.Type) -> Int { (try? store.context.fetchCount(FetchDescriptor<T>())) ?? -1 }
+            print("FALLBACK: \(store.isFallback)")
+            print("COUNTS: binders=\(count(BinderRecord.self)) notes=\(count(NoteItem.self)) meetings=\(count(MeetingRecord.self)) segments=\(count(MeetingSegmentRecord.self)) transcripts=\(count(TranscriptRecord.self)) writing=\(count(WritingRecord.self)) commitments=\(count(CommitmentRecord.self)) cards=\(count(TaskCard.self))")
+            return store.isFallback ? 1 : 0
+        }
+        if args.contains("--selftest-board") {
+            return await boardSelfTest()
+        }
         if args.contains("--selftest-link-serve") {
             return await linkServe()
         }
@@ -898,6 +909,88 @@ open reports/import.html
         print("FINAL: \(result.text)")
     }
 
+    /// Two agents and you on a board, through the same tools Claude uses, in a throwaway folder (BINDERS_DATA_DIR).
+    @MainActor
+    private static func boardSelfTest() async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes cards")
+            return 1
+        }
+        var failures = 0
+        func check(_ condition: Bool, _ label: String) {
+            print("\(condition ? "PASS" : "FAIL"): \(label)")
+            if !condition { failures += 1 }
+        }
+        let controller = DictationController()
+        let write = MCPServer.writeInApp(controller: controller)
+        let agentA = BoardActor(name: "Agent A", kind: .agent), agentB = BoardActor(name: "Agent B", kind: .agent)
+        func call(_ tool: String, _ arguments: [String: Any], as actor: BoardActor) async -> (ok: Bool, text: String) {
+            do { return (true, try await MCPServer.call(tool, arguments, knowledge: controller.knowledge, write: write, actor: actor)) }
+            catch { return (false, (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription) }
+        }
+        func object(_ text: String) -> [String: Any] { (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:] }
+        func list(_ text: String) -> [[String: Any]] { (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]]) ?? [] }
+
+        let launch = BinderRecord(name: "Launch", colorIndex: 2)
+        Store.shared.insert(launch)
+        let created = await call("create_task", ["title": "Write the release notes", "binder": "Launch", "column": "ready"], as: agentA)
+        guard let id = object(created.text)["id"] as? String, let card = controller.board.card(UUID(uuidString: id)!) else {
+            print("BOARD_FAILED: couldn't create a card: \(created.text)")
+            return 1
+        }
+        check(card.column == .ready && card.binderID == launch.id, "an agent puts a card in Launch's Ready column")
+        check(list((await call("list_tasks", ["binder": "Launch", "column": "ready"], as: agentB)).text).count == 1, "list_tasks finds it")
+
+        check((await call("claim_task", ["id": id], as: agentA)).ok && card.column == .inProgress && card.assignee == "Agent A",
+              "Agent A claims it and it moves to In progress")
+        let stolen = await call("claim_task", ["id": id], as: agentB)
+        check(!stolen.ok && stolen.text.contains("Agent A"), "Agent B can't claim it: \(stolen.text)")
+        check(!(await call("update_task", ["id": id, "column": "review"], as: agentB)).ok, "nor move it")
+
+        let leaseBefore = card.claimExpiresAt ?? .distantPast
+        try? await Task.sleep(for: .milliseconds(20))
+        let reported = await call("update_task", ["id": id, "progress": "Drafted the notes", "links": "https://example.com/pr/12"], as: agentA)
+        check(reported.ok && card.links == ["https://example.com/pr/12"] && (card.claimExpiresAt ?? .distantPast) > leaseBefore,
+              "a progress report adds the link and renews the claim")
+
+        check((await call("ask_on_task", ["id": id, "question": "Should the notes mention the pricing change?"], as: agentA)).ok && card.column == .blocked,
+              "asking moves it to Blocked")
+        check((await call("comment_task", ["id": id, "text": "Yes, one line."], as: .you)).ok && card.column == .inProgress,
+              "your answer (as from the phone) sends it back to In progress")
+
+        let finish = await call("update_task", ["id": id, "column": "done"], as: agentA)
+        check(!finish.ok && finish.text.localizedCaseInsensitiveContains("review"), "Agent A can't move it to Done: \(finish.text)")
+        check((await call("complete_task", ["id": id, "summary": "Notes are in the PR."], as: agentA)).ok && card.column == .review,
+              "complete_task hands it over for review")
+        check((await call("update_task", ["id": id, "column": "done"], as: .you)).ok && card.column == .done, "you approve it: Done")
+        check(list((await call("list_tasks", ["binder": "Launch"], as: agentA)).text).isEmpty, "Done cards drop out of list_tasks")
+
+        let timeline = object((await call("get_task", ["id": id], as: agentA)).text)["timeline"] as? [[String: Any]] ?? []
+        let kinds = timeline.compactMap { $0["kind"] as? String }
+        check(kinds == ["created", "claimed", "progress", "question", "answer", "completed", "moved"], "the timeline tells the story: \(kinds)")
+
+        // An agent that goes quiet loses the card.
+        let second = object((await call("create_task", ["title": "Check the import tool", "binder": "Launch", "column": "ready"], as: .you)).text)["id"] as? String ?? ""
+        _ = await call("claim_task", ["id": second, "agent": "Claude Code · repo"], as: agentB)
+        let quiet = controller.board.card(UUID(uuidString: second)!)!
+        check(quiet.assignee == "Claude Code · repo", "an agent names itself with `agent`")
+        check(list((await call("list_tasks", ["mine": true, "agent": "Claude Code · repo"], as: agentB)).text).count == 1, "and finds its own cards with `mine`")
+        quiet.claimExpiresAt = Date().addingTimeInterval(-1)
+        controller.board.sweep()
+        check(quiet.column == .ready && quiet.assignee == nil && controller.board.timeline(quiet.id).last?.kind == .lapsed,
+              "after its lease lapses, the card is back in Ready")
+
+        // A binder can let agents finish.
+        launch.agentsMayFinish = true
+        _ = await call("claim_task", ["id": second], as: agentA)
+        check((await call("complete_task", ["id": second, "summary": "Import works up to 50k rows."], as: agentA)).ok && quiet.column == .done,
+              "where agents may finish, complete_task goes straight to Done")
+        check(!(await call("claim_task", ["id": UUID().uuidString], as: agentA)).ok, "an unknown card is refused")
+
+        print(failures == 0 ? "BOARD_OK" : "BOARD_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+
     /// For developing the iPhone app: the fictional demo data behind a real phone link, a pairing link on standard output
     /// (with 127.0.0.1 first, for the Simulator), and commands on standard input: "todo <text>", "note <text>", "pair".
     @MainActor
@@ -1105,6 +1198,11 @@ open reports/import.html
         let digested = notes.first { $0.binderID == harbor.id && !$0.digest.isEmpty }
         await render(hub { $0.selection = .binder; $0.pendingBinderTab = .notes; $0.pendingNoteID = digested?.id },
                      size: size, name: "demo-note", directory: directory)
+        await render(hub { $0.selection = .binder; $0.pendingBinderTab = .board }, size: NSSize(width: 1560, height: 820), name: "demo-board", directory: directory)
+        if let blocked = controller.board.cards(in: harbor.id).first(where: { $0.column == .blocked }) {
+            await render(CardDetailView(card: blocked).environment(controller).modelContainer(Store.shared.container),
+                         size: NSSize(width: 760, height: 560), name: "demo-card", directory: directory)
+        }
         await render(hub { $0.selection = .writing }, size: size, name: "demo-writing", directory: directory)
         await render(hub { $0.selection = .knowledge }, size: size, name: "demo-knowledge", directory: directory)
         for page in [SettingsPage.general, .shortcuts, .dictation, .ai, .writing, .automations, .mcp, .phone] {

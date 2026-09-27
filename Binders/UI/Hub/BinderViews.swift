@@ -20,7 +20,7 @@ enum BinderPalette {
 }
 
 enum BinderTab: String, CaseIterable {
-    case overview = "Overview", meetings = "Meetings", notes = "Notes", knowledge = "Knowledge"
+    case overview = "Overview", board = "Board", meetings = "Meetings", notes = "Notes", knowledge = "Knowledge"
 }
 
 /// One binder: what's in it, what's still open in it, and whether the team sees it.
@@ -125,7 +125,7 @@ struct BinderPage: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 440)
+            .frame(maxWidth: 520)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
             Divider()
@@ -139,6 +139,7 @@ struct BinderPage: View {
                         navigation.pendingNoteID = id
                         tab = .notes
                     })
+                case .board: BoardView(binder: binder)
                 case .meetings: MeetingsView(binderID: binder.id)
                 case .notes: NotesView(binderID: binder.id)
                 case .knowledge: KnowledgeView(binderID: binder.id)

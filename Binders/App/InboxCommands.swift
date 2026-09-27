@@ -104,6 +104,9 @@ enum InboxCommands {
             }
             return InboxResult(ok: true, id: added.commitment.id.uuidString, message: added.line)
 
+        case "create_task", "claim_task", "update_task", "ask_on_task", "comment_task", "release_task", "complete_task":
+            return boardAction(request.action, field: field, controller: controller)
+
         case "add_to_calendar":
             let text = field("text")
             guard !text.isEmpty else { return .failure("text is required") }
@@ -142,6 +145,55 @@ enum InboxCommands {
         }
         store.save()
         return InboxResult(ok: true, id: reference.string, message: "“\(result.task.text)” is now \(done ? "done" : "open")")
+    }
+
+    /// A change to a card, by the actor named in the request (an agent over MCP, or you from the phone).
+    private static func boardAction(_ action: String, field: (String) -> String, controller: DictationController) -> InboxResult {
+        let board = controller.board
+        let actor = BoardActor(name: field("actor").isEmpty ? "AI agent" : field("actor"),
+                               kind: BoardActor.Kind(rawValue: field("actor_kind")) ?? .agent)
+        if action == "create_task" {
+            guard !field("title").isEmpty else { return .failure("title is required") }
+            guard let target = binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
+            let column: BoardColumn = BoardColumn(loose: field("column")) == .ready ? .ready : .backlog
+            let card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
+            return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to \(target.name)'s board, in \(card.column.title)")
+        }
+        guard let id = UUID(uuidString: field("id")), let card = board.card(id) else {
+            return .failure("No card with that id. list_tasks shows them.")
+        }
+        do {
+            switch action {
+            case "claim_task":
+                try board.claim(card, by: actor)
+                let until = card.claimExpiresAt.map { " until \($0.formatted(date: .omitted, time: .shortened)); every update extends it" } ?? ""
+                return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is yours\(until). It's \(card.column.title).")
+            case "update_task":
+                if let column = BoardColumn(loose: field("column")) { try board.move(card, to: column, by: actor) }
+                if !field("progress").isEmpty || !field("links").isEmpty {
+                    let links = field("links").split(whereSeparator: { $0 == "\n" || $0 == "," }).map(String.init)
+                    board.report(card, progress: field("progress"), links: links, by: actor)
+                }
+                return InboxResult(ok: true, id: card.id.uuidString, message: "Updated “\(card.title)”. It's \(card.column.title).")
+            case "ask_on_task":
+                try board.ask(card, question: field("text"), by: actor)
+                return InboxResult(ok: true, id: card.id.uuidString, message: "Asked. “\(card.title)” waits in Blocked until the user answers; get_task shows the answer.")
+            case "comment_task":
+                board.comment(card, text: field("text"), by: actor)
+                return InboxResult(ok: true, id: card.id.uuidString, message: "Comment added to “\(card.title)”.")
+            case "release_task":
+                try board.release(card, note: field("text"), by: actor)
+                return InboxResult(ok: true, id: card.id.uuidString, message: "Released “\(card.title)”. It's back in \(card.column.title).")
+            case "complete_task":
+                try board.complete(card, summary: field("text"), by: actor)
+                return InboxResult(ok: true, id: card.id.uuidString,
+                                   message: card.column == .done ? "“\(card.title)” is done." : "“\(card.title)” is in Review for the user to check.")
+            default:
+                return .failure("Unknown action \(action)")
+            }
+        } catch {
+            return .failure(error.localizedDescription)
+        }
     }
 
     /// The named binder, or the current one when no name is given. Nil when a name is given and nothing matches.
