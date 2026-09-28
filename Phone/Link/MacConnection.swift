@@ -32,6 +32,8 @@ final class MacConnection {
     private(set) var pairingError: String?
     /// Bumped per kind ("todos", "notes", "meetings"…) when the Mac says something changed; screens reload on it.
     private(set) var revisions: [String: Int] = [:]
+    /// Notes and to-dos saved while the Mac was out of reach, sent when it's back.
+    private(set) var outbox: [PendingSave] = Outbox.load()
 
     @ObservationIgnored private var client: LinkClient?
     @ObservationIgnored private var connecting = false
@@ -135,6 +137,7 @@ final class MacConnection {
                     Self.saveMac(self.mac)
                 }
                 changed(["all"])
+                await sendOutbox()
                 return
             } catch LinkClient.Failure.rejected(let message) {
                 candidate.client.close()
@@ -187,6 +190,48 @@ final class MacConnection {
 
     private func changed(_ kinds: [String]) {
         for kind in kinds { revisions[kind, default: 0] += 1 }
+    }
+
+    // MARK: Dictation
+
+    /// The Mac's cleanup of what was dictated here: its model, dictionary and snippets. Nil when the Mac can't be reached,
+    /// or is too old to know how.
+    func format(_ text: String) async -> (text: String, model: String)? {
+        guard await ready(), let client, let result = try? await client.request("binders/format", ["text": text], timeout: 45) as? [String: Any],
+              let cleaned = result["text"] as? String else { return nil }
+        return (cleaned, result["model"] as? String ?? "")
+    }
+
+    /// Saves a note ("add_note") or a to-do ("add_todo") on the Mac, or keeps it here until the Mac is back. True when it
+    /// went straight to the Mac.
+    @discardableResult
+    func save(_ tool: String, text: String, binder: String?) async -> Bool {
+        var arguments: [String: Any] = ["text": text]
+        if let binder { arguments["binder"] = binder }
+        if await ready(), (try? await call(tool, arguments)) != nil { return true }
+        outbox.append(PendingSave(id: UUID(), tool: tool, text: text, binder: binder, created: Date()))
+        Outbox.save(outbox)
+        return false
+    }
+
+    /// Connected, or soon: waits a few seconds for a connection that's on its way, as when the app has just opened.
+    private func ready() async -> Bool {
+        let deadline = Date().addingTimeInterval(8)
+        while client == nil, mac != nil, isActive, connecting || state == .connecting || state == .offline("Not connected yet"),
+              Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return client != nil
+    }
+
+    private func sendOutbox() async {
+        for item in outbox {
+            var arguments: [String: Any] = ["text": item.text]
+            if let binder = item.binder { arguments["binder"] = binder }
+            guard (try? await call(item.tool, arguments)) != nil else { break }
+            outbox.removeAll { $0.id == item.id }
+            Outbox.save(outbox)
+        }
     }
 
     // MARK: Calling the Mac
@@ -293,4 +338,30 @@ enum Cache {
     static func store(_ text: String, for key: String) { try? Data(text.utf8).write(to: file(key), options: .atomic) }
     static func load(_ key: String) -> String? { (try? Data(contentsOf: file(key))).map { String(decoding: $0, as: UTF8.self) } }
     static func clear() { try? FileManager.default.removeItem(at: folder) }
+}
+
+/// A note or to-do waiting for the Mac.
+struct PendingSave: Codable, Identifiable, Equatable {
+    let id: UUID
+    let tool: String
+    let text: String
+    let binder: String?
+    let created: Date
+}
+
+/// The outbox, kept in a file so it survives the app being closed.
+enum Outbox {
+    private static var file: URL {
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("outbox.json")
+    }
+
+    static func load() -> [PendingSave] {
+        (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([PendingSave].self, from: $0) } ?? []
+    }
+
+    static func save(_ items: [PendingSave]) {
+        try? JSONEncoder().encode(items).write(to: file, options: [.atomic, .completeFileProtection])
+    }
 }

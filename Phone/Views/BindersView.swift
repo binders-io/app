@@ -11,6 +11,7 @@ struct BindersView: View {
     @State private var needsYou = 0
     @State private var path = NavigationPath()
     @State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
+    @State private var dictating = UserDefaults.standard.string(forKey: "open") == "dictate"
 
     enum Place: Hashable {
         case allTodos, allTasks, allMeetings, allNotes
@@ -74,6 +75,8 @@ struct BindersView: View {
                 ToolbarItem(placement: .topBarTrailing) { MacStatusButton() }
             }
             .sheet(isPresented: $asking) { AskView() }
+            .safeAreaInset(edge: .bottom) { DictateButton { dictating = true } }
+            .sheet(isPresented: $dictating) { DictationSheet() }
             .refreshable { await load() }
             .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings") + connection.revision("todos")
                   + connection.revision("tasks")) {
@@ -142,6 +145,7 @@ struct BinderDetailView: View {
     let binder: BinderInfo
     @State private var section: Section
     @State private var writing = false
+    @State private var dictating = false
 
     enum Section: String, CaseIterable {
         case todos = "To-dos", board = "Board", meetings = "Meetings", notes = "Notes"
@@ -181,6 +185,8 @@ struct BinderDetailView: View {
             }
         }
         .sheet(isPresented: $writing) { NewNoteSheet(binder: binder.name) }
+        .safeAreaInset(edge: .bottom) { DictateButton { dictating = true } }
+        .sheet(isPresented: $dictating) { DictationSheet(binder: binder.name) }
     }
 }
 
@@ -198,4 +204,23 @@ enum BinderPalette {
     ]
 
     static func color(_ index: Int) -> Color { colors[abs(index) % colors.count] }
+}
+
+/// The way into dictation, at the bottom of the screen where a thumb is.
+struct DictateButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Dictate", systemImage: "mic.fill")
+                .font(.headline)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 14)
+                .background(Capsule().fill(Color.accentColor))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        }
+        .padding(.bottom, 8)
+        .accessibilityHint("Say a note or a to-do")
+    }
 }

@@ -88,6 +88,7 @@ struct NewNoteSheet: View {
     @State private var text = ""
     @State private var saving = false
     @State private var problem: String?
+    @State private var dictating = false
 
     var body: some View {
         NavigationStack {
@@ -107,6 +108,14 @@ struct NewNoteSheet: View {
                             Button("Save", action: save).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
+                    ToolbarItem(placement: .bottomBar) {
+                        Button { dictating = true } label: { Label("Dictate", systemImage: "mic.fill") }
+                    }
+                }
+                .sheet(isPresented: $dictating) {
+                    DictationSheet(binder: binder) { words in
+                        text += (text.isEmpty || text.hasSuffix("\n") || text.hasSuffix(" ") ? "" : " ") + words
+                    }
                 }
                 .alert("Couldn't save the note", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                     Button("OK", role: .cancel) {}
@@ -114,18 +123,13 @@ struct NewNoteSheet: View {
         }
     }
 
+    /// Straight to the Mac, or kept here until it's back.
     private func save() {
         saving = true
         Task {
             defer { saving = false }
-            do {
-                var arguments: [String: Any] = ["text": text]
-                if let binder { arguments["binder"] = binder }
-                _ = try await connection.call("add_note", arguments)
-                dismiss()
-            } catch {
-                problem = error.localizedDescription
-            }
+            await connection.save("add_note", text: text, binder: binder)
+            dismiss()
         }
     }
 }

@@ -315,6 +315,11 @@ final class LinkServer {
 
     // MARK: Tools
 
+    /// A phone's dictation, formatted as the Mac formats its own.
+    fileprivate func formatDictation(_ text: String) async -> PipelineResult {
+        await TextFormatter.format(raw: text, context: AppContext(appName: "Binders on iPhone"))
+    }
+
     fileprivate func runTool(_ message: [String: Any]) async -> [String: Any]? {
         guard let controller else { return MCPCore.failure(id: message["id"], code: -32603, message: "Binders is shutting down") }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -500,6 +505,12 @@ private final class LinkSession {
             if method == "binders/subscribe" {
                 isSubscribed = true
                 return reply(MCPCore.success(id: id, result: [String: Any]()))
+            }
+            if method == "binders/format" {
+                // What the phone heard, cleaned up here the way dictation on this Mac is: its model, dictionary and snippets.
+                let result = await server.formatDictation(params["text"] as? String ?? "")
+                return reply(MCPCore.success(id: id, result: ["text": result.text, "used_model": result.usedLLM,
+                                                              "model": result.usedLLM ? AppSettings.shared.llmModelName : ""]))
             }
             reply(await server.runTool(message))
         }

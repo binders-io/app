@@ -41,6 +41,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Binders connects to Binders on your Mac over your network, so your to-dos, notes and meetings stay on your own devices.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Binders listens while you dictate, and only then.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Binders turns what you dictate into text on this iPhone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

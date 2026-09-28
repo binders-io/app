@@ -1526,6 +1526,11 @@ open reports/import.html
             _ = try await phone.callTool("add_todo", ["text": "Call Sam tomorrow at 3 pm"])
             let todos = try await phone.callTool("list_todos")
             check(todos.localizedCaseInsensitiveContains("call sam"), "a to-do added from the phone is on the board")
+            // Dictation from the phone is cleaned up here, the way the Mac cleans its own.
+            let formatted = try await phone.request("binders/format", ["text": "um so send it by friday actually make that thursday"]) as? [String: Any]
+            let cleaned = formatted?["text"] as? String ?? ""
+            check(!cleaned.isEmpty && !cleaned.lowercased().contains("um ") && cleaned.lowercased().contains("thursday") && !cleaned.lowercased().contains("friday"),
+                  "the Mac cleans up the phone's dictation: “\(cleaned)”")
 
             let heard = LinkEvents()
             phone.onNotification { heard.add($0) }
