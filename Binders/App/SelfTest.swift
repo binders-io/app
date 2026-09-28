@@ -682,6 +682,11 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-switcher") {
+            // The quick switcher driven by keystrokes on the demo data, in a window that never shows.
+            return await switcherSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
         if let directory = value("--selftest-demo-shots") {
             // Product screenshots from fictional data in a throwaway folder (BINDERS_DATA_DIR), never the real store.
             let controller = DictationController()
@@ -1343,6 +1348,95 @@ open reports/import.html
         check(!(await set(BoardTaskReference(place: .note, id: note.id, text: "something never written"), "done")).ok, "a changed or missing item is refused")
         check(!(await set(BoardTaskReference(place: .meeting, id: UUID(), text: "send the deck"), "done")).ok, "an unknown meeting is refused")
         print(failures == 0 ? "BOARD_TASKS_OK" : "BOARD_TASKS_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+
+    /// Opens the quick switcher and types into it, on the fictional demo data, checking where Return goes.
+    @MainActor
+    private static func switcherSelfTest(directory: URL) async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
+            return 1
+        }
+        let controller = DictationController()
+        guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
+        await controller.knowledge.indexNow()
+        var failures = 0
+        func check(_ passed: Bool, _ label: String) {
+            print("\(passed ? "PASS" : "FAIL"): \(label)")
+            if !passed { failures += 1 }
+        }
+        let navigation = HubNavigation()
+        let hosting = NSHostingView(rootView: HubView()
+            .environment(controller)
+            .environment(controller.meetings)
+            .environment(controller.knowledge)
+            .environment(controller.team)
+            .environment(controller.capture)
+            .environment(controller.commitments)
+            .environment(navigation)
+            .environment(AppSettings.shared)
+            .modelContainer(Store.shared.container))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1300, height: 780), styleMask: [.titled, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        hosting.wantsLayer = true
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        window.makeKey()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func key(_ characters: String, code: UInt16 = 0) {
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters,
+                                               charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) else { return }
+            window.sendEvent(event)
+        }
+        func type(_ text: String) async {
+            for character in text { key(String(character)) }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        func open(_ mode: SwitcherMode) async {
+            navigation.switcher = mode
+            try? await Task.sleep(for: .milliseconds(700))
+        }
+        let returnKey = ("\r", UInt16(36)), downKey = (String(UnicodeScalar(0xF701)!), UInt16(125)), escapeKey = ("\u{1b}", UInt16(53))
+        try? await Task.sleep(for: .milliseconds(800))
+
+        let harbor = Store.shared.binders().first { $0.name == DemoData.binderName }
+        await open(.open)
+        capture(hosting, name: "switcher-recent", directory: directory)
+        await type("launch rev")
+        capture(hosting, name: "switcher-launch", directory: directory)
+        key(returnKey.0, code: returnKey.1)
+        try? await Task.sleep(for: .milliseconds(600))
+        check(navigation.switcher == nil && navigation.selection == .binder && navigation.binderID == harbor?.id,
+              "typing “launch rev” and Return opens the launch review in Harbor launch")
+
+        await open(.commands)
+        await type("sett ai")
+        capture(hosting, name: "switcher-commands", directory: directory)
+        key(returnKey.0, code: returnKey.1)
+        try? await Task.sleep(for: .milliseconds(600))
+        check(navigation.switcher == nil && navigation.selection == .settings, "⌘P, “sett ai” and Return opens Settings")
+
+        await open(.open)
+        await type("pricing")
+        key(downKey.0, code: downKey.1)
+        try? await Task.sleep(for: .milliseconds(300))
+        capture(hosting, name: "switcher-down", directory: directory)
+        key(escapeKey.0, code: escapeKey.1)
+        try? await Task.sleep(for: .milliseconds(300))
+        check(navigation.switcher == nil, "Esc closes it")
+
+        // People open their page in Knowledge.
+        await open(.open)
+        await type("jonas")
+        key(returnKey.0, code: returnKey.1)
+        try? await Task.sleep(for: .milliseconds(600))
+        check(navigation.selection == .knowledge, "a person opens in Knowledge")
+        window.close()
+        print(failures == 0 ? "SWITCHER_OK" : "SWITCHER_FAILED: \(failures)")
         return failures == 0 ? 0 : 1
     }
 

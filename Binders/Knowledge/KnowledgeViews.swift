@@ -118,8 +118,12 @@ struct KnowledgeView: View {
         .task(id: "\(query)|\(kindFilter?.rawValue ?? "all")|\(ownerFilter.rawValue)") {
             await runSearch()
         }
-        .onAppear(perform: consumePendingQuery)
+        .onAppear {
+            consumePendingQuery()
+            consumePendingEntity()
+        }
         .onChange(of: navigation.pendingKnowledgeQuery) { consumePendingQuery() }
+        .onChange(of: navigation.pendingEntityID) { consumePendingEntity() }
         .onChange(of: selectedEntityID) {
             if selectedEntityID != nil {
                 query = ""
@@ -308,6 +312,15 @@ struct KnowledgeView: View {
 
     static func removalMessage(for entity: KnowledgeEntity) -> String {
         "\(entity.name) and its mentions and relationships are removed, and it won't be picked up again. Your meetings, notes and dictations are not changed. Restore it later in Settings → Knowledge."
+    }
+
+    /// A person, project or topic asked for from elsewhere, such as the quick switcher: its page.
+    private func consumePendingEntity() {
+        guard let id = navigation.pendingEntityID else { return }
+        navigation.pendingEntityID = nil
+        query = ""
+        mode = .search
+        selectedEntityID = id
     }
 
     private func consumePendingQuery() {

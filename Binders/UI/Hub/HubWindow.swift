@@ -47,8 +47,14 @@ final class HubNavigation {
     var pendingHistorySearch: String?
     var pendingWritingSearch: String?
     var pendingKnowledgeQuery: String?
+    /// A person, project or topic to show in Knowledge.
+    var pendingEntityID: Int64?
+    /// A card to open on the binder's board.
+    var pendingCardID: UUID?
     /// The Settings page to open next, consumed by Settings when it appears.
     var pendingSettingsPage: SettingsPage?
+    /// The quick switcher, when it's open: ⌘O to find, ⌘P for commands.
+    var switcher: SwitcherMode?
 }
 
 @MainActor
@@ -93,6 +99,15 @@ final class HubWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// ⌘O and ⌘P, from the Go menu: opens the window if needed, and the switcher; the same keys again close it.
+    @objc func openQuickly(_ sender: Any?) { toggleSwitcher(.open) }
+    @objc func openCommandPalette(_ sender: Any?) { toggleSwitcher(.commands) }
+
+    private func toggleSwitcher(_ mode: SwitcherMode) {
+        show()
+        navigation.switcher = navigation.switcher == mode ? nil : mode
+    }
+
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         // The views go with the window. Kept alive, they would carry on observing, polling and rendering unseen.
@@ -109,16 +124,33 @@ struct HubView: View {
             HubSidebar()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 290)
         } detail: {
-            switch navigation.selection ?? .home {
-            case .home: HomeView()
-            case .binder: BinderPage(binderID: navigation.binderID).id(navigation.binderID)
-            case .writing: WritingView()
-            case .knowledge: KnowledgeView()
-            case .dictionary: DictionaryView()
-            case .snippets: SnippetsView()
-            case .style: StyleView()
-            case .settings: SettingsView()
+            detail
+        }
+        .overlay(alignment: .top) {
+            if let mode = navigation.switcher {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                        .onTapGesture { navigation.switcher = nil }
+                    QuickSwitcher(mode: mode)
+                        .id(mode)
+                        .padding(.top, 64)
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch navigation.selection ?? .home {
+        case .home: HomeView()
+        case .binder: BinderPage(binderID: navigation.binderID).id(navigation.binderID)
+        case .writing: WritingView()
+        case .knowledge: KnowledgeView()
+        case .dictionary: DictionaryView()
+        case .snippets: SnippetsView()
+        case .style: StyleView()
+        case .settings: SettingsView()
         }
     }
 }
@@ -173,6 +205,23 @@ struct HubSidebar: View {
             .padding(.horizontal, 20)
             .padding(.top, 44)
             .padding(.bottom, 14)
+            Button { navigation.switcher = .open } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium))
+                    Text("Jump to…").font(.system(size: 13))
+                    Spacer(minLength: 0)
+                    Text("⌘O").font(.system(size: 11, weight: .medium)).foregroundStyle(ink.opacity(0.4))
+                }
+                .foregroundStyle(ink.opacity(0.6))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(edge))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Jump to any binder, note, meeting, card or person (⌘O). ⌘P runs a command.")
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     row(.home)

@@ -208,6 +208,13 @@ enum MainMenu {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         main.addItem(submenu: edit, title: "Edit")
 
+        let go = NSMenu(title: "Go")
+        for (title, action, key) in [("Open Quickly…", #selector(HubWindowController.openQuickly(_:)), "o"),
+                                     ("Command Palette…", #selector(HubWindowController.openCommandPalette(_:)), "p")] {
+            go.addItem(withTitle: title, action: action, keyEquivalent: key).target = HubWindowController.shared
+        }
+        main.addItem(submenu: go, title: "Go")
+
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")

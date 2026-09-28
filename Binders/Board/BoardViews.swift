@@ -5,6 +5,7 @@ import BindersKit
 /// A binder's board: its cards in six columns, dragged between them by you, picked up by agents over MCP.
 struct BoardView: View {
     @Environment(DictationController.self) private var controller
+    @Environment(HubNavigation.self) private var navigation
     @Bindable var binder: BinderRecord
     @Query private var cards: [TaskCard]
     @State private var selected: TaskCard?
@@ -48,9 +49,18 @@ struct BoardView: View {
         .sheet(item: $selected) { card in
             CardDetailView(card: card).environment(controller)
         }
+        .onAppear(perform: openPendingCard)
+        .onChange(of: navigation.pendingCardID) { openPendingCard() }
         .alert("Couldn't do that", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(problem ?? "") }
+    }
+
+    /// A card asked for from elsewhere, such as the quick switcher.
+    private func openPendingCard() {
+        guard let id = navigation.pendingCardID, let card = cards.first(where: { $0.id == id }) else { return }
+        navigation.pendingCardID = nil
+        selected = card
     }
 
     private func column(_ column: BoardColumn) -> some View {
