@@ -578,6 +578,9 @@ struct EntityDetailView: View {
                         }
                     }
 
+                    // Notes that [[link]] here, and the ones that only name them, one click from a link.
+                    MentionsPanel(title: entity.name, heading: "In your notes and meetings")
+
                     Text("Mentions").font(.headline)
                     ForEach(mentions) { hit in
                         KnowledgeHitRow(hit: hit, emphasis: entity.name)

@@ -92,7 +92,7 @@ struct LiveMeetingView: View {
             } else {
                 MarkdownNoteEditor(text: $meeting.userNotes, fontSize: 14,
                                    placeholder: "Jot down what matters (type, or hold fn to dictate). The summary focuses on it.",
-                                   inset: NSSize(width: 4, height: 8), compactToolbar: true)
+                                   inset: NSSize(width: 4, height: 8), compactToolbar: true, links: LinkTargets.forEditor(in: meeting.binderID))
             }
         }
         .padding(.horizontal, 14)
@@ -489,7 +489,8 @@ struct MeetingDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                MarkdownNoteEditor(text: $meeting.userNotes, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true)
+                MarkdownNoteEditor(text: $meeting.userNotes, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true,
+                                   links: LinkTargets.forEditor(in: meeting.binderID))
             }
         case .transcript: transcriptView
         case .ask: askView
@@ -528,7 +529,8 @@ struct MeetingDetailView: View {
                         .keyboardShortcut(.return, modifiers: .command)
                         .help("⌘↩")
                 }
-                MarkdownNoteEditor(text: $meeting.summary, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true)
+                MarkdownNoteEditor(text: $meeting.summary, fontSize: 14, inset: NSSize(width: 4, height: 8), compactToolbar: true,
+                                   links: LinkTargets.forEditor(in: meeting.binderID))
             }
         } else {
             ScrollView {
@@ -540,6 +542,11 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 8)
                 .padding(.top, canEditSummary ? 26 : 0)
+                // Notes that link to this meeting, or name it.
+                Divider().padding(.vertical, 12)
+                MentionsPanel(title: meeting.title, excluding: meeting.id)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 8)
             }
             .overlay(alignment: .topTrailing) {
                 if isBusy {

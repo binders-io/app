@@ -26,6 +26,14 @@ final class MarkdownEditorModel {
     }
 }
 
+/// What a note's [[links]] reach: the titles to suggest after "[[" for what's been typed, whether a title exists, and
+/// opening one.
+struct NoteLinks {
+    var suggestions: (String) -> [String]
+    var exists: (String) -> Bool
+    var open: (String) -> Void
+}
+
 /// The editor with its formatting toolbar above it.
 struct MarkdownNoteEditor: View {
     @Binding var text: String
@@ -33,6 +41,8 @@ struct MarkdownNoteEditor: View {
     var placeholder = ""
     var inset = NSSize(width: 20, height: 16)
     var compactToolbar = false
+    /// [[Links]] to notes, meetings, people and binders; nil where they can't go anywhere.
+    var links: NoteLinks? = nil
     @State private var model = MarkdownEditorModel()
     /// Every note editor follows the same choice.
     @AppStorage("notesShowMarkdown") private var showsMarkup = false
@@ -41,7 +51,7 @@ struct MarkdownNoteEditor: View {
         VStack(spacing: 0) {
             MarkdownToolbar(model: model, compact: compactToolbar, showsMarkup: $showsMarkup)
             Divider().opacity(0.5)
-            MarkdownEditor(text: $text, model: model, fontSize: fontSize, placeholder: placeholder, inset: inset, showsMarkup: showsMarkup)
+            MarkdownEditor(text: $text, model: model, fontSize: fontSize, placeholder: placeholder, inset: inset, showsMarkup: showsMarkup, links: links)
         }
     }
 }
@@ -111,6 +121,7 @@ struct MarkdownEditor: NSViewRepresentable {
     var placeholder = ""
     var inset = NSSize(width: 20, height: 16)
     var showsMarkup = false
+    var links: NoteLinks? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -126,6 +137,8 @@ struct MarkdownEditor: NSViewRepresentable {
         layout.delegate = textView
         textView.showsMarkup = showsMarkup
         textView.styler = MarkdownStyler(fontSize: fontSize)
+        textView.styler.linkExists = links?.exists
+        textView.links = links
         textView.placeholder = placeholder
         textView.delegate = context.coordinator
         textView.isRichText = false
@@ -160,6 +173,8 @@ struct MarkdownEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scroll.documentView as? MarkdownTextView else { return }
         model.textView = textView
+        textView.links = links
+        textView.styler.linkExists = links?.exists
         textView.showsMarkup = showsMarkup
         // Only text that changed elsewhere (sync, a digest, another window) is pushed in; typing goes the other way.
         if textView.string != text, !context.coordinator.isEditing {
@@ -200,12 +215,16 @@ private extension NSAttributedString.Key {
     static let markdownBullet = NSAttributedString.Key("io.binders.markdown.bullet")
     /// A link's address, on its label, for ⌘-click.
     static let markdownLink = NSAttributedString.Key("io.binders.markdown.link")
+    /// The title a [[link]] points to, on its words.
+    static let markdownWikiLink = NSAttributedString.Key("io.binders.markdown.wikiLink")
 }
 
 /// Turns the spans `MarkdownSyntax` finds into text attributes.
 @MainActor
 struct MarkdownStyler {
     let fontSize: CGFloat
+    /// Whether a [[link]]'s title is a note, meeting, person or binder; links to nothing yet look faded.
+    var linkExists: ((String) -> Bool)?
 
     var baseFont: NSFont { .systemFont(ofSize: fontSize) }
     var codeFont: NSFont { .monospacedSystemFont(ofSize: fontSize * 0.9, weight: .regular) }
@@ -282,6 +301,11 @@ struct MarkdownStyler {
                 }
             case .linkURL:
                 storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownConceal: true], range: target)
+            case .wikiLink(let title):
+                let found = linkExists?(title) ?? true
+                storage.addAttributes([.foregroundColor: found ? NSColor.controlAccentColor : NSColor.controlAccentColor.withAlphaComponent(0.55),
+                                       .markdownWikiLink: title, .cursor: NSCursor.pointingHand,
+                                       .toolTip: found ? "Click to open \(title)" : "Click to make a note called “\(title)”"], range: target)
             default:
                 break
             }
@@ -368,6 +392,10 @@ struct MarkdownStyler {
 final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManagerDelegate {
     var styler = MarkdownStyler(fontSize: 15)
     var placeholder = ""
+    /// Where [[links]] go, and what to suggest after "[[".
+    var links: NoteLinks?
+    /// Set while a suggestion is being put in, so it doesn't ask for suggestions again.
+    private var completing = false
     private var fences = 0
 
     // MARK: Hiding the markup
@@ -616,6 +644,12 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // A [[link]] opens on a click, unless its line is being edited; ⌘-click opens it anyway.
+        if let links, let (title, index) = wikiLink(at: point),
+           event.modifierFlags.contains(.command) || window?.firstResponder !== self || !NSLocationInRange(index, revealed) {
+            links.open(title)
+            return
+        }
         if event.modifierFlags.contains(.command), let address = link(at: point), let url = URL(string: address), url.scheme != nil {
             NSWorkspace.shared.open(url)
             return
@@ -627,6 +661,56 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
             return
         }
         super.mouseDown(with: event)
+    }
+
+    /// The [[link]] under a click, and where in the text it was.
+    private func wikiLink(at point: NSPoint) -> (String, Int)? {
+        guard let layout = layoutManager, let container = textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let local = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layout.glyphIndex(for: local, in: container)
+        guard layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).insetBy(dx: -2, dy: -2).contains(local) else { return nil }
+        let character = layout.characterIndexForGlyph(at: glyph)
+        guard character < storage.length, let title = storage.attribute(.markdownWikiLink, at: character, effectiveRange: nil) as? String else { return nil }
+        return (title, character)
+    }
+
+    // MARK: Suggesting links
+
+    /// Typing after "[[" shows the notes, meetings, people and binders that match, in the usual completion list.
+    override func didChangeText() {
+        super.didChangeText()
+        guard let links, !completing, !hasMarkedText(),
+              let partial = WikiLinks.partialLink(before: selectedRange().location, in: string),
+              !links.suggestions((string as NSString).substring(with: partial)).isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.completing else { return }
+            self.complete(nil)
+        }
+    }
+
+    override var rangeForUserCompletion: NSRange {
+        WikiLinks.partialLink(before: selectedRange().location, in: string) ?? super.rangeForUserCompletion
+    }
+
+    override func completions(forPartialWordRange charRange: NSRange, indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String]? {
+        guard let links, WikiLinks.partialLink(before: selectedRange().location, in: string) != nil else {
+            return super.completions(forPartialWordRange: charRange, indexOfSelectedItem: index)
+        }
+        index.pointee = 0
+        return links.suggestions((string as NSString).substring(with: charRange))
+    }
+
+    /// The chosen title goes in with its closing "]]", unless they're already there.
+    override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
+        guard links != nil, WikiLinks.partialLink(before: selectedRange().location, in: string) != nil || completing else {
+            return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        }
+        completing = true
+        defer { completing = false }
+        let string = self.string as NSString
+        let after = NSRange(location: charRange.upperBound, length: min(2, string.length - charRange.upperBound))
+        let closed = after.length == 2 && string.substring(with: after) == "]]"
+        super.insertCompletion(flag && !closed ? word + "]]" : word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
     }
 
     /// The address of the link label under a click.

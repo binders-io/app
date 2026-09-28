@@ -240,7 +240,7 @@ struct CardDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Description").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     MarkdownNoteEditor(text: $card.details, fontSize: 13, placeholder: "What's this about? What does done look like?",
-                                       inset: NSSize(width: 6, height: 6), compactToolbar: true)
+                                       inset: NSSize(width: 6, height: 6), compactToolbar: true, links: LinkTargets.forEditor(in: card.binderID))
                         .frame(minHeight: 160)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.03)))
                     if !card.links.isEmpty {

@@ -471,7 +471,8 @@ struct NoteEditor: View {
                     .padding(.top, 16)
             }
             HStack(spacing: 0) {
-                MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.")
+                MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.",
+                                   links: LinkTargets.forEditor(in: note.binderID))
                     .onChange(of: note.text) { note.updatedAt = Date() }
                 if digestVisible {
                     Divider()
@@ -541,39 +542,45 @@ struct NoteEditor: View {
                     .help(note.digest.isEmpty ? "Write a digest with your local model" : "Write the digest again")
                 }
             }
-            if let digestIssue {
-                Label(digestIssue, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let digestIssue {
+                        Label(digestIssue, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                    if note.digest.isEmpty {
+                        if digestIssue == nil {
+                            Text(digestPlaceholder)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        if digestStale {
+                            Label(digesting ? "Updating…" : "The note changed since this was written.", systemImage: "clock")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        MarkdownBlocks(markdown: note.digest, onToggleTask: { line in
+                            note.digest = NotesEditing.toggleCheckbox(in: note.digest, line: line)
+                        })
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contextMenu {
+                            Button("Copy Digest", action: copyDigest)
+                        }
+                    }
+                    // Notes and meetings that link to this one, or mention it.
+                    Divider().padding(.vertical, 6)
+                    MentionsPanel(title: note.title, excluding: note.id)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if note.digest.isEmpty {
-                if digestIssue == nil {
-                    Text(digestPlaceholder)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                if digestStale {
-                    Label(digesting ? "Updating…" : "The note changed since this was written.", systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                ScrollView {
-                    MarkdownBlocks(markdown: note.digest, onToggleTask: { line in
-                        note.digest = NotesEditing.toggleCheckbox(in: note.digest, line: line)
-                    })
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .contextMenu {
-                    Button("Copy Digest", action: copyDigest)
-                }
-            }
-            Spacer(minLength: 0)
         }
         .padding(16)
+        .task { await LinkTargets.refreshEntities(knowledge) }
     }
 
     /// The whole digest, as Markdown, so it pastes cleanly into another note, Obsidian or a message.

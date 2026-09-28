@@ -332,21 +332,6 @@ public enum EntityExtraction {
     }
 }
 
-public enum WikiLinks {
-    /// Targets of `[[Name]]` and `[[Name|shown text]]`, in order, without duplicates.
-    public static func targets(in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|[^\\[\\]]*)?\\]\\]") else { return [] }
-        var seen = Set<String>()
-        var result: [String] = []
-        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let range = Range(match.range(at: 1), in: text) else { continue }
-            let name = text[range].trimmingCharacters(in: .whitespaces)
-            if !name.isEmpty, seen.insert(name.lowercased()).inserted { result.append(name) }
-        }
-        return result
-    }
-}
-
 // MARK: - Asking
 
 public enum KnowledgeQueryIntent {

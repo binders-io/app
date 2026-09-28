@@ -15,6 +15,8 @@ public enum MarkdownStyle: Hashable, Sendable {
     /// The words of a ticked task.
     case checkedText
     case link, linkURL
+    /// The words of a [[link]] to a note, meeting, person or binder, and what it points to.
+    case wikiLink(target: String)
     case rule
     /// Markup characters (**, `, #, >) that are shown faintly.
     case syntax
@@ -146,6 +148,20 @@ public enum MarkdownSyntax {
             spans.append(MarkdownSpan(match.range, .inlineCode))
             spans.append(MarkdownSpan(NSRange(location: match.range.location, length: ticks), .syntax))
             spans.append(MarkdownSpan(NSRange(location: match.range.upperBound - ticks, length: ticks), .syntax))
+            taken.append(match.range)
+        }
+        // [[Title]] and [[Title|shown as]]: the brackets, and the title when something else is shown, are markup.
+        for match in WikiLinks.pattern.matches(in: line, range: range) where free(match.range) {
+            let target = match.range(at: 1), alias = match.range(at: 2)
+            let name = (line as NSString).substring(with: target).trimmingCharacters(in: .whitespaces)
+            spans.append(MarkdownSpan(NSRange(location: match.range.location, length: 2), .syntax))
+            if alias.location != NSNotFound {
+                spans.append(MarkdownSpan(NSRange(location: target.location, length: alias.location - target.location), .syntax))
+                spans.append(MarkdownSpan(alias, .wikiLink(target: name)))
+            } else {
+                spans.append(MarkdownSpan(target, .wikiLink(target: name)))
+            }
+            spans.append(MarkdownSpan(NSRange(location: match.range.upperBound - 2, length: 2), .syntax))
             taken.append(match.range)
         }
         for match in linkPattern.matches(in: line, range: range) where free(match.range) {

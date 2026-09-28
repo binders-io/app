@@ -682,6 +682,11 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-links") {
+            // [[Links]] and "Mentioned in" on the demo data: resolving, suggesting, finding mentions, clicking, completing.
+            return await linksSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
         if let directory = value("--selftest-switcher") {
             // The quick switcher driven by keystrokes on the demo data, in a window that never shows.
             return await switcherSelfTest(directory: URL(fileURLWithPath: directory))
@@ -1348,6 +1353,115 @@ open reports/import.html
         check(!(await set(BoardTaskReference(place: .note, id: note.id, text: "something never written"), "done")).ok, "a changed or missing item is refused")
         check(!(await set(BoardTaskReference(place: .meeting, id: UUID(), text: "send the deck"), "done")).ok, "an unknown meeting is refused")
         print(failures == 0 ? "BOARD_TASKS_OK" : "BOARD_TASKS_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+
+    /// Links between notes, meetings, binders and people, on the fictional demo data, in windows that never show.
+    @MainActor
+    private static func linksSelfTest(directory: URL) async -> Int32 {
+        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
+            return 1
+        }
+        let controller = DictationController()
+        guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
+        await controller.knowledge.indexNow()
+        await LinkTargets.refreshEntities(controller.knowledge)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var failures = 0
+        func check(_ passed: Bool, _ label: String) {
+            print("\(passed ? "PASS" : "FAIL"): \(label)")
+            if !passed { failures += 1 }
+        }
+        guard let harbor = Store.shared.binders().first(where: { $0.name == DemoData.binderName }) else { return 1 }
+
+        // What a title means.
+        if case .meeting = LinkTargets.resolve("launch readiness REVIEW") { check(true, "a link finds a meeting by its title, whatever the case") }
+        else { check(false, "a link finds a meeting by its title, whatever the case") }
+        if case .binder = LinkTargets.resolve("Harbor launch") { check(true, "and a binder by its name") } else { check(false, "and a binder by its name") }
+        if case .entity = LinkTargets.resolve("Tomás Ferreira") { check(true, "and a person from the knowledge graph") } else { check(false, "and a person from the knowledge graph") }
+        check(LinkTargets.resolve("An idea nobody wrote down") == nil && !LinkTargets.exists("An idea nobody wrote down") && LinkTargets.exists("Harbor launch"),
+              "a link to nothing yet is known as one")
+        check(LinkTargets.suggestions(for: "launch r").first == "Launch readiness review", "typing after [[ suggests the best match first")
+
+        // Mentions, linked and not.
+        let note = NoteItem(text: "# Launch follow-ups\n\nFrom the launch readiness review: see [[Pricing page walkthrough]] for the table.")
+        note.binderID = harbor.id
+        Store.shared.insert(note)
+        let notes = (try? Store.shared.context.fetch(FetchDescriptor<NoteItem>())) ?? []
+        let meetings = (try? Store.shared.context.fetch(FetchDescriptor<MeetingRecord>())) ?? []
+        let toWalkthrough = MentionsPanel.mentions(of: "Pricing page walkthrough", excluding: nil, notes: notes, meetings: meetings)
+        check(toWalkthrough.contains { $0.id == note.id && $0.linked }, "a note that links to a meeting is listed on it")
+        let toReview = MentionsPanel.mentions(of: "Launch readiness review", excluding: nil, notes: notes, meetings: meetings)
+        check(toReview.contains { $0.id == note.id && !$0.linked }, "a note that only names it is listed as not linked yet")
+        if let linked = WikiLinks.linkingFirstMention(of: "Launch readiness review", in: note.text) { note.text = linked }
+        check(MentionsPanel.mentions(of: "Launch readiness review", excluding: nil, notes: notes, meetings: meetings).contains { $0.id == note.id && $0.linked },
+              "Link makes it a link")
+
+        // A link to nothing yet makes the note.
+        let navigation = HubNavigation()
+        LinkTargets.open("An idea nobody wrote down", from: harbor.id, in: navigation)
+        let made = ((try? Store.shared.context.fetch(FetchDescriptor<NoteItem>())) ?? []).first { $0.title == "An idea nobody wrote down" }
+        check(made != nil && made?.binderID == harbor.id && navigation.pendingNoteID == made?.id && navigation.selection == .binder,
+              "clicking a link to nothing makes a note of that name and opens it")
+
+        // The editor: a click on a link opens it; [[ completes to a title and closes the link.
+        var opened: [String] = []
+        let links = NoteLinks(suggestions: { LinkTargets.suggestions(for: $0) }, exists: { LinkTargets.exists($0) }, open: { opened.append($0) })
+        var text = note.text
+        let hosting = NSHostingView(rootView: MarkdownNoteEditor(text: Binding(get: { text }, set: { text = $0 }), links: links).frame(width: 700, height: 300))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .milliseconds(600))
+        func textViews(in view: NSView) -> [MarkdownTextView] { (view as? MarkdownTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+        if let textView = textViews(in: hosting).first, let layout = textView.layoutManager, let container = textView.textContainer {
+            let label = (textView.string as NSString).range(of: "Pricing page walkthrough")
+            var rect = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: label, actualCharacterRange: nil), in: container)
+            rect.origin.x += textView.textContainerOrigin.x
+            rect.origin.y += textView.textContainerOrigin.y
+            let point = textView.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            if let click = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                textView.mouseDown(with: click)
+            }
+            check(opened == ["Pricing page walkthrough"], "clicking a link in the editor opens it: \(opened)")
+            capture(hosting, name: "links-editor", directory: directory)
+
+            textView.string = "Notes from [[Laun"
+            textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+            var index = -1
+            let partial = textView.rangeForUserCompletion
+            let offered = textView.completions(forPartialWordRange: partial, indexOfSelectedItem: &index) ?? []
+            check(offered.contains("Launch readiness review") && offered.allSatisfy { $0.localizedCaseInsensitiveContains("laun") },
+                  "after [[, the editor offers the titles that match: \(offered.prefix(3))")
+            textView.insertCompletion("Launch readiness review", forPartialWordRange: partial, movement: NSReturnTextMovement, isFinal: true)
+            check(textView.string == "Notes from [[Launch readiness review]]", "choosing one finishes the link: \(textView.string)")
+        } else {
+            check(false, "the editor renders")
+        }
+        window.close()
+
+        // "Mentioned in" on the meeting, as the window shows it.
+        let hub = HubNavigation()
+        hub.binderID = harbor.id
+        hub.selection = .binder
+        hub.pendingBinderTab = .meetings
+        hub.pendingMeetingID = meetings.first { $0.title == DemoData.meetingTitle }?.id
+        await render(HubView()
+            .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)
+            .environment(controller.capture).environment(controller.commitments).environment(hub).environment(AppSettings.shared)
+            .modelContainer(Store.shared.container), size: NSSize(width: 1300, height: 900), name: "links-meeting", directory: directory)
+        // And on a note: the launch review's action items name the launch checklist.
+        hub.pendingBinderTab = .notes
+        hub.pendingNoteID = notes.first { $0.title == "Launch checklist" }?.id
+        await render(HubView()
+            .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)
+            .environment(controller.capture).environment(controller.commitments).environment(hub).environment(AppSettings.shared)
+            .modelContainer(Store.shared.container), size: NSSize(width: 1300, height: 900), name: "links-note", directory: directory)
+        print(failures == 0 ? "LINKS_OK" : "LINKS_FAILED: \(failures)")
         return failures == 0 ? 0 : 1
     }
 
