@@ -166,6 +166,7 @@ struct TodayView: View {
         let title = dailyTitle
         let text = Binding<String>(get: { dailyNote?.text ?? "# \(title)\n\n" }, set: { newValue in
             if let note = dailyNote {
+                NoteHistory.changed(note.id, previous: note.text)
                 note.text = newValue
                 note.updatedAt = Date()
             } else if newValue.trimmingCharacters(in: .whitespacesAndNewlines) != "# \(title)" {

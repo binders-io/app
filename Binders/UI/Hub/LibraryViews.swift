@@ -468,6 +468,7 @@ struct NoteEditor: View {
     @Bindable var note: NoteItem
     var onDelete: () -> Void
     @State private var confirmDelete = false
+    @State private var showingHistory = false
     /// Every note follows the same choice.
     @AppStorage("notesShowDigest") private var digestVisible = true
     @State private var digestCopied = false
@@ -488,7 +489,10 @@ struct NoteEditor: View {
             HStack(spacing: 0) {
                 MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.",
                                    links: LinkTargets.forEditor(in: note.binderID))
-                    .onChange(of: note.text) { note.updatedAt = Date() }
+                    .onChange(of: note.text) { previous, _ in
+                        note.updatedAt = Date()
+                        NoteHistory.changed(note.id, previous: previous)
+                    }
                 if digestVisible {
                     Divider()
                     digestColumn.frame(width: 300)
@@ -519,6 +523,8 @@ struct NoteEditor: View {
                     .help("Which binder this note is in. Sharing follows the binder.")
                 }
                 Spacer()
+                Button { showingHistory = true } label: { Label("History", systemImage: "clock.arrow.circlepath") }
+                    .help("Earlier versions of this note, to read or put back")
                 Button("Copy") { TextInserter.copyToClipboard(note.text) }
                 Button("Delete", role: .destructive) {
                     if team.isConfigured, note.sharedWithTeam || note.isTeamCopy { confirmDelete = true } else { delete() }
@@ -526,6 +532,7 @@ struct NoteEditor: View {
             }
             .padding(12)
         }
+        .sheet(isPresented: $showingHistory) { NoteHistorySheet(note: note) }
         .confirmationDialog("Delete this note for everyone on the team?", isPresented: $confirmDelete) {
             Button("Delete for Everyone", role: .destructive, action: delete)
         }

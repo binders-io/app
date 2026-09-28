@@ -682,6 +682,54 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-history") {
+            // Version history in a throwaway data folder: keeping, not over-keeping, a teammate's change, restoring, deleting.
+            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+                print("ERROR: set BINDERS_DATA_DIR to an empty folder; this writes notes and their versions there")
+                return 1
+            }
+            var failures = 0
+            func check(_ passed: Bool, _ label: String) {
+                print("\(passed ? "PASS" : "FAIL"): \(label)")
+                if !passed { failures += 1 }
+            }
+            let note = NoteItem(text: "# Launch plan\n\nFirst draft: ship on the 28th.")
+            Store.shared.insert(note)
+            let first = note.text
+            note.text = "# Launch plan\n\nSecond draft: ship on the 28th, pricing page first."
+            NoteHistory.changed(note.id, previous: first)
+            check(NoteHistory.versions(of: note.id).map(\.text) == [first], "the first edit keeps the note as it was")
+            let second = note.text
+            note.text += "\n- [ ] Tell support"
+            NoteHistory.changed(note.id, previous: second)
+            check(NoteHistory.versions(of: note.id).count == 1, "the next keystrokes don't keep another straight away")
+            NoteHistory.willChange(note, to: "# Launch plan\n\nA teammate's rewrite.", always: true)
+            let before = note.text
+            note.text = "# Launch plan\n\nA teammate's rewrite."
+            check(NoteHistory.versions(of: note.id).first?.text == before, "a teammate's change keeps a version first, however recent the last")
+            if let oldest = NoteHistory.versions(of: note.id).last {
+                NoteHistory.restore(oldest, to: note)
+                check(note.text == first && NoteHistory.versions(of: note.id).first?.text == "# Launch plan\n\nA teammate's rewrite.",
+                      "restoring puts it back and keeps what was there as a version")
+            }
+            let hosting = NSHostingView(rootView: NoteHistorySheet(note: note))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 540), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            hosting.wantsLayer = true
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(800))
+            let folder = URL(fileURLWithPath: directory)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            capture(hosting, name: "history", directory: folder)
+            window.close()
+            Store.shared.delete(note)
+            check(NoteHistory.versions(of: note.id).isEmpty, "deleting the note deletes its versions")
+            print(failures == 0 ? "HISTORY_OK" : "HISTORY_FAILED: \(failures)")
+            return failures == 0 ? 0 : 1
+        }
+
         if args.contains("--selftest-templates") {
             // Note templates in a throwaway data folder: the built-in ones, filling one in, saving your own, replacing one.
             guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {

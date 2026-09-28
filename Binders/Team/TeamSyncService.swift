@@ -329,6 +329,12 @@ final class TeamSyncService {
         scheduleSync(after: 0.5)
     }
 
+    /// A teammate's change is about to replace a note: keep it as it was first, in the app's own history.
+    private func keepVersion(of note: NoteItem, before text: String) {
+        guard store === Store.shared else { return }
+        NoteHistory.willChange(note, to: text, always: true)
+    }
+
     private func connect(_ folder: URL) {
         settings.teamFolderPath = folder.path
         watchFolder()
@@ -496,6 +502,7 @@ final class TeamSyncService {
                     if remoteHash != entry.hash, remoteHash != localHash {
                         // A teammate edited it after this Mac last synced: keep their text too.
                         if localHash == entry.hash {
+                            keepVersion(of: note, before: remoteItem.note.body)
                             note.text = remoteItem.note.body
                         } else {
                             store.context.insert(NoteItem(text: remoteItem.note.body))
@@ -568,6 +575,7 @@ final class TeamSyncService {
             case .pushLocal:
                 writeNote(folder, note: note, existing: remoteItem)
             case .pullRemote:
+                keepVersion(of: note, before: remoteItem.note.body)
                 note.text = remoteItem.note.body
                 note.updatedAt = remoteItem.note.updatedAt ?? Date()
                 state.notes[id] = .init(hash: remoteHash, path: remoteItem.path)
@@ -576,6 +584,7 @@ final class TeamSyncService {
             case .conflict:
                 // Keep the team's version and save this Mac's edit as a private note so nothing is lost.
                 store.context.insert(NoteItem(text: note.text))
+                keepVersion(of: note, before: remoteItem.note.body)
                 note.text = remoteItem.note.body
                 note.updatedAt = remoteItem.note.updatedAt ?? Date()
                 state.notes[id] = .init(hash: remoteHash, path: remoteItem.path)

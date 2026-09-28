@@ -46,7 +46,9 @@ enum InboxCommands {
             guard let note = (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })))?.first else {
                 return .failure("No note with that id")
             }
-            note.text = note.text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + text
+            let appended = note.text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + text
+            NoteHistory.willChange(note, to: appended, always: true)
+            note.text = appended
             note.updatedAt = Date()
             store.save()
             return InboxResult(ok: true, id: note.id.uuidString, message: "Appended to “\(note.title)”")

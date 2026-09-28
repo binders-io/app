@@ -81,7 +81,10 @@ enum TaskCollector {
             scan(note.digest, id: "d:\(note.id.uuidString)", kind: .note, place: .digest, sourceID: note.id, title: note.title,
                  date: note.updatedAt, binderID: note.binderID, author: note.isTeamCopy ? note.teamAuthorName : nil, write: { note.digest = $0 }, open: { openNote(note) })
             scan(note.text, id: "n:\(note.id.uuidString)", kind: .note, place: .note, sourceID: note.id, title: note.title,
-                 date: note.updatedAt, binderID: note.binderID, author: note.isTeamCopy ? note.teamAuthorName : nil, write: { note.text = $0 }, open: { openNote(note) })
+                 date: note.updatedAt, binderID: note.binderID, author: note.isTeamCopy ? note.teamAuthorName : nil, write: {
+                NoteHistory.willChange(note, to: $0)
+                note.text = $0
+            }, open: { openNote(note) })
         }
         return entries
     }

@@ -82,6 +82,7 @@ enum Todos {
         case .note:
             guard let note = (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == wanted })))?.first,
                   let result = NotesEditing.setTask(fingerprint: reference.fingerprint, done: done, in: note.text) else { return nil }
+            NoteHistory.willChange(note, to: result.markdown)
             note.text = result.markdown
             note.updatedAt = Date()
             found = result

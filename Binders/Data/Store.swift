@@ -384,6 +384,8 @@ final class Store {
     }
 
     func delete(_ model: some PersistentModel) {
+        // A deleted note's earlier versions go with it.
+        if let note = model as? NoteItem, self === Store.shared { NoteHistory.forget(note.id) }
         if let record = model as? TranscriptRecord, let url = record.audioURL {
             try? FileManager.default.removeItem(at: url)
         }

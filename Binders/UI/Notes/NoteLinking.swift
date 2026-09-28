@@ -200,6 +200,7 @@ struct MentionsPanel: View {
             if !mention.linked, let note = mention.note {
                 Button("Link") {
                     if let text = WikiLinks.linkingFirstMention(of: title, in: note.text) {
+                        NoteHistory.willChange(note, to: text)
                         note.text = text
                         note.updatedAt = Date()
                         Store.shared.save()
