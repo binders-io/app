@@ -259,6 +259,7 @@ struct QuickSwitcher: View {
                 Store.shared.insert(note)
                 show(binder: binder.id, tab: .notes) { $0.pendingNoteID = note.id }
             },
+            command("Go to Today", "sun.max", "Your day and your notes for it") { navigation.selection = .today },
             command("Open Scratchpad", "note.text.badge.plus") { ScratchpadController.shared.show() },
             command(controller.meetings.isRecording ? "Stop Meeting Notes" : "Start Meeting Notes", "record.circle") {
                 Task { await controller.meetings.toggle() }
@@ -266,6 +267,12 @@ struct QuickSwitcher: View {
             command(controller.capture.isOn ? "Turn Off Writing Capture" : "Turn On Writing Capture", "pencil.line") { controller.capture.toggle() },
             command("Ask Your Work", "sparkles", "Search and ask everything in Binders") { navigation.selection = .knowledge },
         ]
+        items += TemplateStore.all.map { template in
+            command("New Note: \(template.name)", "doc.badge.plus", "From the template, in \(binder.name)") {
+                let note = TemplateStore.newNote(from: template, in: binder)
+                show(binder: binder.id, tab: .notes) { $0.pendingNoteID = note.id }
+            }
+        }
         items += BinderTab.allCases.map { tab in
             command("Show \(binder.name): \(tab.rawValue)", "books.vertical") { show(binder: binder.id, tab: tab) }
         }

@@ -682,6 +682,37 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if args.contains("--selftest-templates") {
+            // Note templates in a throwaway data folder: the built-in ones, filling one in, saving your own, replacing one.
+            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+                print("ERROR: set BINDERS_DATA_DIR to an empty folder; this writes templates there")
+                return 1
+            }
+            var failures = 0
+            func check(_ passed: Bool, _ label: String) {
+                print("\(passed ? "PASS" : "FAIL"): \(label)")
+                if !passed { failures += 1 }
+            }
+            let binder = BinderRecord(name: "Research", colorIndex: 1)
+            Store.shared.insert(binder)
+            check(TemplateStore.all.map(\.name) == NoteTemplate.builtIn.map(\.name), "the built-in templates are there: \(TemplateStore.all.map(\.name))")
+            let reading = TemplateStore.all.first { $0.name == "Reading notes" }
+            let note = TemplateStore.newNote(from: reading, in: binder)
+            let long = Date().formatted(date: .complete, time: .omitted)
+            check(note.text.hasPrefix("# Reading notes:") && note.text.contains("Read \(long)") && note.binderID == binder.id && !note.text.contains("{{"),
+                  "a note from a template has the day filled in and lands in its binder")
+            note.text = "# Paper review\n\n## Main claim\n{{date}} in {{binder}}"
+            let saved = TemplateStore.save(note)
+            check(saved.map { FileManager.default.fileExists(atPath: $0.path) } == true && TemplateStore.all.contains { $0.name == "Paper review" },
+                  "a note saved as a template is offered next time")
+            check(TemplateStore.newNote(from: TemplateStore.all.first { $0.name == "Paper review" }, in: binder).text.contains("in Research"),
+                  "and your own templates are filled in too")
+            try? "# My week\n".write(to: TemplateStore.folder.appendingPathComponent("Weekly review.md"), atomically: true, encoding: .utf8)
+            check(TemplateStore.all.filter { $0.name == "Weekly review" }.map(\.body) == ["# My week\n"], "yours replaces a built-in of the same name")
+            print(failures == 0 ? "TEMPLATES_OK" : "TEMPLATES_FAILED: \(failures)")
+            return failures == 0 ? 0 : 1
+        }
+
         if let directory = value("--selftest-today") {
             // The Today page on the demo data, and its daily note, made on the first keystroke.
             guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {

@@ -38,6 +38,11 @@ public enum NotePrompts {
     public static func digestUserPrompt(date: String?, text: String) -> String {
         var parts: [String] = []
         if let date { parts.append("Written: \(date)") }
+        // A note made from a template keeps its shape in the digest.
+        let sections = NoteTemplate.sections(of: text)
+        if sections.count >= 2 {
+            parts.append("The note is organised in sections: \(sections.joined(separator: ", ")). In Key points, follow that order, and start each point with its section in bold, like \"- **\(sections[0])**: …\". Leave out sections the note left empty.")
+        }
         parts.append("The note:\n<note>\n\(text)\n</note>")
         return parts.joined(separator: "\n\n")
     }

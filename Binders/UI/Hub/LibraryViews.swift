@@ -339,6 +339,11 @@ struct NotesView: View {
             }
     }
 
+    private func newNote(from template: NoteTemplate?) {
+        let binder = Store.shared.binder(binderID ?? AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
+        selection = TemplateStore.newNote(from: template, in: binder).id
+    }
+
     private func consumePendingNote() {
         guard let pending = navigation.pendingNoteID else { return }
         selection = pending
@@ -351,16 +356,26 @@ struct NotesView: View {
                 HStack {
                     Text("Notes").font(BindersTheme.columnTitle)
                     Spacer()
-                    Button {
-                        let note = NoteItem()
-                        let binder = Store.shared.binder(binderID ?? AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
-                        note.binderID = binder.id
-                        note.sharedWithTeam = binder.sharedWithTeam
-                        Store.shared.insert(note)
-                        selection = note.id
-                    } label: { Image(systemName: "square.and.pencil") }
-                        .buttonStyle(.borderless)
-                        .help("New note")
+                    // A click makes a blank note; the menu starts one from a template.
+                    Menu {
+                        Section("From a template") {
+                            ForEach(TemplateStore.all) { template in
+                                Button(template.name) { newNote(from: template) }
+                            }
+                        }
+                        Divider()
+                        if let note = notes.first(where: { $0.id == selection }) {
+                            Button("Save “\(note.title)” as a Template") { TemplateStore.save(note) }
+                        }
+                        Button("Show Templates Folder") { TemplateStore.showFolder() }
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    } primaryAction: {
+                        newNote(from: nil)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("New note. The arrow starts one from a template.")
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 24)
