@@ -682,6 +682,47 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-today") {
+            // The Today page on the demo data, and its daily note, made on the first keystroke.
+            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+                print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
+                return 1
+            }
+            let controller = DictationController()
+            guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
+            let navigation = HubNavigation()
+            navigation.selection = .today
+            let hosting = NSHostingView(rootView: HubView()
+                .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)
+                .environment(controller.capture).environment(controller.commitments).environment(navigation).environment(AppSettings.shared)
+                .modelContainer(Store.shared.container))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            hosting.wantsLayer = true
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(1200))
+            let folder = URL(fileURLWithPath: directory)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            capture(hosting, name: "today", directory: folder)
+            func textViews(in view: NSView) -> [MarkdownTextView] { (view as? MarkdownTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+            let title = TodayView.dailyTitle(for: Date())
+            func daily() -> NoteItem? { ((try? Store.shared.context.fetch(FetchDescriptor<NoteItem>())) ?? []).first { $0.title == title } }
+            let before = daily()
+            if let editor = textViews(in: hosting).first {
+                editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+                editor.insertText("Called the venue: the room is booked.", replacementRange: editor.selectedRange())
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            let made = daily()
+            let passed = before == nil && made?.text.contains("Called the venue") == true && made?.binderID == Store.shared.defaultBinder().id
+            print("\(passed ? "PASS" : "FAIL"): the day's note is made on the first keystroke, titled \(title), in General")
+            capture(hosting, name: "today-written", directory: folder)
+            window.close()
+            return passed ? 0 : 1
+        }
+
         if let directory = value("--selftest-links") {
             // [[Links]] and "Mentioned in" on the demo data: resolving, suggesting, finding mentions, clicking, completing.
             return await linksSelfTest(directory: URL(fileURLWithPath: directory))

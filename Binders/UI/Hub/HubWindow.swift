@@ -3,13 +3,14 @@ import SwiftData
 import SwiftUI
 
 enum HubSection: String, CaseIterable, Identifiable {
-    case home, binder, writing, knowledge, dictionary, snippets, style, settings
+    case home, today, binder, writing, knowledge, dictionary, snippets, style, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .home: "Home"
+        case .today: "Today"
         case .binder: "Binder"
         case .writing: "Writing"
         case .knowledge: "Knowledge"
@@ -23,6 +24,7 @@ enum HubSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .home: "house"
+        case .today: "sun.max"
         case .binder: "books.vertical"
         case .writing: "pencil.line"
         case .knowledge: "point.3.connected.trianglepath.dotted"
@@ -144,6 +146,7 @@ struct HubView: View {
     private var detail: some View {
         switch navigation.selection ?? .home {
         case .home: HomeView()
+        case .today: TodayView()
         case .binder: BinderPage(binderID: navigation.binderID).id(navigation.binderID)
         case .writing: WritingView()
         case .knowledge: KnowledgeView()
@@ -225,6 +228,7 @@ struct HubSidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     row(.home)
+                    row(.today)
                     groupLabel("Binders")
                     ForEach(binders) { binderRow($0) }
                     Button {
