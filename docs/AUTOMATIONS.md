@@ -136,7 +136,7 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `ask_knowledge` (question) | A written answer with the passages it drew on. Uses your local language model, so it takes a few seconds |
 | `list_binders` | Your binders with their counts |
 | `list_meetings` (limit, binder) · `get_meeting` (id, include_transcript) | Meetings, and one in full |
-| `list_notes` (limit, binder) · `get_note` (id) | Notes, and one in full |
+| `list_notes` (limit, binder, tag, status) · `get_note` (id) | Notes, with their status, owner, due date and #tags, and one in full |
 | `list_todos` (status) | Every to-do: promises, asks, to-dos, and the checklist items in meeting notes, notes and digests, with the card each is on, if any |
 | `recent_dictations` (limit) | What you dictated lately |
 | `add_to_knowledge` (title, text, source, binder) | Anything worth remembering: a fact, a document's text, a web page, an email. Kept under the title with its source, so search and answers can cite it |

@@ -145,12 +145,29 @@ defaults delete io.binders.mac</code></pre>
           <tr><td><kbd>fn</kbd><kbd>W</kbd></td><td>Writing capture on or off</td></tr>
           <tr><td><kbd>⌥</kbd><kbd>M</kbd></td><td>Start or stop meeting notes</td></tr>
           <tr><td><kbd>⌥</kbd><kbd>S</kbd></td><td>Scratchpad</td></tr>
+          <tr><td><kbd>⌘</kbd><kbd>O</kbd></td><td>Jump to any note, meeting, card, person or page (in the Binders window)</td></tr>
+          <tr><td><kbd>⌘</kbd><kbd>P</kbd></td><td>Run a command (in the Binders window)</td></tr>
           <tr><td><kbd>⌃</kbd><kbd>⌘</kbd><kbd>V</kbd></td><td>Paste the last transcript again</td></tr>
           <tr><td><kbd>esc</kbd></td><td>Cancel</td></tr>
         </tbody>
       </table>
     </div>
     <p>End a dictation with “press enter” to send it. Every shortcut can be changed in Settings → Shortcuts.</p>
+
+    <h3 id="find">How do I find something fast?</h3>
+    <p>Press <kbd>⌘</kbd><kbd>O</kbd> in the Binders window and type a few letters of a note, meeting, card, person, binder or page; Return opens it. Type <code>#</code> and a tag to see everything with that tag, in every binder. <kbd>⌘</kbd><kbd>P</kbd>, or <code>&gt;</code> first, runs a command instead: a new note from a template, meeting notes, a binder's board, any Settings page.</p>
+
+    <h3 id="links">How do links between notes work?</h3>
+    <p>Type <code>[[</code> in a note and pick a note, meeting, person or binder from the list; the link reads in colour and opens with a click. A link to something that doesn't exist yet makes that note when you click it. Next to every note, under a meeting's notes and on a person's page, <strong>Mentioned in</strong> lists what links there, and the notes and meetings that only name it, with a Link button to make that mention a link.</p>
+
+    <h3 id="today">What is Today?</h3>
+    <p>A page in the sidebar that collects the day: its meetings and their action items, promises made and to-dos due, notes due or edited, cards that moved on the boards, and what you dictated. At the top is a note for the day, titled by its date, like Obsidian's daily notes; it's only made once you write in it. The arrows go back through earlier days.</p>
+
+    <h3 id="organise">Templates, tags and properties</h3>
+    <p>The arrow next to the new-note button in Notes starts a note from a template: 1:1, project kickoff, interview, reading notes or weekly review, or one of your own (“Save as a Template”). Write <code>#tags</code> anywhere in a note. Above a note's digest you can set its status, owner and due date; the notes list shows them and filters by status or tag, and Today lists notes that are due. In a shared binder they sync with the note, and Obsidian shows them as the note's properties.</p>
+
+    <h3 id="versions">Can I get an earlier version of a note back?</h3>
+    <p>Yes: History, at the bottom of a note. Binders keeps a note as it was before you start editing it, every few minutes while you write, and before a teammate's or an AI tool's change lands, for 30 days. Pick a version to read it, copy it, or restore it; restoring keeps what was there as a version too.</p>
 
     <h3 id="ai-tools">Can Claude, Cursor or my other AI tools use it?</h3>
     <p>Yes, through the MCP server built into Binders. Settings → MCP adds it to Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Gemini CLI or Codex with one click, and shows the configuration for anything else. The tool can then search and ask your knowledge base, add notes, meetings, to-dos and calendar events, and pick up cards from your <a href="#board">boards</a>. It runs on your Mac, only while the tool is connected, and nothing can be deleted this way.</p>

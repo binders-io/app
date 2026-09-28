@@ -41,6 +41,10 @@ memory you can ask questions. The speech models, the language model and your dat
   topics. Search by meaning, or ask in plain language and get an answer with its sources.
 - **Notes.** Notes, the scratchpad and meeting notes are plain Markdown, shown rendered: headings, lists, checklists you can tick,
   code blocks, quotes and links, with the markup showing only on the line you're editing. A toolbar and the usual keys format.
+  `[[Links]]` join notes, meetings and people, and each has a "Mentioned in" list that fills itself, links or not. Notes take
+  `#tags`, a status, an owner and a due date, start from templates, keep their earlier versions, and have an outline.
+- **Find anything, and your day.** ⌘O jumps to any note, meeting, card, person or page, and ⌘P runs any command. Today
+  collects the day's meetings, promises, notes, cards and dictation, next to a note of your own for the day.
 - **A board in every binder.** Cards move from Backlog to Done, and you and your AI agents work from the same board. An agent
   claims a card over MCP, reports progress, asks you when it's stuck, and hands the work over for you to review. The to-dos
   Binders finds become cards in a click, and each is ticked off where it came from when its card is done.
