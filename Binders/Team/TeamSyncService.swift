@@ -166,9 +166,19 @@ final class TeamSyncService {
 
     var me: TeamAuthor {
         if let identityOverride { return identityOverride.me }
-        let name = settings.teamMemberName.trimmed
+        return TeamAuthor(id: settings.teamMemberID, name: Self.myName)
+    }
+
+    /// Your name on the team: the one in Settings → Team, or the name on this Mac's account.
+    static var myName: String {
+        let name = AppSettings.shared.teamMemberName.trimmed
         let fallback = NSFullUserName().trimmed
-        return TeamAuthor(id: settings.teamMemberID, name: name.isEmpty ? (fallback.isEmpty ? "Me" : fallback) : name)
+        return name.isEmpty ? (fallback.isEmpty ? "Me" : fallback) : name
+    }
+
+    /// A teammate's meeting notes as this Mac shows them: their "You" is them, and yours is you.
+    static func shown(_ markdown: String, by author: String?) -> String {
+        NotesEditing.renamingOwners(in: markdown, author: author, reader: myName)
     }
 
     func start() {

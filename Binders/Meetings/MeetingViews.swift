@@ -532,7 +532,9 @@ struct MeetingDetailView: View {
             }
         } else {
             ScrollView {
-                MarkdownBlocks(markdown: meeting.summary, onToggleTask: canEditSummary ? { line in
+                // A teammate's "You" is them, not you.
+                MarkdownBlocks(markdown: meeting.isTeamCopy ? TeamSyncService.shown(meeting.summary, by: meeting.teamAuthorName) : meeting.summary,
+                               onToggleTask: canEditSummary ? { line in
                     meeting.summary = NotesEditing.toggleCheckbox(in: meeting.summary, line: line)
                 } : nil)
                 .frame(maxWidth: .infinity, alignment: .leading)

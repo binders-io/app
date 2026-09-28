@@ -41,6 +41,7 @@ struct CommitmentActions {
     var open: (CommitmentRecord) -> Void
 }
 
+@MainActor
 enum TaskCollector {
     /// Every task line in the meetings' notes and in the notes' digests and bodies, in the order given.
     static func collect(meetings: [MeetingRecord], notes: [NoteItem], commitments: [CommitmentRecord] = [],
@@ -60,25 +61,27 @@ enum TaskCollector {
                                      toggle: { commitmentActions?.toggle(record) }, open: { commitmentActions?.open(record) },
                                      due: record.dueAt, dismiss: { commitmentActions?.dismiss(record) }))
         }
+        let reader = TeamSyncService.myName
+        /// `author` is the teammate who shared it, whose "You" is them; nil for your own.
         func scan(_ markdown: String, id: String, kind: TaskEntry.Kind, place: BoardTaskReference.Place, sourceID: UUID, title: String, date: Date,
-                  binderID: UUID?, write: @escaping (String) -> Void, open: @escaping () -> Void) {
+                  binderID: UUID?, author: String?, write: @escaping (String) -> Void, open: @escaping () -> Void) {
             for (index, line) in markdown.components(separatedBy: "\n").enumerated() {
                 guard let task = NotesEditing.task(from: line), !task.text.isEmpty else { continue }
                 entries.append(TaskEntry(id: "\(id):\(index)", kind: kind, ref: BoardTaskReference(place: place, id: sourceID, text: task.text).string,
-                                         owner: task.owner, text: task.text, done: task.done,
+                                         owner: NotesEditing.owner(task.owner, author: author, reader: reader), text: task.text, done: task.done,
                                          sourceID: sourceID, sourceTitle: title, sourceDate: date, binderID: binderID,
                                          toggle: { write(NotesEditing.toggleCheckbox(in: markdown, line: index)) }, open: open))
             }
         }
         for meeting in meetings {
             scan(meeting.summary, id: "m:\(meeting.id.uuidString)", kind: .meeting, place: .meeting, sourceID: meeting.id, title: meeting.title,
-                 date: meeting.createdAt, binderID: meeting.binderID, write: { meeting.summary = $0 }, open: { openMeeting(meeting) })
+                 date: meeting.createdAt, binderID: meeting.binderID, author: meeting.isTeamCopy ? meeting.teamAuthorName : nil, write: { meeting.summary = $0 }, open: { openMeeting(meeting) })
         }
         for note in notes {
             scan(note.digest, id: "d:\(note.id.uuidString)", kind: .note, place: .digest, sourceID: note.id, title: note.title,
-                 date: note.updatedAt, binderID: note.binderID, write: { note.digest = $0 }, open: { openNote(note) })
+                 date: note.updatedAt, binderID: note.binderID, author: note.isTeamCopy ? note.teamAuthorName : nil, write: { note.digest = $0 }, open: { openNote(note) })
             scan(note.text, id: "n:\(note.id.uuidString)", kind: .note, place: .note, sourceID: note.id, title: note.title,
-                 date: note.updatedAt, binderID: note.binderID, write: { note.text = $0 }, open: { openNote(note) })
+                 date: note.updatedAt, binderID: note.binderID, author: note.isTeamCopy ? note.teamAuthorName : nil, write: { note.text = $0 }, open: { openNote(note) })
         }
         return entries
     }

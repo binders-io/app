@@ -71,3 +71,38 @@ final class BoardTaskTests: XCTestCase {
         XCTAssertNil(BoardTaskReference("folder:\(id.uuidString):0123abcd"))
     }
 }
+
+final class TeammateOwnerTests: XCTestCase {
+    func testATeammatesYouIsTheTeammateAndYourNameIsYou() {
+        XCTAssertEqual(NotesEditing.owner("You", author: "Maya Okafor", reader: "Dana Reyes"), "Maya")
+        XCTAssertEqual(NotesEditing.owner("Dana", author: "Maya Okafor", reader: "Dana Reyes"), "You")
+        XCTAssertEqual(NotesEditing.owner("Dana Reyes", author: "Maya Okafor", reader: "Dana Reyes"), "You")
+        XCTAssertEqual(NotesEditing.owner("Jonas", author: "Maya Okafor", reader: "Dana Reyes"), "Jonas")
+        XCTAssertNil(NotesEditing.owner(nil, author: "Maya Okafor", reader: "Dana Reyes"))
+        XCTAssertEqual(NotesEditing.owner("You", author: nil, reader: "Dana Reyes"), "You", "your own items stay as they are")
+    }
+
+    func testRenamesOwnersInATeammatesNotesWithoutMovingLines() {
+        let summary = """
+        ## Action items
+        - [ ] You — send Jonas the final launch checklist by Friday
+        - [x] **Dana** — confirm the annual discount
+        - [ ] Jonas — get support to review the emails
+        - [ ] Book the room
+        You said the launch stays on the 28th.
+        """
+        let shown = NotesEditing.renamingOwners(in: summary, author: "Maya Okafor", reader: "Dana Reyes")
+        XCTAssertEqual(shown, """
+        ## Action items
+        - [ ] Maya — send Jonas the final launch checklist by Friday
+        - [x] **You** — confirm the annual discount
+        - [ ] Jonas — get support to review the emails
+        - [ ] Book the room
+        You said the launch stays on the 28th.
+        """)
+        XCTAssertEqual(NotesEditing.renamingOwners(in: summary, author: nil, reader: "Dana Reyes"), summary)
+        // The words, and so every to-do's id, are unchanged.
+        XCTAssertEqual(NotesEditing.task(from: shown.components(separatedBy: "\n")[1])?.text,
+                       NotesEditing.task(from: summary.components(separatedBy: "\n")[1])?.text)
+    }
+}

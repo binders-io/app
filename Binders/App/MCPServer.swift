@@ -253,7 +253,9 @@ enum MCPServer {
             }
             var result: [String: Any] = ["id": meeting.id.uuidString, "title": meeting.title, "date": AutomationPayload.iso(meeting.createdAt),
                                          "duration_minutes": Int(meeting.duration / 60), "attendees": meeting.attendees, "app": meeting.appName ?? "",
-                                         "binder": Store.shared.binder(meeting.binderID)?.name ?? "", "notes": meeting.summary, "own_notes": meeting.userNotes]
+                                         "binder": Store.shared.binder(meeting.binderID)?.name ?? "",
+                                         "notes": meeting.isTeamCopy ? TeamSyncService.shown(meeting.summary, by: meeting.teamAuthorName) : meeting.summary,
+                                         "own_notes": meeting.userNotes]
             if arguments["include_transcript"] as? Bool == true {
                 let names = meeting.speakerNames
                 result["transcript"] = Store.shared.segments(for: meeting.id).map { segment in
@@ -443,22 +445,28 @@ enum MCPServer {
         var notesQuery = FetchDescriptor<NoteItem>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
         notesQuery.fetchLimit = 120
         var items: [[String: Any]] = []
-        func scan(_ markdown: String, place: BoardTaskReference.Place, id: UUID, kind: String, title: String, date: Date, binderID: UUID?) {
+        let reader = TeamSyncService.myName
+        /// `author` is the teammate who shared it, whose "You" is them; nil for your own.
+        func scan(_ markdown: String, place: BoardTaskReference.Place, id: UUID, kind: String, title: String, date: Date, binderID: UUID?,
+                  author: String?) {
             for line in markdown.components(separatedBy: "\n") {
                 guard let task = NotesEditing.task(from: line), !task.text.isEmpty else { continue }
+                let owner = NotesEditing.owner(task.owner, author: author, reader: reader)
                 let status = task.done ? "done" : "open"
                 guard wanted == "all" || wanted == status else { continue }
                 items.append(["id": BoardTaskReference(place: place, id: id, text: task.text).string, "task": task.text,
-                              "owner": task.owner ?? "", "kind": kind, "status": status, "source": title, "source_id": id.uuidString,
+                              "owner": owner ?? "", "kind": kind, "status": status, "source": title, "source_id": id.uuidString,
                               "binder": Store.shared.binder(binderID)?.name ?? "", "created": AutomationPayload.iso(date)])
             }
         }
         for meeting in (try? context.fetch(meetingsQuery)) ?? [] {
-            scan(meeting.summary, place: .meeting, id: meeting.id, kind: "meeting", title: meeting.title, date: meeting.createdAt, binderID: meeting.binderID)
+            scan(meeting.summary, place: .meeting, id: meeting.id, kind: "meeting", title: meeting.title, date: meeting.createdAt, binderID: meeting.binderID,
+                 author: meeting.isTeamCopy ? meeting.teamAuthorName : nil)
         }
         for note in (try? context.fetch(notesQuery)) ?? [] {
-            scan(note.digest, place: .digest, id: note.id, kind: "note digest", title: note.title, date: note.updatedAt, binderID: note.binderID)
-            scan(note.text, place: .note, id: note.id, kind: "note", title: note.title, date: note.updatedAt, binderID: note.binderID)
+            let author = note.isTeamCopy ? note.teamAuthorName : nil
+            scan(note.digest, place: .digest, id: note.id, kind: "note digest", title: note.title, date: note.updatedAt, binderID: note.binderID, author: author)
+            scan(note.text, place: .note, id: note.id, kind: "note", title: note.title, date: note.updatedAt, binderID: note.binderID, author: author)
         }
         return items
     }

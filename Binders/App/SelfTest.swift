@@ -886,7 +886,7 @@ open reports/import.html
         let meeting = MeetingRecord(title: "Pricing sync", appName: "Zoom", templateID: "general")
         meeting.status = "ready"
         meeting.duration = 600
-        meeting.summary = "## Decisions\n- Launch at $49"
+        meeting.summary = "## Decisions\n- Launch at $49\n\n## Action items\n- [ ] You — send the pricing deck to Jonas\n- [ ] Jonas — review the deck"
         meeting.attendees = ["Dana"]
         meeting.speakerNames = ["Speaker 1": "Erin"]
         meeting.sharedWithTeam = true
@@ -912,6 +912,12 @@ open reports/import.html
         await dana.team.syncNow()
         let danaMeeting = meetings(dana.store).first
         check(danaMeeting?.isTeamCopy == true && danaMeeting?.teamAuthorName == "Maya", "Dana has Maya's meeting, attributed to Maya")
+        // Maya's "You" is Maya on Dana's Mac, in her to-dos and in the notes she reads.
+        let danaTodos = TaskCollector.collect(meetings: danaMeeting.map { [$0] } ?? [], notes: [], openMeeting: { _ in }, openNote: { _ in })
+        check(danaTodos.first { $0.text == "send the pricing deck to Jonas" }?.owner == "Maya"
+              && danaTodos.first { $0.text == "review the deck" }?.owner == "Jonas"
+              && TeamSyncService.shown(danaMeeting?.summary ?? "", by: danaMeeting?.teamAuthorName).contains("- [ ] Maya — send the pricing deck"),
+              "a teammate's \"You\" to-dos are theirs, not yours")
         let danaSegments = dana.store.segments(for: meeting.id)
         check(danaSegments.count == 2, "transcript arrived (\(danaSegments.count) segments)")
         let blocks = TranscriptFormatter.blocks(danaSegments, names: danaMeeting?.speakerNames ?? [:])

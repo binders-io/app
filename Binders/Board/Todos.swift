@@ -25,6 +25,10 @@ enum Todos {
         let context = Store.shared.context
         if let reference = BoardTaskReference(id) {
             let wanted = reference.id
+            /// In a teammate's meeting or note, their "You" is them.
+            func owner(_ line: TaskLine, _ author: String?) -> String? {
+                NotesEditing.owner(line.owner, author: author, reader: TeamSyncService.myName)
+            }
             func task(in markdown: String) -> TaskLine? {
                 markdown.components(separatedBy: "\n").lazy.compactMap(NotesEditing.task(from:))
                     .first { NotesEditing.fingerprint($0.text) == reference.fingerprint }
@@ -33,13 +37,13 @@ enum Todos {
             case .meeting:
                 guard let meeting = (try? context.fetch(FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == wanted })))?.first,
                       let line = task(in: meeting.summary) else { return nil }
-                return TodoItem(id: id, text: line.text, owner: line.owner, done: line.done, due: nil, binderID: meeting.binderID,
-                                sourceKind: "meeting", sourceID: meeting.id, sourceTitle: meeting.title)
+                return TodoItem(id: id, text: line.text, owner: owner(line, meeting.isTeamCopy ? meeting.teamAuthorName : nil), done: line.done,
+                                due: nil, binderID: meeting.binderID, sourceKind: "meeting", sourceID: meeting.id, sourceTitle: meeting.title)
             case .digest, .note:
                 guard let note = (try? context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == wanted })))?.first,
                       let line = task(in: reference.place == .digest ? note.digest : note.text) else { return nil }
-                return TodoItem(id: id, text: line.text, owner: line.owner, done: line.done, due: nil, binderID: note.binderID,
-                                sourceKind: "note", sourceID: note.id, sourceTitle: note.title)
+                return TodoItem(id: id, text: line.text, owner: owner(line, note.isTeamCopy ? note.teamAuthorName : nil), done: line.done,
+                                due: nil, binderID: note.binderID, sourceKind: "note", sourceID: note.id, sourceTitle: note.title)
             }
         }
         guard let uuid = UUID(uuidString: id), let record = Store.shared.commitments().first(where: { $0.id == uuid }) else { return nil }

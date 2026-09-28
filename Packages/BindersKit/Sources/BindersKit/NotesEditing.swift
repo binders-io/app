@@ -79,6 +79,38 @@ public enum NotesEditing {
         return nil
     }
 
+    /// A task's owner as this reader should see it in a teammate's meeting or note: the teammate's "You" is the teammate,
+    /// and a task for the reader is "You". `author` is the teammate's name, nil for your own items, which stay as they are.
+    public static func owner(_ owner: String?, author: String?, reader: String?) -> String? {
+        guard let owner, let author, !author.trimmingCharacters(in: .whitespaces).isEmpty else { return owner }
+        if owner.caseInsensitiveCompare("You") == .orderedSame { return firstName(author) }
+        if let reader, isName(owner, of: reader) { return "You" }
+        return owner
+    }
+
+    /// A teammate's Markdown with each task's owner as `owner(_:author:reader:)` puts it, for showing it on this Mac.
+    /// Lines stay where they are, so ticking a task by its line still finds it.
+    public static func renamingOwners(in markdown: String, author: String?, reader: String?) -> String {
+        guard author != nil else { return markdown }
+        return markdown.components(separatedBy: "\n").map { line in
+            guard let task = task(from: line), let from = task.owner, let to = owner(from, author: author, reader: reader), to != from,
+                  let prefix = line.range(of: taskPrefix, options: .regularExpression),
+                  let at = line.range(of: from, range: prefix.upperBound..<line.endIndex) else { return line }
+            return line.replacingCharacters(in: at, with: to)
+        }.joined(separator: "\n")
+    }
+
+    private static func firstName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) ?? name
+    }
+
+    /// "Sam" or "Sam Rivera" for Sam Rivera.
+    private static func isName(_ owner: String, of person: String) -> Bool {
+        let owner = owner.trimmingCharacters(in: .whitespaces), person = person.trimmingCharacters(in: .whitespaces)
+        guard !owner.isEmpty, !person.isEmpty else { return false }
+        return owner.caseInsensitiveCompare(person) == .orderedSame || owner.caseInsensitiveCompare(firstName(person)) == .orderedSame
+    }
+
     /// Reads a task line the way the notes write them: "- [ ] Noah — order stickers" has owner "Noah".
     /// Only a dash with spaces around it separates an owner, and a plain hyphen only after "You", so prose isn't misread.
     public static func task(from line: String) -> TaskLine? {
