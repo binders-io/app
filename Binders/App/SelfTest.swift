@@ -682,6 +682,46 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-outline") {
+            // The outline: jumping to a heading in a long note, and folding a section of rendered notes.
+            var failures = 0
+            func check(_ passed: Bool, _ label: String) {
+                print("\(passed ? "PASS" : "FAIL"): \(label)")
+                if !passed { failures += 1 }
+            }
+            let sections = (1...12).map { "## Section \($0)\n" + String(repeating: "A line of notes about part \($0).\n", count: 6) }
+            var text = "# A long note\n\n" + sections.joined(separator: "\n")
+            let model = MarkdownEditorModel()
+            let hosting = NSHostingView(rootView: MarkdownNoteEditorPreview(text: Binding(get: { text }, set: { text = $0 }), model: model).frame(width: 640, height: 320))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            hosting.wantsLayer = true
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(700))
+            let headings = MarkdownOutline.headings(in: text)
+            check(headings.count == 13 && headings.last?.title == "Section 12", "the outline lists the note's headings: \(headings.count)")
+            if let last = headings.last {
+                model.jump(to: last.location)
+                try? await Task.sleep(for: .milliseconds(300))
+                func textViews(in view: NSView) -> [MarkdownTextView] { (view as? MarkdownTextView).map { [$0] } ?? view.subviews.flatMap(textViews) }
+                let textView = textViews(in: hosting).first
+                check(textView?.selectedRange().location == last.location && (textView?.enclosingScrollView?.contentView.bounds.minY ?? 0) > 200,
+                      "choosing a heading puts the cursor there and scrolls it into view")
+            }
+            let folder = URL(fileURLWithPath: directory)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            capture(hosting, name: "outline-editor", directory: folder)
+            window.close()
+            let summary = "# Review\n## Summary\nShip on the 28th.\n## Decisions\n- Annual plans at 15% off\n- No free tier change\n## Action items\n- [ ] Send the checklist"
+            let shown = MarkdownBlocks.visibleLines(summary, folded: [3]).map(\.line)
+            check(shown == ["# Review", "## Summary", "Ship on the 28th.", "## Decisions", "## Action items", "- [ ] Send the checklist"],
+                  "folding a section hides its lines and nothing else")
+            print(failures == 0 ? "OUTLINE_OK" : "OUTLINE_FAILED: \(failures)")
+            return failures == 0 ? 0 : 1
+        }
+
         if let directory = value("--selftest-history") {
             // Version history in a throwaway data folder: keeping, not over-keeping, a teammate's change, restoring, deleting.
             guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
@@ -1902,4 +1942,17 @@ private final class LinkEvents: @unchecked Sendable {
     }
 
     var kinds: Set<String> { lock.withLock { collected } }
+}
+
+/// A note editor with its toolbar, driven by a model the test holds, for the outline check.
+private struct MarkdownNoteEditorPreview: View {
+    @Binding var text: String
+    let model: MarkdownEditorModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MarkdownToolbar(model: model, showsMarkup: .constant(false), headings: MarkdownOutline.headings(in: text))
+            MarkdownEditor(text: $text, model: model)
+        }
+    }
 }

@@ -536,7 +536,7 @@ struct MeetingDetailView: View {
             ScrollView {
                 // A teammate's "You" is them, not you.
                 MarkdownBlocks(markdown: meeting.isTeamCopy ? TeamSyncService.shown(meeting.summary, by: meeting.teamAuthorName) : meeting.summary,
-                               onToggleTask: canEditSummary ? { line in
+                               foldable: true, onToggleTask: canEditSummary ? { line in
                     meeting.summary = NotesEditing.toggleCheckbox(in: meeting.summary, line: line)
                 } : nil)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -673,16 +673,32 @@ private struct ChatBubble: View {
 /// Renders the Markdown subset the notes use: headings, bullets, checkboxes and inline emphasis.
 struct MarkdownBlocks: View {
     let markdown: String
+    /// Sections ("## " headings) get a chevron that folds them away.
+    var foldable = false
     /// When set, task checkboxes become clickable and report the line index they belong to.
     var onToggleTask: ((Int) -> Void)? = nil
+    @State private var folded: Set<Int> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(markdown.components(separatedBy: "\n").enumerated()), id: \.offset) { index, line in
-                row(line, index: index)
+            ForEach(Self.visibleLines(markdown, folded: foldable ? folded : []), id: \.index) { item in
+                row(item.line, index: item.index)
             }
         }
         .textSelection(.enabled)
+    }
+
+    /// Every line with its index, less the ones under a folded section ("## " heading, by line index).
+    static func visibleLines(_ markdown: String, folded: Set<Int>) -> [(index: Int, line: String)] {
+        var hiding = false
+        return markdown.components(separatedBy: "\n").enumerated().compactMap { index, line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## ") || trimmed.hasPrefix("# ") {
+                hiding = trimmed.hasPrefix("## ") && folded.contains(index)
+                return (index, line)
+            }
+            return hiding ? nil : (index, line)
+        }
     }
 
     @ViewBuilder
@@ -693,7 +709,25 @@ struct MarkdownBlocks: View {
         } else if line.hasPrefix("### ") {
             inline(String(line.dropFirst(4))).font(.headline).padding(.top, 4)
         } else if line.hasPrefix("## ") {
-            inline(String(line.dropFirst(3))).font(.title3.weight(.semibold)).padding(.top, 8)
+            if foldable {
+                Button {
+                    if folded.contains(index) { folded.remove(index) } else { folded.insert(index) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: folded.contains(index) ? "chevron.right" : "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12)
+                        inline(String(line.dropFirst(3))).font(.title3.weight(.semibold))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(folded.contains(index) ? "Show this section" : "Fold this section away")
+                .padding(.top, 8)
+            } else {
+                inline(String(line.dropFirst(3))).font(.title3.weight(.semibold)).padding(.top, 8)
+            }
         } else if line.hasPrefix("# ") {
             inline(String(line.dropFirst(2))).font(.title2.weight(.bold)).padding(.top, 8)
         } else if NotesEditing.isTask(line) {

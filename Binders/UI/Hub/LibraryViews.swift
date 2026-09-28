@@ -586,7 +586,7 @@ struct NoteEditor: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                        MarkdownBlocks(markdown: note.digest, onToggleTask: { line in
+                        MarkdownBlocks(markdown: note.digest, foldable: true, onToggleTask: { line in
                             note.digest = NotesEditing.toggleCheckbox(in: note.digest, line: line)
                         })
                         .frame(maxWidth: .infinity, alignment: .leading)

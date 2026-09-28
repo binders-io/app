@@ -187,3 +187,30 @@ public enum MarkdownSyntax {
         return spans
     }
 }
+
+/// A heading in a note, for its outline: how deep, its words, and where it starts (UTF-16).
+public struct MarkdownHeading: Equatable, Identifiable, Sendable {
+    public let level: Int
+    public let title: String
+    public let location: Int
+    public var id: Int { location }
+}
+
+public enum MarkdownOutline {
+    /// The note's headings in order, leaving out lines inside code blocks, which only look like headings.
+    public static func headings(in text: String) -> [MarkdownHeading] {
+        var result: [MarkdownHeading] = []
+        var offset = 0
+        var inCode = false
+        for line in text.components(separatedBy: "\n") {
+            if MarkdownSyntax.isFence(line) {
+                inCode.toggle()
+            } else if !inCode, let hashes = line.range(of: #"^#{1,6}(?=[ \t])"#, options: .regularExpression) {
+                let title = MarkdownSyntax.plainTitle(line)
+                if !title.isEmpty { result.append(MarkdownHeading(level: line.distance(from: hashes.lowerBound, to: hashes.upperBound), title: title, location: offset)) }
+            }
+            offset += (line as NSString).length + 1
+        }
+        return result
+    }
+}

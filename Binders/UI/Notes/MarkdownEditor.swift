@@ -24,6 +24,21 @@ final class MarkdownEditorModel {
         textView.window?.makeFirstResponder(textView)
         textView.run(command)
     }
+
+    /// Puts the cursor at a heading and scrolls it to the top.
+    func jump(to location: Int) {
+        guard let textView, let layout = textView.layoutManager, let container = textView.textContainer else { return }
+        let length = (textView.string as NSString).length
+        let place = NSRange(location: min(location, length), length: 0)
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(place)
+        let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: place.location, length: min(1, length - place.location)), actualCharacterRange: nil)
+        let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+        if let scroll = textView.enclosingScrollView {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY + textView.textContainerOrigin.y - 12)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
 }
 
 /// What a note's [[links]] reach: the titles to suggest after "[[" for what's been typed, whether a title exists, and
@@ -49,7 +64,7 @@ struct MarkdownNoteEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MarkdownToolbar(model: model, compact: compactToolbar, showsMarkup: $showsMarkup)
+            MarkdownToolbar(model: model, compact: compactToolbar, showsMarkup: $showsMarkup, headings: MarkdownOutline.headings(in: text))
             Divider().opacity(0.5)
             MarkdownEditor(text: $text, model: model, fontSize: fontSize, placeholder: placeholder, inset: inset, showsMarkup: showsMarkup, links: links)
         }
@@ -60,6 +75,8 @@ struct MarkdownToolbar: View {
     let model: MarkdownEditorModel
     var compact = false
     @Binding var showsMarkup: Bool
+    /// The note's headings, for the outline.
+    var headings: [MarkdownHeading] = []
 
     var body: some View {
         HStack(spacing: compact ? 2 : 4) {
@@ -87,6 +104,22 @@ struct MarkdownToolbar: View {
             button("checklist", "Checklist  ⌘⇧L", .task)
             button("text.quote", "Quote  ⌘⇧.", .quote)
             Spacer(minLength: 0)
+            if !headings.isEmpty {
+                Menu {
+                    ForEach(headings) { heading in
+                        Button(String(repeating: "    ", count: max(0, heading.level - 1)) + heading.title) { model.jump(to: heading.location) }
+                    }
+                } label: {
+                    Image(systemName: "list.bullet.indent")
+                        .foregroundStyle(.secondary)
+                        .frame(width: compact ? 20 : 24, height: compact ? 18 : 20)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Outline: jump to a heading")
+                .accessibilityLabel("Outline")
+            }
             Toggle(isOn: $showsMarkup) {
                 Image(systemName: "number").frame(width: compact ? 20 : 24, height: compact ? 18 : 20)
             }
