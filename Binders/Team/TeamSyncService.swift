@@ -134,6 +134,8 @@ final class TeamSyncService {
     @ObservationIgnored private let stateURL: URL
     @ObservationIgnored private var state: TeamSyncState
     @ObservationIgnored private var timer: Timer?
+    /// Picks up teammates' changes as soon as the drive puts them in the folder; the timer is the fallback.
+    @ObservationIgnored private var watcher: FolderWatcher?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var syncing = false
@@ -180,11 +182,25 @@ final class TeamSyncService {
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleSync(after: 0.5) }
         })
+        // In case a drive doesn't report its changes to the watcher.
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleSync(after: 0) }
         }
+        watchFolder()
         updateCounts()
         scheduleSync(after: 2)
+    }
+
+    /// Syncs a second after files in the team folder change, when a teammate's edits arrive, instead of at the next check.
+    private func watchFolder() {
+        watcher = folderURL.flatMap { folder in
+            FolderWatcher(url: folder) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if self.syncing { self.resyncRequested = true } else { self.scheduleSync(after: 0) }
+                }
+            }
+        }
     }
 
     func scheduleSync(after delay: TimeInterval) {
@@ -255,6 +271,7 @@ final class TeamSyncService {
         await syncNow()
         pending?.cancel()
         settings.teamFolderPath = nil
+        watcher = nil
         var removals = Removals()
         for meeting in (try? store.context.fetch(FetchDescriptor<MeetingRecord>())) ?? [] {
             if meeting.isTeamCopy { removals.meetings.append(meeting) } else { meeting.sharedWithTeam = false }
@@ -304,6 +321,7 @@ final class TeamSyncService {
 
     private func connect(_ folder: URL) {
         settings.teamFolderPath = folder.path
+        watchFolder()
         state = TeamSyncState()
         remoteCache = [:]
         saveState()

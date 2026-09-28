@@ -838,6 +838,23 @@ open reports/import.html
         check(located(root) == space, "joining the folder it sits in, like the top of a OneDrive")
         check(located(folder.appendingPathComponent(TeamFiles.notesFolder)) == space
               && located(folder.appendingPathComponent(TeamFiles.dataFolder).appendingPathComponent("members")) == space, "joining a folder inside it")
+        // A file arriving in the team folder is noticed within a couple of seconds; Finder's .DS_Store isn't.
+        var noticed = 0
+        let watcher = FolderWatcher(url: folder, latency: 0.3) { noticed += 1 }
+        // FSEvents also reports the folders this test made a moment ago; let those pass.
+        try? await Task.sleep(for: .milliseconds(1200))
+        noticed = 0
+        try? Data().write(to: folder.appendingPathComponent(TeamFiles.notesFolder).appendingPathComponent(".DS_Store"))
+        try? await Task.sleep(for: .milliseconds(900))
+        let afterFinder = noticed
+        try? "# From a teammate\n".write(to: folder.appendingPathComponent(TeamFiles.notesFolder).appendingPathComponent("From a teammate.md"),
+                                           atomically: true, encoding: .utf8)
+        for _ in 0..<30 where noticed == afterFinder { try? await Task.sleep(for: .milliseconds(100)) }
+        check(watcher != nil && afterFinder == 0 && noticed > 0, "a teammate's file is noticed as it arrives, and Finder's .DS_Store isn't")
+        try? fileManager.removeItem(at: folder.appendingPathComponent(TeamFiles.notesFolder).appendingPathComponent("From a teammate.md"))
+        try? fileManager.removeItem(at: folder.appendingPathComponent(TeamFiles.notesFolder).appendingPathComponent(".DS_Store"))
+        _ = watcher
+
         let elsewhere = root.appendingPathComponent("Elsewhere")
         try? fileManager.createDirectory(at: elsewhere, withIntermediateDirectories: true)
         do {
