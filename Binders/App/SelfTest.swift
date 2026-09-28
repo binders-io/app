@@ -763,6 +763,17 @@ open reports/import.html
             return 0
         }
 
+        if let path = value("--selftest-team-locate") {
+            // What Join would do with a folder, without joining: for helping a teammate who can't join.
+            do {
+                print("TEAM_SPACE: \(try TeamSyncService.locateTeamSpace(near: URL(fileURLWithPath: (path as NSString).expandingTildeInPath)).path)")
+                return 0
+            } catch {
+                print("NO_TEAM_SPACE: \(error.localizedDescription)")
+                return 1
+            }
+        }
+
         if args.contains("--selftest-team") {
             return await teamSelfTest(keepFolder: args.contains("--keep"))
         }
@@ -819,6 +830,23 @@ open reports/import.html
         }
         func notes(_ store: Store) -> [NoteItem] { (try? store.context.fetch(FetchDescriptor<NoteItem>())) ?? [] }
         func meetings(_ store: Store) -> [MeetingRecord] { (try? store.context.fetch(FetchDescriptor<MeetingRecord>())) ?? [] }
+
+        // Joining finds the team space near the folder picked: the folder the shared one sits in, or one inside it.
+        func located(_ picked: URL) -> String? { (try? TeamSyncService.locateTeamSpace(near: picked))?.resolvingSymlinksInPath().path }
+        let space = folder.resolvingSymlinksInPath().path
+        check(located(folder) == space, "joining the team folder itself")
+        check(located(root) == space, "joining the folder it sits in, like the top of a OneDrive")
+        check(located(folder.appendingPathComponent(TeamFiles.notesFolder)) == space
+              && located(folder.appendingPathComponent(TeamFiles.dataFolder).appendingPathComponent("members")) == space, "joining a folder inside it")
+        let elsewhere = root.appendingPathComponent("Elsewhere")
+        try? fileManager.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        do {
+            _ = try TeamSyncService.locateTeamSpace(near: elsewhere)
+            check(false, "a folder with no team space near it is refused")
+        } catch {
+            check(error.localizedDescription.contains("Add shortcut to My files"), "a folder with no team space near it is refused, with what to do")
+        }
+
         func files() -> [String: Date] {
             var result: [String: Date] = [:]
             let enumerator = fileManager.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey])

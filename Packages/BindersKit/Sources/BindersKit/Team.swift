@@ -227,6 +227,48 @@ public enum Frontmatter {
     }
 }
 
+/// Finds the team space near the folder someone picked, as people pick the one next to it as often as the right one: the
+/// folder inside it (Notes, Meetings, _binders), or the drive the shared folder sits in.
+public enum TeamLocator {
+    public enum Result: Equatable {
+        case found(URL)
+        /// More than one team space in the folder picked; their folders.
+        case several([URL])
+        /// Only a team space's `_binders` folder, which a drive can sync on its own when that's what was shared; the folder.
+        case dataFolderOnly(URL)
+        case none
+    }
+
+    /// `isTeamSpace` says whether a folder holds `_binders/team.json`, `isDataFolder` whether it holds `team.json` itself,
+    /// and `children` lists a folder's subfolders.
+    public static func locate(near picked: URL, isTeamSpace: (URL) -> Bool, isDataFolder: (URL) -> Bool = { _ in false },
+                              children: (URL) -> [URL]) -> Result {
+        let picked = picked.standardizedFileURL
+        if isTeamSpace(picked) { return .found(picked) }
+        // Something inside a team space: _binders, Notes, Meetings, or a folder in one of those.
+        var ancestor = picked
+        for _ in 0..<2 {
+            ancestor = ancestor.deletingLastPathComponent()
+            if ancestor.pathComponents.count > 1, isTeamSpace(ancestor) { return .found(URL(fileURLWithPath: ancestor.path)) }
+        }
+        // The folder a shared team space sits in, such as the top of your OneDrive.
+        let subfolders = children(picked)
+        let inside = subfolders.filter(isTeamSpace).sorted { $0.path < $1.path }
+        switch inside.count {
+        case 1: return .found(inside[0])
+        case 2...: return .several(inside)
+        default:
+            if isDataFolder(picked) { return .dataFolderOnly(picked) }
+            return subfolders.first(where: isDataFolder).map { .dataFolderOnly($0) } ?? .none
+        }
+    }
+
+    /// The top of a cloud drive (a folder directly in ~/Library/CloudStorage), which can't be shared as a whole.
+    public static func isDriveRoot(_ folder: URL, home: URL) -> Bool {
+        folder.standardizedFileURL.deletingLastPathComponent().path == home.appendingPathComponent("Library/CloudStorage").standardizedFileURL.path
+    }
+}
+
 public enum TeamFiles {
     public static let dataFolder = "_binders"
     public static let meetingsFolder = "Meetings"

@@ -136,4 +136,42 @@ final class TeamBinderFieldTests: XCTestCase {
         XCTAssertNil(decoded.binderID)
         XCTAssertNotEqual(TeamFiles.contentHash(file), TeamFiles.contentHash(decoded))
     }
+
+    func testFindsTheTeamSpaceNearTheFolderPicked() {
+        let drive = URL(fileURLWithPath: "/Users/sam/Library/CloudStorage/OneDrive-Example")
+        let space = drive.appendingPathComponent("Example Binder")
+        let other = drive.appendingPathComponent("Budgets")
+        var spaces: Set<String> = [space.path]
+        func locate(_ picked: URL) -> TeamLocator.Result {
+            TeamLocator.locate(near: picked, isTeamSpace: { spaces.contains($0.path) }, children: { folder in
+                folder == drive ? [other, space] : [folder.appendingPathComponent("Notes"), folder.appendingPathComponent("Meetings")]
+            })
+        }
+        XCTAssertEqual(locate(space), .found(space))
+        XCTAssertEqual(locate(space.appendingPathComponent("Notes")), .found(space), "a folder inside it")
+        XCTAssertEqual(locate(space.appendingPathComponent("_binders/members")), .found(space), "two levels in")
+        XCTAssertEqual(locate(drive), .found(space), "the drive the shared folder sits in")
+        XCTAssertEqual(locate(other), .none)
+        spaces.insert(other.path)
+        XCTAssertEqual(locate(drive), .several([other, space]))
+    }
+
+    func testRecognizesADataFolderSyncedOnItsOwn() {
+        // OneDrive syncs a shared folder as "<owner> - <folder>" under its shared libraries; here, only _binders was shared.
+        let libraries = URL(fileURLWithPath: "/Users/sam/Library/CloudStorage/OneDrive-SharedLibraries-Example")
+        let data = libraries.appendingPathComponent("Alex Doe - _binders")
+        func locate(_ picked: URL) -> TeamLocator.Result {
+            TeamLocator.locate(near: picked, isTeamSpace: { _ in false }, isDataFolder: { $0 == data },
+                               children: { $0 == libraries ? [data] : [] })
+        }
+        XCTAssertEqual(locate(data), .dataFolderOnly(data))
+        XCTAssertEqual(locate(libraries), .dataFolderOnly(data))
+    }
+
+    func testKnowsTheTopOfADrive() {
+        let home = URL(fileURLWithPath: "/Users/sam")
+        XCTAssertTrue(TeamLocator.isDriveRoot(URL(fileURLWithPath: "/Users/sam/Library/CloudStorage/OneDrive-Example"), home: home))
+        XCTAssertFalse(TeamLocator.isDriveRoot(URL(fileURLWithPath: "/Users/sam/Library/CloudStorage/OneDrive-Example/Team"), home: home))
+        XCTAssertFalse(TeamLocator.isDriveRoot(URL(fileURLWithPath: "/Users/sam/Dropbox"), home: home))
+    }
 }

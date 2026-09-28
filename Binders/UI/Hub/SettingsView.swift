@@ -820,7 +820,7 @@ private struct TeamSettings: View {
         panel.prompt = create ? "Create Team Space" : "Join"
         panel.message = create
             ? "Choose or create an empty folder in OneDrive, Dropbox, Google Drive or iCloud Drive, then share that folder with your team."
-            : "Choose the team folder a teammate shared with you."
+            : "Choose the folder a teammate shared with you. It has Meetings, Notes and _binders in it."
         let cloudStorage = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
         if FileManager.default.fileExists(atPath: cloudStorage.path) { panel.directoryURL = cloudStorage }
         guard panel.runModal() == .OK, let url = panel.url else { return }

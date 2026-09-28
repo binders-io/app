@@ -6,14 +6,31 @@ import BindersKit
 
 enum TeamError: LocalizedError {
     case folderMissing(String)
-    case notATeamSpace
+    /// Nothing in or around the folder picked is a team space; its name.
+    case notATeamSpace(String)
+    /// The folder picked holds more than one; its name and theirs.
+    case severalTeamSpaces(String, [String])
+    /// The top of a cloud drive, which can't be shared as a whole; its name.
+    case driveRoot(String)
+    /// A team space's `_binders` folder, synced on its own without the folder around it; its name.
+    case dataFolderOnly(String)
 
     var errorDescription: String? {
         switch self {
         case .folderMissing(let path):
             "The team folder isn't available (\(path)). Make sure OneDrive, Dropbox, Google Drive or iCloud Drive is running."
-        case .notATeamSpace:
-            "That folder isn't a Binders team space yet. Pick the folder a teammate shared with you (wait for it to finish syncing), or create a new team space."
+        case .notATeamSpace(let name):
+            "There's no team space in “\(name)”. Pick the folder a teammate shared with you: it has Meetings, Notes and _binders in it. "
+                + "A shared folder only reaches your Mac once you add it to your own drive: in OneDrive, open Shared on the web and choose "
+                + "Add shortcut to My files; in Google Drive, Add shortcut to Drive; in Dropbox, Add to my Dropbox. Then wait for it to appear in Finder."
+        case .severalTeamSpaces(let name, let spaces):
+            "“\(name)” holds more than one team space: \(spaces.formatted(.list(type: .and))). Pick the one to join."
+        case .dataFolderOnly(let name):
+            "“\(name)” is only the team space's _binders folder, which your drive synced on its own. Joining needs the whole team folder, "
+                + "the one that holds Meetings, Notes and _binders. Ask whoever set up the team to share that folder with you, add it to your "
+                + "drive, and pick it here."
+        case .driveRoot(let name):
+            "That's the top of \(name), which can't be shared as a whole. Make a folder in it for the team, such as “Team Binders”, and choose that."
         }
     }
 }
@@ -197,14 +214,39 @@ final class TeamSyncService {
     }
 
     func createTeam(at folder: URL) throws {
+        if TeamLocator.isDriveRoot(folder, home: FileManager.default.homeDirectoryForCurrentUser) {
+            throw TeamError.driveRoot(FileManager.default.displayName(atPath: folder.path))
+        }
         try Self.prepareTeamFolder(folder)
         connect(folder)
     }
 
+    /// Joins the team space in or around the folder picked: the shared folder itself, a folder inside it, or the drive it sits in.
     func join(folder: URL) throws {
-        let manifest = folder.appendingPathComponent(TeamFiles.dataFolder).appendingPathComponent("team.json")
-        guard FileManager.default.fileExists(atPath: manifest.path) else { throw TeamError.notATeamSpace }
-        connect(folder)
+        connect(try Self.locateTeamSpace(near: folder))
+    }
+
+    /// The team space someone meant when they picked `folder`.
+    nonisolated static func locateTeamSpace(near folder: URL) throws -> URL {
+        let fileManager = FileManager.default
+        func isTeamSpace(_ url: URL) -> Bool {
+            fileManager.fileExists(atPath: url.appendingPathComponent(TeamFiles.dataFolder).appendingPathComponent("team.json").path)
+        }
+        func subfolders(_ url: URL) -> [URL] {
+            ((try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? [])
+                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        }
+        func isDataFolder(_ url: URL) -> Bool { fileManager.fileExists(atPath: url.appendingPathComponent("team.json").path) }
+        switch TeamLocator.locate(near: folder, isTeamSpace: isTeamSpace, isDataFolder: isDataFolder, children: subfolders) {
+        case .found(let space):
+            return space
+        case .several(let spaces):
+            throw TeamError.severalTeamSpaces(fileManager.displayName(atPath: folder.path), spaces.map { fileManager.displayName(atPath: $0.path) })
+        case .dataFolderOnly(let data):
+            throw TeamError.dataFolderOnly(fileManager.displayName(atPath: data.path))
+        case .none:
+            throw TeamError.notATeamSpace(fileManager.displayName(atPath: folder.path))
+        }
     }
 
     /// Shares the latest edits, disconnects, and removes teammates' items from this Mac. What you shared stays in the team folder.
