@@ -38,7 +38,7 @@ final class DictationSession {
         phase = .starting
         do {
             guard await AVAudioApplication.requestRecordPermission() else { throw DictationError.microphone }
-            let engine = try await makeEngine()
+            let engine = try await Self.makeEngine()
             engine.onText = { [weak self] words in
                 guard let self, self.phase == .listening || self.phase == .transcribing else { return }
                 self.text = words
@@ -68,7 +68,7 @@ final class DictationSession {
     func transcribe(file url: URL, connection: MacConnection) async {
         phase = .starting
         do {
-            let engine = try await makeEngine()
+            let engine = try await Self.makeEngine()
             engine.onText = { [weak self] words in self?.text = words }
             try await engine.prepare()
             self.engine = engine
@@ -83,15 +83,6 @@ final class DictationSession {
         } catch {
             phase = .failed(error.localizedDescription)
         }
-    }
-
-    private func makeEngine() async throws -> SpeechEngine {
-        if #available(iOS 26.0, *), AnalyzerEngine.isSupported { return AnalyzerEngine() }
-        let status = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
-        }
-        guard status == .authorized else { throw DictationError.speech }
-        return RecognizerEngine()
     }
 
     /// Done talking: the transcript, then the cleanup.
@@ -115,22 +106,34 @@ final class DictationSession {
         await clean(raw, connection: connection)
     }
 
-    /// What was heard, cleaned up: by your Mac, by this iPhone's model, or by Binders' rules.
+    /// What was heard, cleaned up.
     func clean(_ raw: String, connection: MacConnection) async {
         heard = raw
         phase = .cleaning
         text = raw
-        if let mac = await connection.format(raw), !mac.text.isEmpty {
-            text = mac.text
-            cleanedBy = mac.model.isEmpty ? "your Mac" : "your Mac (\(mac.model))"
-        } else {
-            let model = Self.onDeviceModel()
-            let result = await DictationPipeline.process(raw: raw, context: AppContext(appName: "Binders"),
-                                                         config: PipelineConfig(aiFormatting: model != nil), llm: model)
-            text = result.text
-            cleanedBy = result.usedLLM ? "this iPhone" : "Binders' rules (no model)"
-        }
+        (text, cleanedBy) = await Self.cleanUp(raw, connection: connection)
         phase = .done
+    }
+
+    /// The best engine this iPhone has, once it's allowed to use it.
+    static func makeEngine() async throws -> SpeechEngine {
+        if #available(iOS 26.0, *), AnalyzerEngine.isSupported { return AnalyzerEngine() }
+        let status = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard status == .authorized else { throw DictationError.speech }
+        return RecognizerEngine()
+    }
+
+    /// Cleans up what was heard: by your Mac when it's reachable, by this iPhone's model, or by Binders' rules. Also says who.
+    static func cleanUp(_ raw: String, connection: MacConnection, app: String = "Binders") async -> (text: String, by: String) {
+        if let mac = await connection.format(raw), !mac.text.isEmpty {
+            return (mac.text, mac.model.isEmpty ? "your Mac" : "your Mac (\(mac.model))")
+        }
+        let model = onDeviceModel()
+        let result = await DictationPipeline.process(raw: raw, context: AppContext(appName: app),
+                                                     config: PipelineConfig(aiFormatting: model != nil), llm: model)
+        return (result.text, result.usedLLM ? "this iPhone" : "Binders' rules (no model)")
     }
 
     func cancel() {
@@ -152,7 +155,7 @@ final class DictationSession {
     }
 
     /// How loud a stretch of audio is, 0…1, from its root mean square.
-    nonisolated private static func loudness(_ buffer: AVAudioPCMBuffer) -> Double {
+    nonisolated static func loudness(_ buffer: AVAudioPCMBuffer) -> Double {
         guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
         var sum: Float = 0
         for index in 0..<Int(buffer.frameLength) { sum += samples[index] * samples[index] }

@@ -41,6 +41,9 @@ final class MacConnection {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private let browser = MacBrowser()
     @ObservationIgnored var isActive = true
+    /// Stay connected in the background, while the microphone is on for the keyboard, so its dictations are cleaned up by
+    /// the Mac.
+    @ObservationIgnored var holdOpen = false
 
     init() {
         mac = Self.loadMac()
@@ -159,6 +162,7 @@ final class MacConnection {
 
     /// Foreground: connect and refresh. Background: let go; iOS would suspend the connection anyway.
     func sceneChanged(active: Bool) {
+        if !active, holdOpen { return }
         isActive = active
         if active {
             Task { await connect() }

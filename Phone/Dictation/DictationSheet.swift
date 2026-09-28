@@ -203,7 +203,7 @@ struct DictationSheet: View {
 }
 
 /// A row of bars that rise with your voice.
-private struct Meter: View {
+struct Meter: View {
     let level: Double
 
     var body: some View {

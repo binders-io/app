@@ -12,6 +12,8 @@ struct BindersView: View {
     @State private var path = NavigationPath()
     @State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
     @State private var dictating = UserDefaults.standard.string(forKey: "open") == "dictate"
+    @State private var settingUpKeyboard = UserDefaults.standard.string(forKey: "open") == "keyboard"
+    @State private var writing = UserDefaults.standard.string(forKey: "open") == "newnote"
 
     enum Place: Hashable {
         case allTodos, allTasks, allMeetings, allNotes
@@ -22,6 +24,7 @@ struct BindersView: View {
         NavigationStack(path: $path) {
             List {
                 OfflineBanner()
+                KeyboardMicBanner()
                 Section("Everything") {
                     NavigationLink(value: Place.allTodos) {
                         HStack {
@@ -53,6 +56,9 @@ struct BindersView: View {
                         }
                     }
                 }
+                Section {
+                    Button { settingUpKeyboard = true } label: { Label("Dictate in Any App", systemImage: "keyboard") }
+                }
             }
             .navigationTitle("Binders")
             .navigationDestination(for: Place.self) { place in
@@ -77,6 +83,8 @@ struct BindersView: View {
             .sheet(isPresented: $asking) { AskView() }
             .safeAreaInset(edge: .bottom) { DictateButton { dictating = true } }
             .sheet(isPresented: $dictating) { DictationSheet() }
+            .sheet(isPresented: $settingUpKeyboard) { KeyboardSetupView() }
+            .sheet(isPresented: $writing) { NewNoteSheet() }
             .refreshable { await load() }
             .task(id: connection.revision("binders") + connection.revision("notes") + connection.revision("meetings") + connection.revision("todos")
                   + connection.revision("tasks")) {
@@ -100,7 +108,7 @@ struct BindersView: View {
     }
 
     /// For development, as the Simulator can't be tapped from a script: `-open todos|meetings|notes` shows that list, and
-    /// `-openFirst YES` opens the binder with the most in it.
+    /// `-openFirst YES` opens the binder with the most in it. (`dictate`, `keyboard` and `newnote` open those sheets.)
     private func openForDevelopment() {
         guard path.isEmpty else { return }
         switch UserDefaults.standard.string(forKey: "open") {

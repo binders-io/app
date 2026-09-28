@@ -89,10 +89,12 @@ struct NewNoteSheet: View {
     @State private var saving = false
     @State private var problem: String?
     @State private var dictating = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         NavigationStack {
             TextEditor(text: $text)
+                .focused($focused)
                 .padding(.horizontal)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
@@ -120,6 +122,11 @@ struct NewNoteSheet: View {
                 .alert("Couldn't save the note", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                     Button("OK", role: .cancel) {}
                 } message: { Text(problem ?? "") }
+                .task {
+                    // Once the sheet is up, so the keyboard comes with it.
+                    try? await Task.sleep(for: .milliseconds(350))
+                    focused = true
+                }
         }
     }
 

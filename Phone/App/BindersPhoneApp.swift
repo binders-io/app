@@ -9,9 +9,18 @@ struct BindersPhoneApp: App {
         WindowGroup {
             RootView()
                 .environment(connection)
-                // The Camera opens binders://pair links from the QR code on the Mac.
-                .onOpenURL { url in Task { await connection.pair(with: url) } }
+                .onOpenURL { url in
+                    // The Binders keyboard opens binders://keyboard to have the app listen for it.
+                    if url == KeyboardBridge.listenURL {
+                        KeyboardListeningWindow.show()
+                        Task { await KeyboardListener.shared.listen() }
+                    } else {
+                        // The Camera opens binders://pair links from the QR code on the Mac.
+                        Task { await connection.pair(with: url) }
+                    }
+                }
                 .task {
+                    KeyboardListener.shared.connection = connection
                     // For development: `-pairURL <link>` pairs on launch, as the Simulator has no camera.
                     if let link = UserDefaults.standard.string(forKey: "pairURL"), let url = URL(string: link) {
                         await connection.pair(with: url)
