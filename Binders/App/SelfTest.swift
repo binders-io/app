@@ -682,6 +682,77 @@ enum SelfTest {
         if args.contains("--selftest-board-tasks") {
             return await boardTasksSelfTest()
         }
+        if let directory = value("--selftest-tags") {
+            // Tags and properties on the demo data: MCP filters, #tag search in ⌘O, the properties panel and Today.
+            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+                print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
+                return 1
+            }
+            let controller = DictationController()
+            guard await DemoData.seed(knowledge: controller.knowledge) else { return 1 }
+            var failures = 0
+            func check(_ passed: Bool, _ label: String) {
+                print("\(passed ? "PASS" : "FAIL"): \(label)")
+                if !passed { failures += 1 }
+            }
+            guard let harbor = Store.shared.binders().first(where: { $0.name == DemoData.binderName }) else { return 1 }
+            let note = NoteItem(text: "# Pricing table plan\n\nRebuild the comparison table with annual plans. #pricing #q4/launch\n\n- [ ] Check the discount with finance")
+            note.binderID = harbor.id
+            note.properties = NoteProperties(status: "Draft", owner: "Priya", due: Calendar.current.startOfDay(for: Date()))
+            Store.shared.insert(note)
+            func list(_ text: String) -> [[String: Any]] { (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]]) ?? [] }
+            let byTag = list((try? await MCPServer.call("list_notes", ["tag": "#Pricing"], knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller))) ?? "")
+            check(byTag.count == 1 && byTag.first?["status"] as? String == "Draft" && (byTag.first?["tags"] as? [String]) == ["pricing", "q4/launch"],
+                  "list_notes finds a note by its tag, with its properties: \(byTag.count)")
+            let byStatus = list((try? await MCPServer.call("list_notes", ["status": "done"], knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller))) ?? "")
+            check(byStatus.isEmpty, "and filters by status")
+
+            let navigation = HubNavigation()
+            navigation.binderID = harbor.id
+            navigation.selection = .binder
+            navigation.pendingBinderTab = .notes
+            navigation.pendingNoteID = note.id
+            let hosting = NSHostingView(rootView: HubView()
+                .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)
+                .environment(controller.capture).environment(controller.commitments).environment(navigation).environment(AppSettings.shared)
+                .modelContainer(Store.shared.container))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            hosting.wantsLayer = true
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            window.makeKey()
+            try? await Task.sleep(for: .milliseconds(1200))
+            let folder = URL(fileURLWithPath: directory)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            capture(hosting, name: "tags-note", directory: folder)
+
+            navigation.selection = .home
+            navigation.switcher = .open
+            try? await Task.sleep(for: .milliseconds(700))
+            for character in "#pric" {
+                if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                windowNumber: window.windowNumber, context: nil, characters: String(character),
+                                                charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: 0) { window.sendEvent(event) }
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            capture(hosting, name: "tags-switcher", directory: folder)
+            if let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                            isARepeat: false, keyCode: 36) { window.sendEvent(enter) }
+            try? await Task.sleep(for: .milliseconds(600))
+            check(navigation.selection == .binder && navigation.binderID == harbor.id && navigation.switcher == nil,
+                  "typing #pric in ⌘O and Return opens the tagged note")
+
+            navigation.selection = .today
+            try? await Task.sleep(for: .milliseconds(900))
+            capture(hosting, name: "tags-today", directory: folder)
+            window.close()
+            print(failures == 0 ? "TAGS_OK" : "TAGS_FAILED: \(failures)")
+            return failures == 0 ? 0 : 1
+        }
+
         if let directory = value("--selftest-outline") {
             // The outline: jumping to a heading in a long note, and folding a section of rendered notes.
             var failures = 0
@@ -1100,6 +1171,17 @@ open reports/import.html
         dana.store.save()
         await syncBoth(dana.team, maya.team)
         check(checklist.text.hasSuffix("- Pricing page"), "Dana's edit reached Maya")
+
+        // Properties travel too: Maya sets them, Dana sees them and changes one, Maya sees that.
+        checklist.properties = NoteProperties(status: "Draft", owner: "Maya", due: Calendar.current.date(byAdding: .day, value: 3, to: Calendar.current.startOfDay(for: Date())))
+        maya.store.save()
+        await syncBoth(maya.team, dana.team)
+        let danaCopy = notes(dana.store).first
+        check(danaCopy?.status == "Draft" && danaCopy?.owner == "Maya" && danaCopy?.dueAt == checklist.dueAt, "a note's properties reach a teammate")
+        danaCopy?.status = "Done"
+        dana.store.save()
+        await syncBoth(dana.team, maya.team)
+        check(checklist.status == "Done" && checklist.owner == "Maya", "and a teammate's change to them comes back")
 
         // Someone adds a note in Obsidian.
         try? "---\ntags: [hiring]\n---\n# Hiring plan\nTwo engineers by March".write(to: folder.appendingPathComponent("Notes/Hiring plan.md"), atomically: true, encoding: .utf8)

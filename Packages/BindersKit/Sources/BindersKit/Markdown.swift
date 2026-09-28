@@ -17,6 +17,8 @@ public enum MarkdownStyle: Hashable, Sendable {
     case link, linkURL
     /// The words of a [[link]] to a note, meeting, person or binder, and what it points to.
     case wikiLink(target: String)
+    /// A #tag, "#" included.
+    case tag
     case rule
     /// Markup characters (**, `, #, >) that are shown faintly.
     case syntax
@@ -162,6 +164,10 @@ public enum MarkdownSyntax {
                 spans.append(MarkdownSpan(target, .wikiLink(target: name)))
             }
             spans.append(MarkdownSpan(NSRange(location: match.range.upperBound - 2, length: 2), .syntax))
+            taken.append(match.range)
+        }
+        for match in NoteTags.pattern.matches(in: line, range: range) where free(match.range) {
+            spans.append(MarkdownSpan(match.range, .tag))
             taken.append(match.range)
         }
         for match in linkPattern.matches(in: line, range: range) where free(match.range) {

@@ -36,9 +36,11 @@ enum MCPServer {
             MCPToolParameter(name: "id", description: "The meeting's id, from list_meetings or a search result.", required: true),
             MCPToolParameter(name: "include_transcript", type: "boolean", description: "Also return the transcript with speakers and timestamps."),
         ]),
-        MCPTool(name: "list_notes", description: "Recent notes, newest first.", parameters: [
+        MCPTool(name: "list_notes", description: "Recent notes, newest first, with their properties (status, owner, due) and #tags.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
             MCPToolParameter(name: "binder", description: "Only notes in the binder with this name."),
+            MCPToolParameter(name: "tag", description: "Only notes with this #tag (without the #)."),
+            MCPToolParameter(name: "status", description: "Only notes with this status, such as Draft or Done."),
         ]),
         MCPTool(name: "get_note", description: "One note in full.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
@@ -268,12 +270,19 @@ enum MCPServer {
             let binder = binderID(named: string("binder"))
             var descriptor = FetchDescriptor<NoteItem>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
             descriptor.fetchLimit = integer("limit", default: 20, max: 50) * (binder == nil ? 1 : 4)
+            let tag = string("tag").trimmingCharacters(in: CharacterSet(charactersIn: "# ")).lowercased()
+            let status = string("status")
+            if !tag.isEmpty || !status.isEmpty { descriptor.fetchLimit = 1000 }
             let notes = ((try? Store.shared.context.fetch(descriptor)) ?? [])
                 .filter { binder == nil || $0.binderID == binder }
+                .filter { tag.isEmpty || NoteTags.tags(in: $0.text).contains(tag) }
+                .filter { status.isEmpty || $0.status?.localizedCaseInsensitiveCompare(status) == .orderedSame }
                 .prefix(integer("limit", default: 20, max: 50))
             return json(notes.map { note in
                 ["id": note.id.uuidString, "title": note.title, "updated": AutomationPayload.iso(note.updatedAt),
-                 "binder": Store.shared.binder(note.binderID)?.name ?? "", "preview": String(note.text.prefix(300))] as [String: Any]
+                 "binder": Store.shared.binder(note.binderID)?.name ?? "", "preview": String(note.text.prefix(300)),
+                 "status": note.status ?? "", "owner": note.owner ?? "", "due": note.dueAt.map(AutomationPayload.iso) ?? "",
+                 "tags": NoteTags.tags(in: note.text)] as [String: Any]
             })
         case "get_note":
             guard let id = UUID(uuidString: string("id")) else { throw MCPCore.ToolFailure("id must be a note id") }
@@ -282,7 +291,8 @@ enum MCPServer {
             }
             return json(["id": note.id.uuidString, "title": note.title, "created": AutomationPayload.iso(note.createdAt),
                          "updated": AutomationPayload.iso(note.updatedAt), "binder": Store.shared.binder(note.binderID)?.name ?? "",
-                         "text": note.text, "digest": note.digest])
+                         "text": note.text, "digest": note.digest, "status": note.status ?? "", "owner": note.owner ?? "",
+                         "due": note.dueAt.map(AutomationPayload.iso) ?? "", "tags": NoteTags.tags(in: note.text)])
         case "list_todos":
             let wanted = string("status").isEmpty ? "open" : string("status")
             let todos = Store.shared.commitments().filter { wanted == "all" || $0.status == wanted }

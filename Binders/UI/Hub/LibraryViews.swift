@@ -317,7 +317,22 @@ struct NotesView: View {
     @Query private var notes: [NoteItem]
     @State private var selection: UUID?
     @State private var noteToDelete: NoteItem?
+    /// Show only notes with this status, or this #tag.
+    @State private var statusFilter: String?
+    @State private var tagFilter: String?
     let binderID: UUID?
+
+    private var shown: [NoteItem] {
+        notes.filter { note in
+            (statusFilter == nil || note.status == statusFilter) && (tagFilter.map { NoteTags.tags(in: note.text).contains($0) } ?? true)
+        }
+    }
+
+    /// The tags in these notes, most used first.
+    private var tags: [String] {
+        let counts = notes.flatMap { NoteTags.tags(in: $0.text) }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        return counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(30).map(\.key)
+    }
 
     /// The notes in one binder, or every note when `binderID` is nil.
     init(binderID: UUID? = nil) {
@@ -356,6 +371,26 @@ struct NotesView: View {
                 HStack {
                     Text("Notes").font(BindersTheme.columnTitle)
                     Spacer()
+                    Menu {
+                        Section("Status") {
+                            Button("Any") { statusFilter = nil }
+                            ForEach(NoteProperties.statuses + Array(Set(notes.compactMap(\.status)).subtracting(NoteProperties.statuses)).sorted(), id: \.self) { status in
+                                Button(status) { statusFilter = status }
+                            }
+                        }
+                        if !tags.isEmpty {
+                            Section("Tag") {
+                                Button("Any") { tagFilter = nil }
+                                ForEach(tags, id: \.self) { tag in Button("#\(tag)") { tagFilter = tag } }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: statusFilter != nil || tagFilter != nil ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Show only notes with a status or a tag")
                     // A click makes a blank note; the menu starts one from a template.
                     Menu {
                         Section("From a template") {
@@ -380,7 +415,16 @@ struct NotesView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 24)
                 .padding(.bottom, 8)
-                List(notes, selection: $selection) { note in
+                if statusFilter != nil || tagFilter != nil {
+                    HStack(spacing: 6) {
+                        if let statusFilter { filterChip(statusFilter) { self.statusFilter = nil } }
+                        if let tagFilter { filterChip("#\(tagFilter)") { self.tagFilter = nil } }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                }
+                List(shown, selection: $selection) { note in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(note.title).lineLimit(1)
                         HStack(spacing: 4) {
@@ -392,6 +436,11 @@ struct NotesView: View {
                                 Text("Shared ·")
                             }
                             Text(note.updatedAt, format: .relative(presentation: .named))
+                            if let status = note.status { Text("· \(status)") }
+                            if let due = note.dueAt {
+                                let late = due < Calendar.current.startOfDay(for: Date()) && note.status != "Done"
+                                Text("· due \(due.formatted(.dateTime.month(.abbreviated).day()))").foregroundStyle(late ? Color.red : Color.secondary)
+                            }
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -450,9 +499,26 @@ struct NotesView: View {
 
     /// The note below this one in the list, or above it at the end, so deleting several in a row is ⌫ ⏎ ⌫ ⏎.
     private func neighbour(of note: NoteItem) -> NoteItem? {
-        guard let index = notes.firstIndex(where: { $0.id == note.id }) else { return nil }
-        if notes.indices.contains(index + 1) { return notes[index + 1] }
-        return index > 0 ? notes[index - 1] : nil
+        let list = shown
+        guard let index = list.firstIndex(where: { $0.id == note.id }) else { return nil }
+        if list.indices.contains(index + 1) { return list[index + 1] }
+        return index > 0 ? list[index - 1] : nil
+    }
+
+    private func filterChip(_ label: String, clear: @escaping () -> Void) -> some View {
+        Button(action: clear) {
+            HStack(spacing: 4) {
+                Text(label)
+                Image(systemName: "xmark").font(.caption2.weight(.bold))
+            }
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+            .foregroundStyle(Color.accentColor)
+        }
+        .buttonStyle(.plain)
+        .help("Show all notes again")
     }
 
     private func delete(_ note: NoteItem) {
@@ -541,6 +607,8 @@ struct NoteEditor: View {
     /// The model's short take on the note, kept next to it and searchable in Knowledge.
     private var digestColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
+            NotePropertiesPanel(note: note)
+            Divider().padding(.vertical, 4)
             HStack {
                 Text("Digest").font(.headline)
                 Spacer()

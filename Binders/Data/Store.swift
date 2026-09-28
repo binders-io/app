@@ -137,6 +137,19 @@ final class NoteItem {
     /// The local model's digest of the note (title, summary, key points, to-dos) and the hash of the text it was written for.
     var digest: String = ""
     var digestHash: String = ""
+    /// Its properties: where it's at, whose it is, when it's due.
+    var status: String?
+    var owner: String?
+    var dueAt: Date?
+
+    var properties: NoteProperties {
+        get { NoteProperties(status: status, owner: owner, due: dueAt) }
+        set {
+            status = newValue.status
+            owner = newValue.owner
+            dueAt = newValue.due
+        }
+    }
 
     init(text: String = "") {
         self.id = UUID()

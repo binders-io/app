@@ -30,6 +30,14 @@ struct TodayView: View {
     private var dailyNote: NoteItem? { notes.first { $0.title == dailyTitle } }
     private var dayMeetings: [MeetingRecord] { meetings.filter { onDay($0.createdAt) }.sorted { $0.createdAt < $1.createdAt } }
     private var dayNotes: [NoteItem] { notes.filter { onDay($0.updatedAt) && $0.title != dailyTitle } }
+    /// Notes due that day; on today's page, also the ones overdue and not done.
+    private var dueNotes: [NoteItem] {
+        notes.filter { note in
+            guard let due = note.dueAt, note.status != "Done" else { return false }
+            return onDay(due) || (isToday && due < day)
+        }
+        .sorted { ($0.dueAt ?? .distantPast) < ($1.dueAt ?? .distantPast) }
+    }
     private var dictations: [TranscriptRecord] { records.filter { onDay($0.createdAt) && $0.mode == "dictation" && $0.status == "inserted" } }
 
     /// Promises made that day; on today's page, also whatever is still open and due by the end of it.
@@ -79,6 +87,16 @@ struct TodayView: View {
                                 TaskBoard(tasks: tasks, binderName: { id in binders.first { $0.id == id }?.name })
                             }
                         }
+                        if !dueNotes.isEmpty {
+                            section("Notes due") {
+                                ForEach(dueNotes) { note in
+                                    let late = (note.dueAt ?? day) < day
+                                    row(symbol: late ? "exclamationmark.circle" : "calendar", title: note.title,
+                                        detail: [note.status, late ? note.dueAt.map { "was due \($0.formatted(.dateTime.month(.abbreviated).day()))" } : nil,
+                                                 note.owner].compactMap { $0 }.joined(separator: " · ")) { open(note: note) }
+                                }
+                            }
+                        }
                         if !dayNotes.isEmpty {
                             section("Notes you worked on") {
                                 ForEach(dayNotes) { note in
@@ -114,7 +132,7 @@ struct TodayView: View {
                                 if dictations.count > 6 { Text("and \(dictations.count - 6) more").font(.caption).foregroundStyle(.secondary) }
                             }
                         }
-                        if moved.isEmpty, dictations.isEmpty, dayMeetings.isEmpty, dayNotes.isEmpty, tasks.isEmpty {
+                        if moved.isEmpty, dictations.isEmpty, dayMeetings.isEmpty, dayNotes.isEmpty, tasks.isEmpty, dueNotes.isEmpty {
                             Text(isToday ? "Meetings, notes, promises, cards and dictations from today show up here as they happen."
                                  : "Nothing was recorded on this day.")
                                 .foregroundStyle(.secondary)

@@ -57,6 +57,8 @@ final class HubNavigation {
     var pendingSettingsPage: SettingsPage?
     /// The quick switcher, when it's open: ⌘O to find, ⌘P for commands.
     var switcher: SwitcherMode?
+    /// What to type into the switcher as it opens, such as a #tag.
+    var switcherQuery: String?
 }
 
 @MainActor
@@ -134,8 +136,9 @@ struct HubView: View {
                     Color.black.opacity(0.12)
                         .ignoresSafeArea()
                         .onTapGesture { navigation.switcher = nil }
-                    QuickSwitcher(mode: mode)
+                    QuickSwitcher(mode: mode, query: navigation.switcherQuery ?? "")
                         .id(mode)
+                        .onAppear { navigation.switcherQuery = nil }
                         .padding(.top, 64)
                 }
             }

@@ -57,6 +57,7 @@ struct QuickSwitcher: View {
 
     private var results: [SwitcherItem] {
         if typed.isEmpty { return commandsOnly ? Array(commands.prefix(12)) : recents }
+        if !commandsOnly, typed.hasPrefix("#") { return tagged(String(typed.dropFirst())) }
         return SwitcherItem.ranked(commandsOnly ? commands : places, for: typed)
     }
 
@@ -78,7 +79,7 @@ struct QuickSwitcher: View {
                     .onKeyPress(.downArrow) { move(1, from: current, in: results) }
                     .onKeyPress(.upArrow) { move(-1, from: current, in: results) }
                     .onExitCommand { close() }
-                Text(commandsOnly ? "⌘O to find" : "> for commands")
+                Text(commandsOnly ? "⌘O to find" : "> commands · # tags")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -219,6 +220,28 @@ struct QuickSwitcher: View {
             }
         }
         return items
+    }
+
+    /// "#pric": notes and meetings with a tag that starts that way, in every binder, newest first.
+    private func tagged(_ prefix: String) -> [SwitcherItem] {
+        let wanted = prefix.lowercased()
+        func matches(_ text: String) -> [String] { NoteTags.tags(in: text).filter { wanted.isEmpty || $0.hasPrefix(wanted) } }
+        var items: [SwitcherItem] = []
+        for note in notes.prefix(1000) {
+            let tags = matches(note.text)
+            guard !tags.isEmpty else { continue }
+            items.append(SwitcherItem(id: "n:\(note.id)", title: note.title,
+                                      subtitle: (["Note", binderName(note.binderID)] + tags.map { "#\($0)" }).filter { !$0.isEmpty }.joined(separator: " · "),
+                                      symbol: "note.text", date: note.updatedAt) { show(binder: note.binderID, tab: .notes) { $0.pendingNoteID = note.id } })
+        }
+        for meeting in meetings.prefix(500) {
+            let tags = matches(meeting.summary + "\n" + meeting.userNotes)
+            guard !tags.isEmpty else { continue }
+            items.append(SwitcherItem(id: "m:\(meeting.id)", title: meeting.title,
+                                      subtitle: (["Meeting", binderName(meeting.binderID)] + tags.map { "#\($0)" }).filter { !$0.isEmpty }.joined(separator: " · "),
+                                      symbol: "person.2.wave.2", date: meeting.createdAt) { show(binder: meeting.binderID, tab: .meetings) { $0.pendingMeetingID = meeting.id } })
+        }
+        return Array(items.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }.prefix(30))
     }
 
     /// With nothing typed: what changed last, then the binders.

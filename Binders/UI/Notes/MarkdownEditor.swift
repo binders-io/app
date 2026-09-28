@@ -334,6 +334,9 @@ struct MarkdownStyler {
                 }
             case .linkURL:
                 storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownConceal: true], range: target)
+            case .tag:
+                storage.addAttributes([.foregroundColor: NSColor.controlAccentColor,
+                                       .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.1)], range: target)
             case .wikiLink(let title):
                 let found = linkExists?(title) ?? true
                 storage.addAttributes([.foregroundColor: found ? NSColor.controlAccentColor : NSColor.controlAccentColor.withAlphaComponent(0.55),

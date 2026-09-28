@@ -329,6 +329,17 @@ final class TeamSyncService {
         scheduleSync(after: 0.5)
     }
 
+    /// What sync compares for a note: its text, and its properties when it has any.
+    private func hash(of note: NoteItem) -> String { TeamFiles.noteHash(note.text, note.properties) }
+    private func hash(of item: RemoteNote) -> String { TeamFiles.noteHash(item.note.body, item.note.properties) }
+
+    /// A teammate's version of a note replaces this Mac's: its words and its properties.
+    private func take(_ item: RemoteNote, into note: NoteItem) {
+        keepVersion(of: note, before: item.note.body)
+        note.text = item.note.body
+        note.properties = item.note.properties
+    }
+
     /// A teammate's change is about to replace a note: keep it as it was first, in the app's own history.
     private func keepVersion(of note: NoteItem, before text: String) {
         guard store === Store.shared else { return }
@@ -497,15 +508,16 @@ final class TeamSyncService {
             if !note.sharedWithTeam && !note.isTeamCopy {
                 guard let entry else { continue }
                 if let remoteItem {
-                    let remoteHash = TeamFiles.noteHash(remoteItem.note.body)
-                    let localHash = TeamFiles.noteHash(note.text)
+                    let remoteHash = hash(of: remoteItem)
+                    let localHash = hash(of: note)
                     if remoteHash != entry.hash, remoteHash != localHash {
                         // A teammate edited it after this Mac last synced: keep their text too.
                         if localHash == entry.hash {
-                            keepVersion(of: note, before: remoteItem.note.body)
-                            note.text = remoteItem.note.body
+                            take(remoteItem, into: note)
                         } else {
-                            store.context.insert(NoteItem(text: remoteItem.note.body))
+                            let copy = NoteItem(text: remoteItem.note.body)
+                            copy.properties = remoteItem.note.properties
+                            store.context.insert(copy)
                         }
                         changed = true
                     }
@@ -529,7 +541,7 @@ final class TeamSyncService {
                         guard Date().timeIntervalSince(since) >= deletionGrace else { continue }
                     }
                     if note.isTeamCopy {
-                        if TeamFiles.noteHash(note.text) != entry.hash {
+                        if hash(of: note) != entry.hash {
                             makePrivate(note)
                             lastAnnouncements.append("“\(note.title)” was removed from the team space; your unsynced edits were kept as a private note")
                             changed = true
@@ -566,8 +578,8 @@ final class TeamSyncService {
                 continue
             }
 
-            let localHash = TeamFiles.noteHash(note.text)
-            let remoteHash = TeamFiles.noteHash(remoteItem.note.body)
+            let localHash = hash(of: note)
+            let remoteHash = hash(of: remoteItem)
             switch SyncDecision.decide(local: localHash, remote: remoteHash, lastSynced: entry?.hash) {
             case .upToDate:
                 state.notes[id] = .init(hash: localHash, path: remoteItem.path)
@@ -575,17 +587,17 @@ final class TeamSyncService {
             case .pushLocal:
                 writeNote(folder, note: note, existing: remoteItem)
             case .pullRemote:
-                keepVersion(of: note, before: remoteItem.note.body)
-                note.text = remoteItem.note.body
+                take(remoteItem, into: note)
                 note.updatedAt = remoteItem.note.updatedAt ?? Date()
                 state.notes[id] = .init(hash: remoteHash, path: remoteItem.path)
                 if note.isTeamCopy { _ = fileBinder(of: note, from: remoteItem) }
                 changed = true
             case .conflict:
                 // Keep the team's version and save this Mac's edit as a private note so nothing is lost.
-                store.context.insert(NoteItem(text: note.text))
-                keepVersion(of: note, before: remoteItem.note.body)
-                note.text = remoteItem.note.body
+                let mine = NoteItem(text: note.text)
+                mine.properties = note.properties
+                store.context.insert(mine)
+                take(remoteItem, into: note)
                 note.updatedAt = remoteItem.note.updatedAt ?? Date()
                 state.notes[id] = .init(hash: remoteHash, path: remoteItem.path)
                 let editor = remoteItem.note.editedBy ?? remoteItem.note.author?.name ?? "a teammate"
@@ -600,7 +612,7 @@ final class TeamSyncService {
             for id in deletedHere {
                 guard let entry = state.notes[id] else { continue }
                 if let remoteItem = remote[id] {
-                    if TeamFiles.noteHash(remoteItem.note.body) == entry.hash {
+                    if hash(of: remoteItem) == entry.hash {
                         remote[id] = nil
                         removeFile(remoteItem.url, ifItBelongsTo: id)
                         writeTombstone(folder, id: id)
@@ -626,6 +638,7 @@ final class TeamSyncService {
                 removeTombstone(folder, id: id)
             }
             let note = NoteItem(text: item.note.body)
+            note.properties = item.note.properties
             note.id = UUID(uuidString: id) ?? UUID()
             let mine = item.note.author?.id == me.id
             note.isTeamCopy = !mine
@@ -637,7 +650,7 @@ final class TeamSyncService {
             note.binderID = binderForRemote(id: item.note.binderID, name: item.note.binderName,
                                             author: item.note.author ?? TeamAuthor(id: "", name: "Team"), mine: mine)
             store.context.insert(note)
-            state.notes[id] = .init(hash: TeamFiles.noteHash(item.note.body), path: item.path)
+            state.notes[id] = .init(hash: hash(of: item), path: item.path)
             if !mine { lastAnnouncements.append("\(item.note.author?.name ?? "A teammate") shared the note “\(note.title)”") }
             changed = true
         }
@@ -1012,13 +1025,14 @@ final class TeamSyncService {
         let teamNote = TeamNote(id: id, author: author, editedBy: author.id == me.id ? nil : me.name,
                                 createdAt: existing?.note.createdAt ?? note.createdAt, updatedAt: Date(), body: note.text,
                                 extraFrontmatter: existing?.note.extraFrontmatter ?? [],
-                                binderID: binder?.id.uuidString ?? existing?.note.binderID, binderName: binder?.name ?? existing?.note.binderName)
+                                binderID: binder?.id.uuidString ?? existing?.note.binderID, binderName: binder?.name ?? existing?.note.binderName,
+                                properties: note.properties)
         do {
             let notesFolder = folder.appendingPathComponent(TeamFiles.notesFolder)
             try ensureDirectory(notesFolder)
             let url = existing?.url ?? uniqueURL(in: notesFolder, fileName: TeamFiles.safeFileName(note.title), previousPath: nil, root: folder)
             try TeamFiles.noteMarkdown(teamNote).write(to: url, atomically: true, encoding: .utf8)
-            state.notes[id] = .init(hash: TeamFiles.noteHash(note.text), path: Self.relative(url, to: folder))
+            state.notes[id] = .init(hash: hash(of: note), path: Self.relative(url, to: folder))
             removeTombstone(folder, id: id)
         } catch {
             writeError = "Couldn't write “\(note.title)” to the team folder: \(error.localizedDescription)"

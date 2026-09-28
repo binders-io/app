@@ -113,6 +113,26 @@ public struct TeamTombstone: Codable, Equatable, Sendable {
 }
 
 /// A shared note: a Markdown file whose front matter carries the Binders id, so it can also be edited in Obsidian.
+/// What a note says about itself besides its words: where it's at, whose it is, when it's due. In the team folder they're
+/// front matter, which Obsidian shows as the note's properties.
+public struct NoteProperties: Equatable, Sendable {
+    public var status: String?
+    public var owner: String?
+    /// A day; the time doesn't matter.
+    public var due: Date?
+
+    public init(status: String? = nil, owner: String? = nil, due: Date? = nil) {
+        self.status = status.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0.trimmingCharacters(in: .whitespaces) }
+        self.owner = owner.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0.trimmingCharacters(in: .whitespaces) }
+        self.due = due
+    }
+
+    public var isEmpty: Bool { status == nil && owner == nil && due == nil }
+
+    /// The statuses offered; any other word someone writes in the front matter is kept as it is.
+    public static let statuses = ["Idea", "Draft", "In progress", "Waiting", "Done"]
+}
+
 public struct TeamNote: Equatable, Sendable {
     public var id: String?
     public var author: TeamAuthor?
@@ -124,9 +144,12 @@ public struct TeamNote: Equatable, Sendable {
     public var extraFrontmatter: [String]
     public var binderID: String?
     public var binderName: String?
+    public var properties: NoteProperties
 
     public init(id: String? = nil, author: TeamAuthor? = nil, editedBy: String? = nil, createdAt: Date? = nil, updatedAt: Date? = nil,
-                body: String, extraFrontmatter: [String] = [], binderID: String? = nil, binderName: String? = nil) {
+                body: String, extraFrontmatter: [String] = [], binderID: String? = nil, binderName: String? = nil,
+                properties: NoteProperties = NoteProperties()) {
+        self.properties = properties
         self.binderID = binderID
         self.binderName = binderName
         self.id = id
@@ -295,12 +318,16 @@ public enum TeamFiles {
         if let editedBy = note.editedBy { fields.append(("edited_by", editedBy)) }
         if let binderID = note.binderID { fields.append(("binder_id", binderID)) }
         if let binderName = note.binderName { fields.append(("binder", binderName)) }
+        if let status = note.properties.status { fields.append(("status", status)) }
+        if let owner = note.properties.owner { fields.append(("owner", owner)) }
+        if let due = note.properties.due { fields.append(("due", dayString(due))) }
         if let createdAt = note.createdAt { fields.append(("created", createdAt.formatted(.iso8601))) }
         if let updatedAt = note.updatedAt { fields.append(("updated", updatedAt.formatted(.iso8601))) }
         return Frontmatter.render(fields, extraLines: note.extraFrontmatter, body: note.body)
     }
 
-    static let noteFields: Set<String> = ["binders_id", "author", "author_id", "edited_by", "created", "updated", "binder_id", "binder"]
+    static let noteFields: Set<String> = ["binders_id", "author", "author_id", "edited_by", "created", "updated", "binder_id", "binder",
+                                          "status", "owner", "due"]
 
     public static func parseNote(_ text: String) -> TeamNote {
         let parsed = Frontmatter.parse(text)
@@ -311,7 +338,16 @@ public enum TeamFiles {
                         updatedAt: fields["updated"].flatMap { try? Date($0, strategy: .iso8601) },
                         body: String(parsed.body.drop(while: { $0.isNewline })),
                         extraFrontmatter: parsed.entries.filter { !noteFields.contains($0.key) }.flatMap(\.lines),
-                        binderID: fields["binder_id"].flatMap { $0.isEmpty ? nil : $0 }, binderName: fields["binder"])
+                        binderID: fields["binder_id"].flatMap { $0.isEmpty ? nil : $0 }, binderName: fields["binder"],
+                        properties: NoteProperties(status: fields["status"], owner: fields["owner"], due: fields["due"].flatMap(day(from:))))
+    }
+
+    /// "2026-10-02", as a date at the start of that day here.
+    static func day(from text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: String(text.trimmingCharacters(in: .whitespaces).prefix(10)))
     }
 
     /// The id for a note file added outside Binders (e.g. in Obsidian), derived from its path so every Mac picks the same one.
@@ -348,8 +384,13 @@ public enum TeamFiles {
         return sha256((try? TeamCoding.encoder().encode(copy)) ?? Data())
     }
 
-    public static func noteHash(_ body: String) -> String {
-        sha256(Data(body.trimmingCharacters(in: .whitespacesAndNewlines).utf8))
+    /// What a note's sync state compares. A note without properties hashes exactly as before they existed, so adding them
+    /// never makes every shared note look changed at once.
+    public static func noteHash(_ body: String, _ properties: NoteProperties = NoteProperties()) -> String {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !properties.isEmpty else { return sha256(Data(text.utf8)) }
+        let extra = "status=\(properties.status ?? "");owner=\(properties.owner ?? "");due=\(properties.due.map(dayString) ?? "")"
+        return sha256(Data((text + "\n\u{1}" + extra).utf8))
     }
 
     static func sha256(_ data: Data) -> String {
