@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !AppSettings.shared.hasCompletedSetup || !Permissions.accessibility || Permissions.microphone != .authorized {
             HubWindowController.shared.show(section: .home)
         }
+        // Notes left open in their own windows, or folded into bubbles.
+        NotePopouts.shared.restore()
     }
 
     /// Whether a running Binders is the app proper, from its launch arguments. When they can't be read, it counts.
@@ -44,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Typing an editor hasn't handed to its note yet, and whatever isn't saved.
+        MarkdownEditor.flushAll()
+        Store.shared.save()
         guard let controller else { return .terminateNow }
         let recording = controller.meetings.isRecording
         let freeModel = AppSettings.shared.managesModelMemory
@@ -186,6 +191,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 }
 
+@MainActor
 enum MainMenu {
     static func build() -> NSMenu {
         let main = NSMenu()
@@ -197,6 +203,12 @@ enum MainMenu {
         appMenu.addItem(withTitle: "Quit Binders", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         main.addItem(submenu: appMenu, title: "Binders")
 
+        // The commands' shortcuts are the ones set in Settings → Shortcuts.
+        let file = NSMenu(title: "File")
+        file.addItem(MenuShortcuts.item(.newNote))
+        file.addItem(MenuShortcuts.item(.newNoteWindow))
+        main.addItem(submenu: file, title: "File")
+
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
@@ -205,20 +217,54 @@ enum MainMenu {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let plain = edit.addItem(withTitle: "Paste and Match Style", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
+        plain.keyEquivalentModifierMask = [.command, .option, .shift]
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        // Find, in notes and anywhere else text can be searched.
+        let find = NSMenu(title: "Find")
+        for (title, key, modifiers, action) in [("Find…", "f", NSEvent.ModifierFlags.command, NSTextFinder.Action.showFindInterface),
+                                                ("Find and Replace…", "f", [.command, .option], .showReplaceInterface),
+                                                ("Find Next", "g", .command, .nextMatch),
+                                                ("Find Previous", "g", [.command, .shift], .previousMatch),
+                                                ("Use Selection for Find", "", .command, .setSearchString)] {
+            let item = find.addItem(withTitle: title, action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.tag = action.rawValue
+        }
+        edit.addItem(submenu: find, title: "Find")
         main.addItem(submenu: edit, title: "Edit")
 
-        let go = NSMenu(title: "Go")
-        for (title, action, key) in [("Open Quickly…", #selector(HubWindowController.openQuickly(_:)), "o"),
-                                     ("Command Palette…", #selector(HubWindowController.openCommandPalette(_:)), "p")] {
-            go.addItem(withTitle: title, action: action, keyEquivalent: key).target = HubWindowController.shared
+        let view = NSMenu(title: "View")
+        view.addItem(MenuShortcuts.item(.toggleDigest, title: "Show Digest"))
+        view.addItem(.separator())
+        view.addItem(MenuShortcuts.item(.zoomIn))
+        // ⌘+ as well as ⌘=: the same key, with or without shift.
+        if MenuShortcuts.shortcut(for: .zoomIn) == MenuCommand.zoomIn.defaultShortcut {
+            let plus = NSMenuItem(title: "Zoom In", action: MenuCommand.zoomIn.action, keyEquivalent: "+")
+            plus.target = HubWindowController.shared
+            plus.isHidden = true
+            plus.allowsKeyEquivalentWhenHidden = true
+            view.addItem(plus)
         }
+        view.addItem(MenuShortcuts.item(.zoomOut))
+        view.addItem(MenuShortcuts.item(.actualSize))
+        main.addItem(submenu: view, title: "View")
+
+        let note = NSMenu(title: "Note")
+        note.addItem(MenuShortcuts.item(.popOut))
+        note.addItem(MenuShortcuts.item(.foldIntoBubble))
+        main.addItem(submenu: note, title: "Note")
+
+        let go = NSMenu(title: "Go")
+        go.addItem(MenuShortcuts.item(.openQuickly, title: "Open Quickly…"))
+        go.addItem(MenuShortcuts.item(.commandPalette, title: "Command Palette…"))
         main.addItem(submenu: go, title: "Go")
 
-        let window = NSMenu(title: "Window")
-        window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        main.addItem(submenu: window, title: "Window")
+        let windows = NSMenu(title: "Window")
+        windows.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windows.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        main.addItem(submenu: windows, title: "Window")
         return main
     }
 }

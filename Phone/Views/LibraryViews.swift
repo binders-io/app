@@ -355,6 +355,14 @@ struct MarkdownText: View {
             let indent = CGFloat(raw.prefix { $0 == " " }.count / 2) * 16
             if line.isEmpty {
                 views.append(AnyView(Spacer().frame(height: 4)))
+            } else if let embed = MarkdownMedia.embed(inLine: raw, at: 0) {
+                // Pictures and videos stay on the Mac for now: say what's there.
+                let video = MarkdownMedia.kind(of: embed.source) == .video
+                let name = embed.caption.isEmpty ? (embed.source as NSString).lastPathComponent : embed.caption
+                views.append(AnyView(Label("\(name) · \(video ? "video" : "picture") on your Mac", systemImage: video ? "film" : "photo")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(.secondarySystemBackground)))))
             } else if line.hasPrefix("#") {
                 let level = line.prefix { $0 == "#" }.count
                 let font: Font = level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline

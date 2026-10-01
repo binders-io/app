@@ -374,8 +374,11 @@ struct SetupChecklist: View {
                     controller.speech.activate(settings.speechModel, download: true)
                 }
                 SetupRow(done: llmReady, title: "AI formatting", detail: llmDetail,
-                         progress: OllamaInstaller.shared.progress ?? ModelDownloader.shared.progress, actionTitle: llmActionTitle) {
+                         progress: OllamaInstaller.shared.progress ?? ModelDownloader.shared.progress ?? MLXModels.shared.progress[settings.mlxModel],
+                         actionTitle: llmActionTitle) {
                     switch llmStatus {
+                    case .missingModel where settings.llmProvider == .mlx:
+                        MLXModels.shared.download(settings.mlxModel)
                     case .missingModel(let model) where settings.llmProvider == .ollama:
                         Task {
                             await ModelDownloader.shared.pull(model, from: settings.ollamaURL)
@@ -427,7 +430,7 @@ struct SetupChecklist: View {
                     tick += 1
                 }
             }
-            .task(id: "\(settings.llmProvider.rawValue)|\(settings.llmModelName)|\(settings.ollamaURL)|\(settings.openAIBaseURL)|\(settings.aiFormatting)") {
+            .task(id: "\(settings.llmProvider.rawValue)|\(settings.llmModelName)|\(settings.ollamaURL)|\(settings.openAIBaseURL)|\(settings.aiFormatting)|\(MLXModels.shared.progress[settings.mlxModel] == nil)") {
                 await checkLLM()
             }
         }
@@ -458,10 +461,20 @@ struct SetupChecklist: View {
 
     private var llmDetail: String {
         switch llmStatus {
-        case .checking: "Checking \(settings.llmProvider == .ollama ? "Ollama" : "server")…"
-        case .ready(let model): "Using \(model) on \(settings.llmProvider == .ollama ? "Ollama" : "your server")."
+        case .checking: "Checking \(settings.llmProvider == .ollama ? "Ollama" : settings.llmProvider == .mlx ? "the model" : "server")…"
+        case .ready(let model): "Using \(model) \(settings.llmProvider == .ollama ? "on Ollama" : settings.llmProvider == .mlx ? "in Binders, with MLX" : "on your server")."
         case .missingModel(let model):
-            if let downloading = ModelDownloader.shared.model {
+            if settings.llmProvider == .mlx {
+                if let fraction = MLXModels.shared.progress[settings.mlxModel] {
+                    "Downloading \(model)… \(Int(fraction * 100))%"
+                } else if let failure = MLXModels.shared.failures[settings.mlxModel] {
+                    "Couldn't download \(model): \(failure)"
+                } else if let pick = MLXModels.suggestions.first(where: { $0.id == settings.mlxModel }) {
+                    "\(pick.name) suits this Mac's \(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB of memory. It runs inside Binders, nothing else to install, and is a \(pick.gigabytes.formatted()) GB download."
+                } else {
+                    "\(model) runs inside Binders with MLX, once it's downloaded. Pick another in Settings → AI."
+                }
+            } else if let downloading = ModelDownloader.shared.model {
                 "Downloading \(downloading)… \(Int((ModelDownloader.shared.progress ?? 0) * 100))%"
             } else if let failure = ModelDownloader.shared.error {
                 "Couldn't download \(model): \(failure)"
@@ -478,15 +491,16 @@ struct SetupChecklist: View {
             } else if OllamaInstaller.installedURL != nil {
                 "Ollama is installed but isn't running. Open it and Binders picks up from there."
             } else {
-                "Ollama is the free software that runs the language model on your Mac. Binders can install it for you. Dictation works without it."
+                "Ollama is the free software that runs the language model on your Mac. Binders can install it for you, or run models itself: Settings → AI → Built in (MLX). Dictation works without either."
             }
         case .disabled: "Off — dictation is cleaned up with simple rules."
         }
     }
 
     private var llmActionTitle: String? {
-        if ModelDownloader.shared.isDownloading || OllamaInstaller.shared.isWorking { return nil }
+        if ModelDownloader.shared.isDownloading || OllamaInstaller.shared.isWorking || MLXModels.shared.progress[settings.mlxModel] != nil { return nil }
         switch llmStatus {
+        case .missingModel where settings.llmProvider == .mlx: return "Download"
         case .missingModel where settings.llmProvider == .ollama: return "Download"
         case .unreachable where settings.llmProvider == .ollama: return OllamaInstaller.installedURL != nil ? "Open Ollama" : "Install Ollama"
         default: return "Check again"
@@ -503,6 +517,10 @@ struct SetupChecklist: View {
             return
         }
         llmStatus = .checking
+        if settings.llmProvider == .mlx {
+            llmStatus = MLXModels.directory(for: settings.mlxModel) != nil ? .ready(settings.llmModelName) : .missingModel(settings.llmModelName)
+            return
+        }
         do {
             let models = try await client.listModels()
             let installed = models.contains(client.model) || models.contains(client.model + ":latest")

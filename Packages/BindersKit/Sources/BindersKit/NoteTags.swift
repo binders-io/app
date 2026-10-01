@@ -4,6 +4,7 @@ import Foundation
 /// address.
 public enum NoteTags {
     static let pattern = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_#/&:.\]])#(\p{L}[\p{L}\p{N}_/-]*)"#)
+    private static let inlineCode = try! NSRegularExpression(pattern: "`[^`\n]*`")
 
     /// The tags in `text`, lowercased, in order, once each.
     public static func tags(in text: String) -> [String] {
@@ -15,18 +16,17 @@ public enum NoteTags {
     /// Where each tag is, "#" included, outside code.
     public static func ranges(in text: String) -> [NSRange] {
         let string = text as NSString
+        guard string.range(of: "#").location != NSNotFound else { return [] }
+        let found = pattern.matches(in: text, range: NSRange(location: 0, length: string.length)).map(\.range)
+        guard !found.isEmpty else { return [] }
         var code: [NSRange] = []
         var inFence = false
-        var offset = 0
-        for line in text.components(separatedBy: "\n") {
-            let length = (line as NSString).length
-            if MarkdownSyntax.isFence(line) || inFence { code.append(NSRange(location: offset, length: length)) }
-            if MarkdownSyntax.isFence(line) { inFence.toggle() }
-            offset += length + 1
+        string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: [.byLines, .substringNotRequired]) { _, line, _, _ in
+            let fence = MarkdownSyntax.isFence(string, line: line)
+            if fence || inFence { code.append(line) }
+            if fence { inFence.toggle() }
         }
-        let inline = try! NSRegularExpression(pattern: "`[^`\n]*`")
-        code += inline.matches(in: text, range: NSRange(location: 0, length: string.length)).map(\.range)
-        return pattern.matches(in: text, range: NSRange(location: 0, length: string.length)).map(\.range)
-            .filter { tag in !code.contains { NSIntersectionRange($0, tag).length > 0 } }
+        code += inlineCode.matches(in: text, range: NSRange(location: 0, length: string.length)).map(\.range)
+        return found.filter { tag in !code.contains { NSIntersectionRange($0, tag).length > 0 } }
     }
 }

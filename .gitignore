@@ -14,3 +14,5 @@ site/.deploy.env
 dist/
 docs/internal/
 build-phone-sim/
+build-perf/
+build-dev2/

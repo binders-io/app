@@ -314,8 +314,11 @@ private struct ToneCard: View {
 struct NotesView: View {
     @Environment(HubNavigation.self) private var navigation
     @Environment(TeamSyncService.self) private var team
+    @Environment(\.undoManager) private var undoManager
     @Query private var notes: [NoteItem]
     @State private var selection: UUID?
+    /// A note just made, whose editor takes the cursor.
+    @State private var focusID: UUID?
     @State private var noteToDelete: NoteItem?
     /// Show only notes with this status, or this #tag.
     @State private var statusFilter: String?
@@ -324,13 +327,13 @@ struct NotesView: View {
 
     private var shown: [NoteItem] {
         notes.filter { note in
-            (statusFilter == nil || note.status == statusFilter) && (tagFilter.map { NoteTags.tags(in: note.text).contains($0) } ?? true)
+            (statusFilter == nil || note.status == statusFilter) && (tagFilter.map { NoteTagCache.tags(of: note).contains($0) } ?? true)
         }
     }
 
     /// The tags in these notes, most used first.
     private var tags: [String] {
-        let counts = notes.flatMap { NoteTags.tags(in: $0.text) }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        let counts = notes.flatMap { NoteTagCache.tags(of: $0) }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         return counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(30).map(\.key)
     }
 
@@ -348,6 +351,12 @@ struct NotesView: View {
         content
             .onAppear(perform: consumePendingNote)
             .onChange(of: navigation.pendingNoteID) { consumePendingNote() }
+            .onChange(of: NoteTrash.shared.restored) { _, id in if let id { selection = id } }
+            .onChange(of: selection, initial: true) { _, now in
+                if now != focusID { focusID = nil }
+                navigation.currentNoteID = now
+            }
+            .onDisappear { navigation.currentNoteID = nil }
             .onReceive(NotificationCenter.default.publisher(for: TeamSyncService.itemsWillBeRemoved)) { notification in
                 // A teammate removed the open note: close it before sync deletes it.
                 if let ids = notification.userInfo?["ids"] as? Set<UUID>, let selection, ids.contains(selection) { self.selection = nil }
@@ -356,11 +365,15 @@ struct NotesView: View {
 
     private func newNote(from template: NoteTemplate?) {
         let binder = Store.shared.binder(binderID ?? AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
-        selection = TemplateStore.newNote(from: template, in: binder).id
+        let note = TemplateStore.newNote(from: template, in: binder)
+        focusID = note.id
+        selection = note.id
     }
 
     private func consumePendingNote() {
         guard let pending = navigation.pendingNoteID else { return }
+        if navigation.pendingNoteIsNew { focusID = pending }
+        navigation.pendingNoteIsNew = false
         selection = pending
         navigation.pendingNoteID = nil
     }
@@ -400,7 +413,10 @@ struct NotesView: View {
                         }
                         Divider()
                         if let note = notes.first(where: { $0.id == selection }) {
-                            Button("Save “\(note.title)” as a Template") { TemplateStore.save(note) }
+                            Button("Save “\(note.title)” as a Template") {
+                                MarkdownEditor.flushAll()
+                                TemplateStore.save(note)
+                            }
                         }
                         Button("Show Templates Folder") { TemplateStore.showFolder() }
                     } label: {
@@ -425,40 +441,30 @@ struct NotesView: View {
                     .padding(.bottom, 6)
                 }
                 List(shown, selection: $selection) { note in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(note.title).lineLimit(1)
-                        HStack(spacing: 4) {
-                            if note.isTeamCopy {
-                                Image(systemName: "person.2.fill")
-                                Text("\(note.teamAuthorName ?? "Team") ·")
-                            } else if note.sharedWithTeam, AppSettings.shared.teamFolderPath != nil {
-                                Image(systemName: "person.2")
-                                Text("Shared ·")
-                            }
-                            Text(note.updatedAt, format: .relative(presentation: .named))
-                            if let status = note.status { Text("· \(status)") }
-                            if let due = note.dueAt {
-                                let late = due < Calendar.current.startOfDay(for: Date()) && note.status != "Done"
-                                Text("· due \(due.formatted(.dateTime.month(.abbreviated).day()))").foregroundStyle(late ? Color.red : Color.secondary)
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
+                    NoteRow(note: note)
                     .tag(note.id)
+                    // Two fingers to the left on the trackpad.
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) { requestDelete(note) } label: { Label("Delete", systemImage: "trash") }
+                    }
                 }
-                // ⌫ or ⌦ on the selected note, or right-click: asks once, and Return confirms.
-                .onDeleteCommand { noteToDelete = notes.first { $0.id == selection } }
+                // ⌫ or ⌦ on the selected note, or right-click. Undo puts it back; a team note asks first.
+                .onDeleteCommand { if let note = notes.first(where: { $0.id == selection }) { requestDelete(note) } }
                 .onKeyPress(.deleteForward) {
                     guard let note = notes.first(where: { $0.id == selection }) else { return .ignored }
-                    noteToDelete = note
+                    requestDelete(note)
                     return .handled
                 }
                 .contextMenu(forSelectionType: UUID.self) { ids in
                     if let id = ids.first, let note = notes.first(where: { $0.id == id }) {
-                        Button("Delete…", role: .destructive) { noteToDelete = note }
+                        Button("Open in Its Own Window") { NotePopouts.shared.open(note) }
+                        Button("Fold into a Bubble") { NotePopouts.shared.open(note, collapsed: true) }
+                        Divider()
+                        Button(sharedWithTeam(note) ? "Delete for Everyone…" : "Delete", role: .destructive) { requestDelete(note) }
                     }
+                } primaryAction: { ids in
+                    // A double-click opens the note in a window of its own.
+                    if let id = ids.first, let note = notes.first(where: { $0.id == id }) { NotePopouts.shared.open(note) }
                 }
                 .confirmationDialog(deleteTitle, isPresented: Binding(get: { noteToDelete != nil }, set: { if !$0 { noteToDelete = nil } }),
                                     presenting: noteToDelete) { note in
@@ -468,6 +474,22 @@ struct NotesView: View {
                 } message: { note in
                     Text(sharedWithTeam(note) ? "It's removed for everyone on the team. This can't be undone." : "This can't be undone.")
                 }
+                if let deleted = NoteTrash.shared.last {
+                    HStack(spacing: 8) {
+                        Image(systemName: "trash").foregroundStyle(.secondary)
+                        Text("Deleted “\(deleted.title)”").lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Button("Undo") { NoteTrash.shared.restore(deleted, undoManager: undoManager) }
+                            .help("Put the note back (⌘Z)")
+                    }
+                    .font(.callout)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 Button("Open Scratchpad (\(AppSettings.shared.hotkeys.scratchpad?.displayString() ?? "menu bar"))") {
                     ScratchpadController.shared.show()
                 }
@@ -475,10 +497,11 @@ struct NotesView: View {
                 .padding(12)
             }
             .frame(width: 260)
+            .animation(.easeOut(duration: 0.2), value: NoteTrash.shared.last?.id)
             Divider()
             if let note = notes.first(where: { $0.id == selection }) {
                 // A fresh editor per note: reusing one would take the switch for an edit and move the note to the top.
-                NoteEditor(note: note) { selection = neighbour(of: note)?.id }
+                NoteEditor(note: note, focused: note.id == focusID) { selection = neighbour(of: note)?.id }
                     .id(note.id)
             } else {
                 ContentUnavailableView("Select a note", systemImage: "note.text",
@@ -521,9 +544,88 @@ struct NotesView: View {
         .help("Show all notes again")
     }
 
+    /// A note of your own goes at once, and Undo brings it back; one shared with the team is deleted for everyone, so
+    /// that asks first.
+    private func requestDelete(_ note: NoteItem) {
+        if sharedWithTeam(note) { noteToDelete = note } else { delete(note) }
+    }
+
     private func delete(_ note: NoteItem) {
         if selection == note.id { selection = neighbour(of: note)?.id }
-        NoteEditor.remove(note)
+        if sharedWithTeam(note) { NoteEditor.remove(note) } else { NoteTrash.shared.delete(note, undoManager: undoManager) }
+    }
+}
+
+/// The edge between a page and a side panel: drag it to resize the panel, or all the way across to hide it.
+struct PanelEdge: View {
+    @Binding var width: Double
+    @Binding var visible: Bool
+    var minimum: Double = 220
+    var maximum: Double = 620
+    /// Narrower than this when let go, and the panel hides.
+    var hideBelow: Double = 140
+    @State private var start: Double?
+    @State private var hovering = false
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1).opacity(visible ? 1 : 0)
+            Color.clear.frame(width: 7).contentShape(Rectangle())
+        }
+        .frame(width: 7)
+        .onHover { inside in
+            if inside, !hovering { NSCursor.resizeLeftRight.push() } else if !inside, hovering { NSCursor.pop() }
+            hovering = inside
+        }
+        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { drag in
+                let from = start ?? (visible ? width : 0)
+                if start == nil { start = from }
+                let wanted = from - drag.translation.width
+                if from == 0 {
+                    // Hidden: a short pull brings it out, at its narrowest, and it follows from there.
+                    guard wanted > 24 else { return }
+                    visible = true
+                    width = min(max(wanted, minimum), maximum)
+                } else if wanted < hideBelow {
+                    visible = false
+                } else {
+                    visible = true
+                    width = min(max(wanted, minimum), maximum)
+                }
+            }
+            .onEnded { _ in start = nil })
+        .help(visible ? "Drag to resize the digest, or all the way to hide it" : "Drag to show the digest")
+        .accessibilityLabel("Digest width")
+    }
+}
+
+/// A note in the notes list. A view of its own, so typing in one note redraws its row and leaves the others.
+private struct NoteRow: View {
+    let note: NoteItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(note.title).lineLimit(1)
+            HStack(spacing: 4) {
+                if note.isTeamCopy {
+                    Image(systemName: "person.2.fill")
+                    Text("\(note.teamAuthorName ?? "Team") ·")
+                } else if note.sharedWithTeam, AppSettings.shared.teamFolderPath != nil {
+                    Image(systemName: "person.2")
+                    Text("Shared ·")
+                }
+                Text(note.updatedAt, format: .relative(presentation: .named))
+                if let status = note.status { Text("· \(status)") }
+                if let due = note.dueAt {
+                    let late = due < Calendar.current.startOfDay(for: Date()) && note.status != "Done"
+                    Text("· due \(due.formatted(.dateTime.month(.abbreviated).day()))").foregroundStyle(late ? Color.red : Color.secondary)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
     }
 }
 
@@ -531,12 +633,16 @@ struct NoteEditor: View {
     @Environment(TeamSyncService.self) private var team
     @Environment(KnowledgeService.self) private var knowledge
     @Environment(AppSettings.self) private var settings
+    @Environment(\.undoManager) private var undoManager
     @Bindable var note: NoteItem
+    /// Just made: the editor takes the cursor.
+    var focused = false
     var onDelete: () -> Void
     @State private var confirmDelete = false
     @State private var showingHistory = false
     /// Every note follows the same choice.
     @AppStorage("notesShowDigest") private var digestVisible = true
+    @AppStorage("notesDigestWidth") private var digestWidth: Double = 300
     @State private var digestCopied = false
 
     private var digesting: Bool { knowledge.digestingNoteIDs.contains(note.id) }
@@ -554,29 +660,24 @@ struct NoteEditor: View {
             }
             HStack(spacing: 0) {
                 MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.",
-                                   links: LinkTargets.forEditor(in: note.binderID))
+                                   links: LinkTargets.forEditor(in: note.binderID), focused: focused, accessories: AnyView(noteButtons))
                     .onChange(of: note.text) { previous, _ in
                         note.updatedAt = Date()
                         NoteHistory.changed(note.id, previous: previous)
                     }
+                // Drag the edge to make the digest wider or narrower; most of the way closed, it hides. Dragged out again,
+                // it comes back.
+                PanelEdge(width: $digestWidth, visible: $digestVisible)
                 if digestVisible {
-                    Divider()
-                    digestColumn.frame(width: 300)
+                    digestColumn.frame(width: digestWidth)
                 }
             }
             HStack {
                 Text("\(note.text.wordCount) words").font(.caption).foregroundStyle(.secondary)
-                Button {
-                    digestVisible.toggle()
-                } label: {
-                    Label("Digest", systemImage: "sparkles")
-                }
-                .controlSize(.small)
-                .padding(.leading, 8)
-                .help(digestVisible ? "Hide the digest" : "Show the digest: title, summary, key points and to-dos from your local model")
                 if !note.isTeamCopy, let binder = Store.shared.binder(note.binderID) {
                     Menu {
                         MoveToBinderItems(current: note.binderID) { target in
+                            MarkdownEditor.flushAll()
                             Store.shared.move(note, to: target)
                             team.scheduleSync(after: 0.5)
                         }
@@ -589,9 +690,15 @@ struct NoteEditor: View {
                     .help("Which binder this note is in. Sharing follows the binder.")
                 }
                 Spacer()
-                Button { showingHistory = true } label: { Label("History", systemImage: "clock.arrow.circlepath") }
+                Button {
+                    MarkdownEditor.flushAll()
+                    showingHistory = true
+                } label: { Label("History", systemImage: "clock.arrow.circlepath") }
                     .help("Earlier versions of this note, to read or put back")
-                Button("Copy") { TextInserter.copyToClipboard(note.text) }
+                Button("Copy") {
+                    MarkdownEditor.flushAll()
+                    TextInserter.copyToClipboard(note.text)
+                }
                 Button("Delete", role: .destructive) {
                     if team.isConfigured, note.sharedWithTeam || note.isTeamCopy { confirmDelete = true } else { delete() }
                 }
@@ -601,6 +708,26 @@ struct NoteEditor: View {
         .sheet(isPresented: $showingHistory) { NoteHistorySheet(note: note) }
         .confirmationDialog("Delete this note for everyone on the team?", isPresented: $confirmDelete) {
             Button("Delete for Everyone", role: .destructive, action: delete)
+        }
+    }
+
+    /// At the top right of the note: the digest beside it, shown or not, and popping the note out.
+    private var noteButtons: some View {
+        HStack(spacing: 4) {
+            Toggle(isOn: $digestVisible) {
+                Image(systemName: "sidebar.right").frame(width: 24, height: 20)
+                    .foregroundStyle(digestVisible ? Color.accentColor : Color.secondary)
+            }
+            .toggleStyle(.button)
+            .help(digestVisible ? "Hide the digest and properties" : "Show the digest and properties beside the note")
+            .accessibilityLabel("Digest")
+            Button { NotePopouts.shared.open(note) } label: {
+                Label("Pop Out", systemImage: "macwindow.on.rectangle").labelStyle(.titleAndIcon).font(.callout)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Open this note in a small window that stays in front of everything and folds into a bubble. Or double-click it in the list.")
+            .padding(.leading, 4)
         }
     }
 
@@ -623,6 +750,7 @@ struct NoteEditor: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button {
+                        MarkdownEditor.flushAll()
                         Task { await knowledge.digest(note) }
                     } label: {
                         Image(systemName: note.digest.isEmpty ? "sparkles" : "arrow.clockwise")
@@ -700,11 +828,17 @@ struct NoteEditor: View {
 
     private func delete() {
         onDelete()
-        Self.remove(note)
+        if team.isConfigured, note.sharedWithTeam || note.isTeamCopy {
+            Self.remove(note)
+        } else {
+            NoteTrash.shared.delete(note, undoManager: undoManager)
+        }
     }
 
+    /// For good, history and all: for notes shared with the team, once deleting for everyone was confirmed.
     static func remove(_ note: NoteItem) {
         ScratchpadController.shared.noteWillBeDeleted(note)
+        NotePopouts.shared.close(note.id)
         // Let the editor leave the hierarchy before the model is deleted.
         DispatchQueue.main.async { Store.shared.delete(note) }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import SwiftUI
 import BindersKit
 
@@ -64,6 +65,18 @@ enum NoteHistory {
     static func forget(_ id: UUID) {
         lastKept[id] = nil
         try? FileManager.default.removeItem(at: folder(for: id))
+    }
+
+    /// Clears the versions of notes that are gone: deleted and not put back before the app quit, or removed by sync.
+    static func forgetDeletedNotes() {
+        // A store that can't be read, or the empty one used when the database won't open, says nothing about which notes
+        // are gone.
+        guard !Store.shared.isFallback, let notes = try? Store.shared.context.fetch(FetchDescriptor<NoteItem>()) else { return }
+        let kept = Set(notes.map(\.id))
+        for folder in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
+            guard let id = UUID(uuidString: folder.lastPathComponent), !kept.contains(id) else { continue }
+            forget(id)
+        }
     }
 
     /// Puts a version back, keeping what's there now as a version first, so a restore can be undone the same way.

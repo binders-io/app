@@ -19,6 +19,8 @@ MainActor.assumeIsolated {
     Store.shared.ensureBinders()
     Store.shared.pruneWriting(olderThanDays: AppSettings.shared.captureRetentionDays)
     Store.shared.cleanupWriting()
+    NoteHistory.forgetDeletedNotes()
+    Attachments.trashUnused()
     if let index = CommandLine.arguments.firstIndex(where: { $0.hasPrefix("--selftest") }) {
         application.setActivationPolicy(.accessory)
         SelfTest.start(arguments: Array(CommandLine.arguments[index...]))

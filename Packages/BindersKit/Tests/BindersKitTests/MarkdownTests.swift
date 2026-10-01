@@ -152,4 +152,41 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(MarkdownEditing.toggleTask(text, at: 18)?.text, "- [ ] call Sam\n- [ ] send the deck")
         XCTAssertNil(MarkdownEditing.toggleTask("plain line", at: 2))
     }
+
+    /// Styling a few lines must give what styling the whole note gives for them, code blocks included.
+    func testSpansOfSomeLinesMatchTheWholeNote() {
+        let text = """
+        # Title
+        Some **bold** and `code` and a [link](https://example.com).
+        - [ ] A task
+          ```
+        not a fence: indented two, still a fence
+          ```
+        > A quote
+            ```
+        indented four is not a fence
+        ```swift
+        let x = 1 // # not a heading
+        ~~~
+        still code
+        ```
+        1. After the block
+        ~~~
+        tilde block
+        ~~~
+        Last line
+        """
+        let string = text as NSString
+        let whole = MarkdownSyntax.spans(in: text)
+        var location = 0
+        while location < string.length {
+            let line = string.lineRange(for: NSRange(location: location, length: 0))
+            let some = MarkdownSyntax.spans(in: text, lines: line)
+            let expected = whole.filter { NSIntersectionRange($0.range, line).length > 0 || ($0.range.length == 0 && NSLocationInRange($0.range.location, line)) }
+            XCTAssertEqual(some, expected, "line at \(location): \(string.substring(with: line))")
+            location = NSMaxRange(line)
+        }
+        XCTAssertEqual(MarkdownSyntax.fenceCount(in: text), 7)
+        XCTAssertEqual(MarkdownSyntax.spans(in: text, lines: NSRange(location: 0, length: string.length)), whole)
+    }
 }

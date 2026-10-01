@@ -360,6 +360,8 @@ final class TeamSyncService {
 
     func syncNow() async {
         guard let folder = folderURL else { return }
+        // Notes being typed in go out as they are on screen; what comes in then meets the latest of them.
+        if store === Store.shared { MarkdownEditor.flushAll() }
         guard !syncing else {
             resyncRequested = true
             return
@@ -399,6 +401,7 @@ final class TeamSyncService {
         var removals = Removals()
         var changed = syncMeetings(folder, scan: scan, removals: &removals)
         if scan.notesFolderExists, syncNotes(folder, scan: scan, removals: &removals) { changed = true }
+        if scan.notesFolderExists, store === Store.shared { syncAttachments(folder) }
         syncBinders(folder, scan: scan)
         if changed { store.save() }
         await perform(removals)
@@ -1011,6 +1014,15 @@ final class TeamSyncService {
     }
 
     // MARK: Notes
+
+    /// Pictures and files in shared notes go next to the note's file, where teammates' Macs and Obsidian find them.
+    private func syncAttachments(_ folder: URL) {
+        guard let notes = try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.sharedWithTeam || $0.isTeamCopy })) else { return }
+        for note in notes {
+            guard let path = state.notes[note.id.uuidString]?.path else { continue }
+            Attachments.sync(note.text, noteFile: folder.appendingPathComponent(path))
+        }
+    }
 
     private func writeNote(_ folder: URL, note: NoteItem, existing: RemoteNote?) {
         let fileManager = FileManager.default

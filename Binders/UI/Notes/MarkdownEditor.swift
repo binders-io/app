@@ -17,11 +17,14 @@ final class MarkdownEditorModel {
         case bold, italic, strikethrough, inlineCode, codeBlock, link
         case bullet, numbered, task, quote
         case heading(Int)
+        /// Pictures, videos or files, picked from disk.
+        case attach
     }
 
     func perform(_ command: Command) {
         guard let textView else { return }
         textView.window?.makeFirstResponder(textView)
+        if case .attach = command { return textView.chooseAttachments() }
         textView.run(command)
     }
 
@@ -58,15 +61,23 @@ struct MarkdownNoteEditor: View {
     var compactToolbar = false
     /// [[Links]] to notes, meetings, people and binders; nil where they can't go anywhere.
     var links: NoteLinks? = nil
+    /// Takes the cursor as it appears: a note just made, ready to be typed in.
+    var focused = false
+    /// Buttons for the note as a whole, at the right end of the toolbar: its panels, popping it out.
+    var accessories: AnyView? = nil
     @State private var model = MarkdownEditorModel()
     /// Every note editor follows the same choice.
     @AppStorage("notesShowMarkdown") private var showsMarkup = false
+    /// ⌘= and ⌘- make the words bigger or smaller everywhere notes are written.
+    @AppStorage(TextZoom.key) private var zoom: Double = 1
 
     var body: some View {
         VStack(spacing: 0) {
-            MarkdownToolbar(model: model, compact: compactToolbar, showsMarkup: $showsMarkup, headings: MarkdownOutline.headings(in: text))
+            MarkdownToolbar(model: model, compact: compactToolbar, showsMarkup: $showsMarkup, headings: MarkdownOutline.headings(in: text),
+                            accessories: accessories)
             Divider().opacity(0.5)
-            MarkdownEditor(text: $text, model: model, fontSize: fontSize, placeholder: placeholder, inset: inset, showsMarkup: showsMarkup, links: links)
+            MarkdownEditor(text: $text, model: model, fontSize: (fontSize * (zoom == 0 ? 1 : zoom)).rounded(), placeholder: placeholder, inset: inset,
+                           showsMarkup: showsMarkup, links: links, focused: focused)
         }
     }
 }
@@ -77,6 +88,7 @@ struct MarkdownToolbar: View {
     @Binding var showsMarkup: Bool
     /// The note's headings, for the outline.
     var headings: [MarkdownHeading] = []
+    var accessories: AnyView? = nil
 
     var body: some View {
         HStack(spacing: compact ? 2 : 4) {
@@ -103,6 +115,8 @@ struct MarkdownToolbar: View {
             button("list.number", "Numbered list  ⌘⇧7", .numbered)
             button("checklist", "Checklist  ⌘⇧L", .task)
             button("text.quote", "Quote  ⌘⇧.", .quote)
+            separator
+            button("photo.on.rectangle.angled", "Add a picture, video or file. You can also drop or paste them in.", .attach)
             Spacer(minLength: 0)
             if !headings.isEmpty {
                 Menu {
@@ -126,6 +140,10 @@ struct MarkdownToolbar: View {
             .toggleStyle(.button)
             .help(showsMarkup ? "Hide the Markdown except on the line you're editing" : "Show the Markdown (#, **, links) everywhere")
             .accessibilityLabel("Show Markdown")
+            if let accessories {
+                separator
+                accessories
+            }
         }
         .buttonStyle(.borderless)
         .imageScale(compact ? .small : .medium)
@@ -155,6 +173,7 @@ struct MarkdownEditor: NSViewRepresentable {
     var inset = NSSize(width: 20, height: 16)
     var showsMarkup = false
     var links: NoteLinks? = nil
+    var focused = false
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -171,6 +190,10 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.showsMarkup = showsMarkup
         textView.styler = MarkdownStyler(fontSize: fontSize)
         textView.styler.linkExists = links?.exists
+        textView.styler.embedSize = { [weak textView] source, width in
+            textView?.embedSize(source: source, width: width) ?? NSSize(width: 360, height: 200)
+        }
+        textView.watchPreviews()
         textView.links = links
         textView.placeholder = placeholder
         textView.delegate = context.coordinator
@@ -182,6 +205,8 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.textContainerInset = inset
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -193,6 +218,9 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.string = text
         textView.restyle()
         model.textView = textView
+        context.coordinator.textView = textView
+        context.coordinator.known = text
+        if focused { Self.focus(textView) }
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -209,27 +237,135 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.links = links
         textView.styler.linkExists = links?.exists
         textView.showsMarkup = showsMarkup
+        // Zoomed: everything restyled at the new size.
+        if textView.styler.fontSize != fontSize {
+            var styler = MarkdownStyler(fontSize: fontSize)
+            styler.linkExists = textView.styler.linkExists
+            styler.embedSize = textView.styler.embedSize
+            textView.styler = styler
+            textView.typingAttributes = styler.baseAttributes
+            textView.restyle()
+        }
         // Only text that changed elsewhere (sync, a digest, another window) is pushed in; typing goes the other way.
-        if textView.string != text, !context.coordinator.isEditing {
+        // Typing not yet handed over doesn't count: the note hasn't changed, the editor is just ahead of it.
+        let coordinator = context.coordinator
+        guard !coordinator.isEditing, text != coordinator.known else { return }
+        coordinator.known = text
+        coordinator.cancelPending()
+        if textView.string != text {
             let selection = textView.selectedRange()
             textView.string = text
+            // What was there to undo was typed into other text; undone now, it would land in the wrong places.
+            textView.ownUndoManager.removeAllActions()
             textView.restyle()
             let length = (text as NSString).length
             textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
         }
     }
 
+    /// The cursor at the end of the first line, once the editor is in its window.
+    private static func focus(_ textView: MarkdownTextView, tries: Int = 20) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
+            guard let textView else { return }
+            guard let window = textView.window else {
+                if tries > 0 { focus(textView, tries: tries - 1) }
+                return
+            }
+            window.makeFirstResponder(textView)
+            let string = textView.string as NSString
+            let firstLine = string.lineRange(for: NSRange(location: 0, length: 0))
+            let end = NSMaxRange(firstLine) - (string.substring(with: firstLine).hasSuffix("\n") ? 1 : 0)
+            textView.setSelectedRange(NSRange(location: max(0, end), length: 0))
+        }
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        coordinator.flush()
+        (scroll.documentView as? MarkdownTextView)?.ownUndoManager.removeAllActions()
+    }
+
+    /// Hands every editor's typing to its note now: before quitting, copying a note, or anything else that reads it.
+    static func flushAll() {
+        NotificationCenter.default.post(name: flushNow, object: nil)
+    }
+
+    static let flushNow = Notification.Name("BindersMarkdownEditorFlushNow")
+
+    /// Typing reaches the note a moment after you pause, not on every key: each change to a note redraws everything
+    /// that shows notes, which in a long note or a big library made every keystroke slow.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MarkdownEditor
+        weak var textView: MarkdownTextView?
+        /// The note's text as this editor last saw it, written by the editor or from elsewhere.
+        var known = ""
         var isEditing = false
+        private var pending: DispatchWorkItem?
+        private var observers: [NSObjectProtocol] = []
 
-        init(_ parent: MarkdownEditor) { self.parent = parent }
+        static let pause: TimeInterval = 0.35
+
+        init(_ parent: MarkdownEditor) {
+            self.parent = parent
+            super.init()
+            let center = NotificationCenter.default
+            for name in [MarkdownEditor.flushNow, NSApplication.willTerminateNotification, NSApplication.willResignActiveNotification,
+                         NSWindow.willCloseNotification] {
+                observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        if notification.name == NSWindow.willCloseNotification, (notification.object as? NSWindow) !== self.textView?.window { return }
+                        self.flush()
+                    }
+                })
+            }
+        }
+
+        deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
 
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            pending?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.flush() }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.pause, execute: work)
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            flush()
+        }
+
+        /// Hidden markup isn't checked for spelling: a picture's file name, a link's address, a [[link]]'s target.
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange) -> Int {
+            guard value != 0, let storage = textView.textStorage, NSMaxRange(affectedCharRange) <= storage.length else { return value }
+            var hidden = false
+            storage.enumerateAttribute(.markdownConceal, in: affectedCharRange) { found, _, stop in
+                if found != nil {
+                    hidden = true
+                    stop.pointee = true
+                }
+            }
+            return hidden ? 0 : value
+        }
+
+        func cancelPending() {
+            pending?.cancel()
+            pending = nil
+        }
+
+        /// Hands the typing to the note, if there's any it doesn't have.
+        func flush() {
+            cancelPending()
+            guard let textView else { return }
+            // A native copy: the text view's string is bridged, and everything that reads the note afterwards (titles,
+            // tags, counts, search) is slow on a bridged string.
+            var text = textView.string
+            text.makeContiguousUTF8()
+            guard text != known else { return }
+            known = text
             isEditing = true
-            parent.text = textView.string
+            parent.text = text
             isEditing = false
         }
     }
@@ -258,6 +394,8 @@ struct MarkdownStyler {
     let fontSize: CGFloat
     /// Whether a [[link]]'s title is a note, meeting, person or binder; links to nothing yet look faded.
     var linkExists: ((String) -> Bool)?
+    /// How big a picture or video is drawn, from its source and the width its caption asks for.
+    var embedSize: ((String, Int?) -> NSSize)?
 
     var baseFont: NSFont { .systemFont(ofSize: fontSize) }
     var codeFont: NSFont { .monospacedSystemFont(ofSize: fontSize * 0.9, weight: .regular) }
@@ -276,6 +414,7 @@ struct MarkdownStyler {
     /// Styles `range`. `concealed` says whether hidden markup takes no room, which is where wrapped list lines line up.
     func apply(_ spans: [MarkdownSpan], to storage: NSTextStorage, in range: NSRange, concealed: Bool = true) {
         storage.setAttributes(baseAttributes, range: range)
+        var tables: [NSRange: (MarkdownTable, [CGFloat])] = [:]
         func clipped(_ span: MarkdownSpan) -> NSRange? {
             let overlap = NSIntersectionRange(span.range, range)
             return overlap.length > 0 || (span.range.length == 0 && NSLocationInRange(span.range.location, range)) ? overlap : nil
@@ -307,6 +446,17 @@ struct MarkdownStyler {
                 storage.addAttributes([.foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style, .markdownQuote: true], range: target)
             case .rule:
                 storage.addAttributes([.foregroundColor: NSColor.clear, .markdownRule: true], range: target)
+            case .tableRow(let table, let header, let delimiter):
+                styleTableRow(target, table: table, header: header, delimiter: delimiter, in: storage, layouts: &tables)
+            case .embed(let source, let width):
+                // The picture is drawn in the room above its line, which is its caption.
+                let size = embedSize?(source, width) ?? NSSize(width: 360, height: 200)
+                let style = baseParagraph.mutableCopy() as! NSMutableParagraphStyle
+                style.paragraphSpacingBefore = size.height + EmbedLayout.gap + fontSize * 0.4
+                style.paragraphSpacing = fontSize * 0.6
+                storage.addAttributes([.paragraphStyle: style, .font: NSFont.systemFont(ofSize: fontSize * 0.82),
+                                       .foregroundColor: NSColor.secondaryLabelColor, .markdownEmbed: EmbedBox(source: source, size: size)],
+                                      range: target)
             default:
                 break
             }
@@ -334,6 +484,17 @@ struct MarkdownStyler {
                 }
             case .linkURL:
                 storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownConceal: true], range: target)
+            case .codeLine(let language):
+                let line = (storage.string as NSString).substring(with: span.range)
+                for token in CodeHighlighter.spans(in: line, language: language) {
+                    let colored = NSIntersectionRange(NSRange(location: token.range.location + span.range.location, length: token.range.length), range)
+                    guard colored.length > 0 else { continue }
+                    storage.addAttribute(.foregroundColor, value: Self.color(of: token.token), range: colored)
+                }
+            case .autolink:
+                let address = (storage.string as NSString).substring(with: span.range)
+                storage.addAttributes([.foregroundColor: NSColor.linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                                       .markdownLink: address, .toolTip: "⌘-click to open \(address)"], range: target)
             case .tag:
                 storage.addAttributes([.foregroundColor: NSColor.controlAccentColor,
                                        .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.1)], range: target)
@@ -351,6 +512,10 @@ struct MarkdownStyler {
             switch span.style {
             case .syntax:
                 storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownConceal: true], range: target)
+            case .tableTab:
+                storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownTableTab: true], range: target)
+            case .tableHidden:
+                storage.addAttributes([.foregroundColor: NSColor.tertiaryLabelColor, .markdownTableHidden: true], range: target)
             case .task(let checked):
                 // The "[ ]" stays in the text; the layout manager draws a checkbox where it is.
                 // Monospaced, so "[ ]" and "[x]" are the same width and the words after them line up.
@@ -415,6 +580,17 @@ struct MarkdownStyler {
         return string.substring(with: NSRange(location: start, length: close.location - start))
     }
 
+    /// Code's colours, as Xcode uses them; they follow light and dark.
+    static func color(of token: CodeHighlighter.Token) -> NSColor {
+        switch token {
+        case .keyword: .systemPink
+        case .string: .systemRed
+        case .number: .systemBlue
+        case .comment: .secondaryLabelColor
+        case .type: .systemPurple
+        }
+    }
+
     private func convert(_ storage: NSTextStorage, _ range: NSRange, to trait: NSFontTraitMask) {
         storage.enumerateAttribute(.font, in: range) { value, run, _ in
             let font = (value as? NSFont) ?? baseFont
@@ -426,6 +602,125 @@ struct MarkdownStyler {
 // MARK: - The text view
 
 final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManagerDelegate {
+    /// Undo of its own, which goes when the editor does. On the window's, ⌘Z could reach an editor that had closed with
+    /// its sheet or its note, and crash.
+    let ownUndoManager = UndoManager()
+    override var undoManager: UndoManager? { ownUndoManager }
+
+    /// The file Quick Look is showing.
+    var quickLookItem: URL?
+    /// The "/" menu, while it's open.
+    var slashMenu: SlashMenu?
+    private var previewObserver: NSObjectProtocol?
+    private var styledWidth: CGFloat = 0
+
+    /// Pictures are laid out again once they've loaded.
+    func watchPreviews() {
+        guard previewObserver == nil else { return }
+        previewObserver = NotificationCenter.default.addObserver(forName: AttachmentPreviews.ready, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated { self?.restyleEmbeds(showing: note.object as? URL) }
+        }
+    }
+
+    deinit {
+        if let previewObserver { NotificationCenter.default.removeObserver(previewObserver) }
+    }
+
+    /// Wider or narrower, pictures take the width they can.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard abs(newSize.width - styledWidth) > 0.5 else { return }
+        styledWidth = newSize.width
+        DispatchQueue.main.async { [weak self] in self?.restyleEmbeds() }
+    }
+
+    // A picture, a file or a screenshot comes in as an attachment; an address over a selection makes it a link;
+    // formatted text from a page or a document comes in as Markdown. ⌥⇧⌘V pastes plain words.
+    override func paste(_ sender: Any?) {
+        if !pasteSpecially(from: .general) { super.paste(sender) }
+    }
+
+    /// Pastes what needs more than plain text; false when plain text will do.
+    func pasteSpecially(from pasteboard: NSPasteboard) -> Bool {
+        if insertAttachments(from: pasteboard, at: selectedRange().location) { return true }
+        let selection = selectedRange()
+        if selection.length > 0, let address = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !address.contains(where: \.isWhitespace), ["http://", "https://", "mailto:"].contains(where: address.hasPrefix) {
+            let words = (string as NSString).substring(with: selection)
+            if !words.contains("\n") {
+                let link = "[\(words)](\(address))"
+                replace(selection, with: link, selection: NSRange(location: selection.location + (link as NSString).length, length: 0))
+                return true
+            }
+        }
+        if !isInCodeBlock(selection.location), let markdown = RichPaste.markdown(from: pasteboard) {
+            insertText(markdown, replacementRange: selection)
+            return true
+        }
+        return false
+    }
+
+    /// Typing *, _, `, ~, [, ( or " with words selected wraps them, as in most Markdown editors.
+    override func insertText(_ text: Any, replacementRange: NSRange) {
+        let selection = selectedRange()
+        if replacementRange.location == NSNotFound, selection.length > 0, !hasMarkedText(), let typed = text as? String,
+           let close = Self.wrappers[typed] {
+            let words = (string as NSString).substring(with: selection)
+            if !words.contains("\n") || typed == "`" {
+                replace(selection, with: typed + words + close, selection: NSRange(location: selection.location + 1, length: selection.length))
+                return
+            }
+        }
+        super.insertText(text, replacementRange: replacementRange)
+        if replacementRange.location == NSNotFound, text as? String == "/" { slashTyped() }
+    }
+
+    override func doCommand(by selector: Selector) {
+        if slashMenuHandles(selector) { return }
+        super.doCommand(by: selector)
+    }
+
+    private static let wrappers = ["*": "*", "_": "_", "`": "`", "~": "~", "[": "]", "(": ")", "\"": "\""]
+
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] { super.acceptableDragTypes + Self.attachmentTypes }
+
+    override func dragOperation(for dragInfo: NSDraggingInfo, type: NSPasteboard.PasteboardType) -> NSDragOperation {
+        if (dragInfo.draggingSource as AnyObject?) !== self, Self.attachmentTypes.contains(type) { return .copy }
+        return super.dragOperation(for: dragInfo, type: type)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if (sender.draggingSource as AnyObject?) !== self {
+            let index = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
+            if insertAttachments(from: sender.draggingPasteboard, at: index) { return true }
+        }
+        return super.performDragOperation(sender)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        embedMenu(for: event) ?? super.menu(for: event)
+    }
+
+    // The Edit menu's Undo and Redo would go on to the window's; while the editor has focus, they're its own.
+    @objc func undo(_ sender: Any?) { ownUndoManager.undo() }
+    @objc func redo(_ sender: Any?) { ownUndoManager.redo() }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case Selector(("undo:")):
+            item.title = ownUndoManager.undoMenuItemTitle
+            return ownUndoManager.canUndo
+        case Selector(("redo:")):
+            item.title = ownUndoManager.redoMenuItemTitle
+            return ownUndoManager.canRedo
+        case #selector(paste(_:)):
+            // A plain-text view would turn Paste off for a clipboard holding only a picture.
+            return super.validateMenuItem(item) || (isEditable && Self.carriesAttachment(.general))
+        default:
+            return super.validateMenuItem(item)
+        }
+    }
+
     var styler = MarkdownStyler(fontSize: 15)
     var placeholder = ""
     /// Where [[links]] go, and what to suggest after "[[".
@@ -451,6 +746,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         updateRevealed()
+        if slashMenu != nil { updateSlashMenu() }
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -461,7 +757,10 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { updateRevealed(focused: false) }
+        if resigned {
+            updateRevealed(focused: false)
+            closeSlashMenu()
+        }
         return resigned
     }
 
@@ -504,7 +803,16 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
             var replaced: [CGGlyph]?
             for i in 0..<count {
                 let index = charIndexes[i]
-                guard index < storage.length, !NSLocationInRange(index, revealed) else { continue }
+                guard index < storage.length else { continue }
+                // A table's pipes and the spaces around its cells are hidden even on the line being edited, so its columns
+                // stay where they are while you type.
+                if storage.attribute(.markdownTableTab, at: index, effectiveRange: nil) != nil
+                    || storage.attribute(.markdownTableHidden, at: index, effectiveRange: nil) != nil {
+                    if properties == nil { properties = Array(UnsafeBufferPointer(start: props, count: count)) }
+                    properties?[i] = .controlCharacter
+                    continue
+                }
+                guard !NSLocationInRange(index, revealed) else { continue }
                 if storage.attribute(.markdownConceal, at: index, effectiveRange: nil) != nil {
                     if properties == nil { properties = Array(UnsafeBufferPointer(start: props, count: count)) }
                     properties?[i] = .controlCharacter
@@ -529,8 +837,10 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     nonisolated func layoutManager(_ layoutManager: NSLayoutManager, shouldUse action: NSLayoutManager.ControlCharacterAction,
                                    forControlCharacterAt charIndex: Int) -> NSLayoutManager.ControlCharacterAction {
         MainActor.assumeIsolated {
-            guard !showsMarkup, let storage = layoutManager.textStorage, charIndex < storage.length, !NSLocationInRange(charIndex, revealed),
-                  storage.attribute(.markdownConceal, at: charIndex, effectiveRange: nil) != nil else { return action }
+            guard !showsMarkup, let storage = layoutManager.textStorage, charIndex < storage.length else { return action }
+            if storage.attribute(.markdownTableTab, at: charIndex, effectiveRange: nil) != nil { return .horizontalTab }
+            if storage.attribute(.markdownTableHidden, at: charIndex, effectiveRange: nil) != nil { return .zeroAdvancement }
+            guard !NSLocationInRange(charIndex, revealed), storage.attribute(.markdownConceal, at: charIndex, effectiveRange: nil) != nil else { return action }
             return .zeroAdvancement
         }
     }
@@ -574,7 +884,12 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 fences = count
                 dirty = NSRange(location: dirty.location, length: string.length - dirty.location)
             }
-            styler.apply(MarkdownSyntax.spans(in: text), to: storage, in: dirty, concealed: !showsMarkup)
+            // A table's columns follow its widest cells: a change to one row restyles all of them, and the rows next to
+            // the change may have just become, or stopped being, a table.
+            for probe in [dirty.location - 1, dirty.location, NSMaxRange(dirty)] where probe >= 0 && probe < string.length {
+                if let block = MarkdownTables.block(around: probe, in: string) { dirty = NSUnionRange(dirty, block) }
+            }
+            styler.apply(MarkdownSyntax.spans(in: text, lines: dirty), to: storage, in: dirty, concealed: !showsMarkup)
         }
     }
 
@@ -602,6 +917,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         case .task: edit = MarkdownEditing.toggle(.task, in: string, selection: selection)
         case .quote: edit = MarkdownEditing.toggle(.quote, in: string, selection: selection)
         case .heading(let level): edit = MarkdownEditing.toggle(.heading(level), in: string, selection: selection)
+        case .attach: return chooseAttachments()
         }
         apply(edit)
     }
@@ -628,6 +944,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     // MARK: Keys
 
     override func insertNewline(_ sender: Any?) {
+        if !showsMarkup, tableReturn() { return }
         let selection = selectedRange()
         guard selection.length == 0, !hasMarkedText() else { return super.insertNewline(sender) }
         let text = string as NSString
@@ -644,10 +961,12 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     }
 
     override func insertTab(_ sender: Any?) {
+        if tableTab(backward: false) { return }
         if let edit = MarkdownEditing.indent(string, selection: selectedRange(), outdent: false) { apply(edit) } else { super.insertTab(sender) }
     }
 
     override func insertBacktab(_ sender: Any?) {
+        if tableTab(backward: true) { return }
         if let edit = MarkdownEditing.indent(string, selection: selectedRange(), outdent: true) { apply(edit) } else { super.insertBacktab(sender) }
     }
 
@@ -671,6 +990,11 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         case ([.command, .option], 20, _): .heading(3)
         default: nil
         }
+        // ⌥⌘↑ and ⌥⌘↓ move the lines the cursor or selection is on.
+        if flags == [.command, .option], event.keyCode == 126 || event.keyCode == 125 {
+            if let edit = MarkdownEditing.moveLines(string, selection: selectedRange(), up: event.keyCode == 126) { apply(edit) }
+            return true
+        }
         guard let command else { return super.performKeyEquivalent(with: event) }
         run(command)
         return true
@@ -680,13 +1004,16 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if clickedEmbed(event, at: point) { return }
         // A [[link]] opens on a click, unless its line is being edited; ⌘-click opens it anyway.
         if let links, let (title, index) = wikiLink(at: point),
            event.modifierFlags.contains(.command) || window?.firstResponder !== self || !NSLocationInRange(index, revealed) {
             links.open(title)
             return
         }
-        if event.modifierFlags.contains(.command), let address = link(at: point), let url = URL(string: address), url.scheme != nil {
+        if event.modifierFlags.contains(.command), let address = link(at: point),
+           let url = address.hasPrefix(MarkdownMedia.folder + "/") ? Attachments.url(for: address.removingPercentEncoding ?? address) : URL(string: address),
+           url.scheme != nil {
             NSWorkspace.shared.open(url)
             return
         }
@@ -715,6 +1042,10 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     /// Typing after "[[" shows the notes, meetings, people and binders that match, in the usual completion list.
     override func didChangeText() {
         super.didChangeText()
+        // The selection moved while the text was still being edited, when the line being edited can't be worked out:
+        // without this, the line just left (after a Return, say) kept showing its markup until the cursor moved again.
+        updateRevealed()
+        if slashMenu != nil { updateSlashMenu() }
         guard let links, !completing, !hasMarkedText(),
               let partial = WikiLinks.partialLink(before: selectedRange().location, in: string),
               !links.suggestions((string as NSString).substring(with: partial)).isEmpty else { return }
@@ -771,6 +1102,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         return rect.insetBy(dx: -3, dy: -3).contains(local) ? run : nil
     }
 
+    func inCodeBlock(at location: Int) -> Bool { isInCodeBlock(location) }
+
     private func isInCodeBlock(_ location: Int) -> Bool {
         guard let storage = textStorage, location < storage.length else { return false }
         return storage.attribute(.markdownCodeBlock, at: location, effectiveRange: nil) != nil
@@ -813,6 +1146,8 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + rect.midY, width: width, height: 1).fill()
             }
         }
+        drawTables(in: characters, at: origin)
+        drawEmbeds(in: characters, at: origin)
     }
 
     /// The line fragments that show some of `run`. Hidden markup at the start of a line can sit in the fragment above it,

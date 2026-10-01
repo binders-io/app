@@ -411,6 +411,56 @@ enum SelfTest {
             return failed ? 1 : 0
         }
 
+        if args.contains("--selftest-notes-stress") {
+            return await notesStressSelfTest()
+        }
+
+        if let directory = value("--selftest-capture-picker") {
+            return await capturePickerSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
+        if args.contains("--selftest-llm-bench") {
+            return await llmBenchSelfTest(ollamaModel: value("--ollama") ?? AppSettings.shared.ollamaModel,
+                                          mlxModel: value("--mlx") ?? "mlx-community/gemma-4-26b-a4b-it-4bit",
+                                          rounds: Int(value("--rounds") ?? "") ?? 3)
+        }
+
+        if let model = value("--selftest-mlx") {
+            return await mlxSelfTest(model: model, embedding: value("--embed"))
+        }
+
+        if args.contains("--selftest-menus") {
+            return await menusSelfTest()
+        }
+
+        if args.contains("--selftest-new-note") {
+            return await newNoteSelfTest()
+        }
+
+        if let directory = value("--selftest-popouts") {
+            return await popoutsSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
+        if let directory = value("--selftest-slash") {
+            return await slashMenuSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
+        if args.contains("--selftest-notes-editing") {
+            return await notesEditingSelfTest()
+        }
+
+        if let directory = value("--selftest-notes-media") {
+            return await notesMediaSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
+        if args.contains("--selftest-notes-speed") {
+            return await notesSpeedSelfTest()
+        }
+
+        if args.contains("--selftest-notes-delete") {
+            return await notesDeleteSelfTest()
+        }
+
         if args.contains("--selftest-merge") {
             // Exercises rename and merge on a throwaway knowledge index: mentions move, relations follow, old names become aliases.
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("binders-merge-\(UUID().uuidString).sqlite")
@@ -1293,7 +1343,7 @@ open reports/import.html
     }
 
     @MainActor
-    private static func printFormatted(raw: String, context: AppContext) async {
+    static func printFormatted(raw: String, context: AppContext) async {
         let start = Date()
         let result = await TextFormatter.format(raw: raw, context: context)
         print("FORMAT_MS: \(ms(since: start))")
@@ -1969,7 +2019,7 @@ open reports/import.html
     }
 
     @MainActor
-    private static func capture(_ view: NSView, name: String, directory: URL) {
+    static func capture(_ view: NSView, name: String, directory: URL) {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         let scale: CGFloat = 2
@@ -1995,7 +2045,7 @@ open reports/import.html
 
     /// Layer rendering skips scroll view tiles, so render each scroll view's document separately.
     @MainActor
-    private static func captureScrollContents(_ root: NSView, name: String, directory: URL) {
+    static func captureScrollContents(_ root: NSView, name: String, directory: URL) {
         var scrollViews: [NSScrollView] = []
         func walk(_ view: NSView) {
             if let scroll = view as? NSScrollView { scrollViews.append(scroll) }
@@ -2013,7 +2063,7 @@ open reports/import.html
         }
     }
 
-    private static func ms(since date: Date) -> Int {
+    static func ms(since date: Date) -> Int {
         Int(Date().timeIntervalSince(date) * 1000)
     }
 }

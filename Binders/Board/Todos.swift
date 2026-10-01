@@ -54,6 +54,7 @@ enum Todos {
     /// Ticks the to-do off, or opens it again, where it lives. Returns its words; nil when it has changed or is gone.
     @discardableResult
     static func setDone(_ id: String, _ done: Bool, commitments: CommitmentService?) -> String? {
+        MarkdownEditor.flushAll()
         let store = Store.shared
         guard let reference = BoardTaskReference(id) else {
             guard let uuid = UUID(uuidString: id), let record = store.commitments().first(where: { $0.id == uuid }) else { return nil }

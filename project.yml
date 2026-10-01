@@ -16,6 +16,13 @@ packages:
     from: 2.6.4
   BindersKit:
     path: Packages/BindersKit
+  # Models run inside Binders on Apple silicon, for Macs where Ollama isn't allowed.
+  MLXSwiftLM:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    from: 3.32.3
+  SwiftTransformers:
+    url: https://github.com/huggingface/swift-transformers.git
+    from: 1.3.4
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -23,8 +30,8 @@ settings:
     DEVELOPMENT_TEAM: 87LFD98HJU
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
-    MARKETING_VERSION: "0.5.0"
-    CURRENT_PROJECT_VERSION: "10"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "11"
 targets:
   Binders:
     type: application
@@ -77,6 +84,14 @@ targets:
         product: WhisperKit
       - package: Sparkle
       - package: BindersKit
+      - package: MLXSwiftLM
+        product: MLXLLM
+      - package: MLXSwiftLM
+        product: MLXLMCommon
+      - package: MLXSwiftLM
+        product: MLXEmbedders
+      - package: SwiftTransformers
+        product: Tokenizers
   BindersPhone:
     type: application
     platform: iOS

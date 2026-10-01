@@ -46,6 +46,10 @@ final class HubNavigation {
     var pendingBinderTab: BinderTab?
     var pendingMeetingID: UUID?
     var pendingNoteID: UUID?
+    /// The pending note was just made: its editor takes the cursor.
+    var pendingNoteIsNew = false
+    /// The note open on the Notes page, for the Note menu.
+    var currentNoteID: UUID?
     var pendingHistorySearch: String?
     var pendingWritingSearch: String?
     var pendingKnowledgeQuery: String?
@@ -62,7 +66,7 @@ final class HubNavigation {
 }
 
 @MainActor
-final class HubWindowController: NSObject, NSWindowDelegate {
+final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation {
     static let shared = HubWindowController()
 
     var controller: DictationController?
@@ -101,6 +105,74 @@ final class HubWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// ⌘N: a new note in the binder that's open (or the current one), on the Notes page, ready to type in.
+    @objc func newNote(_ sender: Any?) {
+        let binderID = navigation.selection == .binder ? navigation.binderID : nil
+        let binder = Store.shared.binder(binderID ?? AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
+        let note = TemplateStore.newNote(from: nil, in: binder)
+        navigation.binderID = binder.id
+        navigation.pendingBinderTab = .notes
+        navigation.pendingNoteIsNew = true
+        navigation.pendingNoteID = note.id
+        show(section: .binder)
+    }
+
+    /// The note the Note menu acts on: the pop-out in front, or the one open on the Notes page.
+    private var noteInFront: (id: UUID, inPopout: Bool)? {
+        if let key = NSApp.keyWindow, let id = key.identifier.flatMap({ UUID(uuidString: $0.rawValue) }), NotePopouts.shared.isOpen(id) {
+            return (id, true)
+        }
+        if let id = navigation.currentNoteID, window?.isVisible == true, navigation.selection == .binder { return (id, false) }
+        return nil
+    }
+
+    @objc func popOutNote(_ sender: Any?) {
+        guard let (id, inPopout) = noteInFront, !inPopout, let note = Store.shared.note(id) else { return }
+        NotePopouts.shared.open(note)
+    }
+
+    @objc func foldIntoBubble(_ sender: Any?) {
+        guard let (id, inPopout) = noteInFront else { return }
+        if inPopout {
+            NotePopouts.shared.collapse(id)
+        } else if let note = Store.shared.note(id) {
+            NotePopouts.shared.open(note, collapsed: true)
+        }
+    }
+
+    @objc func toggleDigest(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        defaults.set(!(defaults.object(forKey: "notesShowDigest") as? Bool ?? true), forKey: "notesShowDigest")
+    }
+
+    @objc func zoomIn(_ sender: Any?) { TextZoom.step(0.1) }
+    @objc func zoomOut(_ sender: Any?) { TextZoom.step(-0.1) }
+    @objc func actualSize(_ sender: Any?) { TextZoom.reset() }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(popOutNote(_:)):
+            return noteInFront.map { !$0.inPopout } ?? false
+        case #selector(foldIntoBubble(_:)):
+            return noteInFront != nil
+        case #selector(toggleDigest(_:)):
+            item.title = (UserDefaults.standard.object(forKey: "notesShowDigest") as? Bool ?? true) ? "Hide Digest" : "Show Digest"
+            return true
+        case #selector(zoomIn(_:)):
+            return TextZoom.level < TextZoom.range.upperBound
+        case #selector(zoomOut(_:)):
+            return TextZoom.level > TextZoom.range.lowerBound
+        default:
+            return true
+        }
+    }
+
+    /// ⌥⌘N: a new note in a small window of its own.
+    @objc func newNoteWindow(_ sender: Any?) {
+        let binder = Store.shared.binder(AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
+        NotePopouts.shared.open(TemplateStore.newNote(from: nil, in: binder))
     }
 
     /// ⌘O and ⌘P, from the Go menu: opens the window if needed, and the switcher; the same keys again close it.

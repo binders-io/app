@@ -234,16 +234,19 @@ private struct GeneralSettings: View {
 
 private struct ShortcutsSettings: View {
     @Environment(AppSettings.self) private var settings
-    @State private var recordingField: HotkeyBindings.Field?
+    /// The shortcut being recorded, global or in Binders: one at a time.
+    @State private var recording: String?
     @State private var conflict: ShortcutConflict?
+    @State private var menuShortcuts: [MenuCommand: Hotkey] = [:]
+    @State private var menuConflict: (command: MenuCommand, hotkey: Hotkey, other: String, otherCommand: MenuCommand?)?
 
     var body: some View {
         SettingsPageForm(page: .shortcuts) {
             Section {
                 ForEach(HotkeyBindings.Field.allCases, id: \.self) { field in
                     LabeledContent(field.title) {
-                        ShortcutField(field: field, hotkey: settings.hotkeys[field], recordingField: $recordingField,
-                                      onRecord: { record($0, for: field) }, onClear: { settings.hotkeys[field] = nil })
+                        ShortcutField(key: field.rawValue, isHold: field.isHold, removable: field != .dictation, hotkey: settings.hotkeys[field],
+                                      recording: $recording, onRecord: { record($0, for: field) }, onClear: { settings.hotkeys[field] = nil })
                     }
                     if let conflict, conflict.field == field {
                         conflictRow(conflict)
@@ -253,9 +256,66 @@ private struct ShortcutsSettings: View {
                     conflict = nil
                     settings.hotkeys = .default
                 }
+            } header: {
+                Text("Anywhere on your Mac")
             } footer: {
                 Text("Hold to talk, release to insert. Double-tap the dictation shortcut to go hands-free, press it again to finish, Esc to cancel. The other shortcuts can be a key combination such as ⌥S, or a modifier tapped twice: click, then tap ⌥ twice.")
             }
+            Section {
+                ForEach(MenuCommand.allCases) { command in
+                    LabeledContent(command.title) {
+                        ShortcutField(key: "menu." + command.rawValue, isHold: false, requiresKey: true, removable: true, hotkey: menuShortcuts[command],
+                                      recording: $recording, onRecord: { recordMenu($0, for: command) },
+                                      onClear: { setMenu(nil, for: command) })
+                    }
+                    if let menuConflict, menuConflict.command == command {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Text("\(menuConflict.hotkey.displayString(keyName: KeyCode.name)) is already \(menuConflict.other).")
+                            Spacer()
+                            if let other = menuConflict.otherCommand {
+                                Button("Use it here") {
+                                    setMenu(nil, for: other)
+                                    setMenu(menuConflict.hotkey, for: command)
+                                }
+                            } else {
+                                Button("OK") { self.menuConflict = nil }
+                            }
+                        }
+                    }
+                }
+                Button("Reset to defaults") {
+                    menuConflict = nil
+                    MenuShortcuts.reset()
+                    loadMenuShortcuts()
+                }
+            } header: {
+                Text("In Binders")
+            } footer: {
+                Text("These work while Binders is in front, and show in its menus. Pop Out and Fold into a Bubble act on the note you're in, in Binders or in its own window.")
+            }
+        }
+        .onAppear(perform: loadMenuShortcuts)
+    }
+
+    private func loadMenuShortcuts() {
+        menuShortcuts = Dictionary(uniqueKeysWithValues: MenuCommand.allCases.compactMap { command in MenuShortcuts.shortcut(for: command).map { (command, $0) } })
+    }
+
+    private func setMenu(_ hotkey: Hotkey?, for command: MenuCommand) {
+        menuConflict = nil
+        MenuShortcuts.set(hotkey, for: command)
+        loadMenuShortcuts()
+    }
+
+    private func recordMenu(_ hotkey: Hotkey, for command: MenuCommand) {
+        menuConflict = nil
+        if let field = HotkeyBindings.Field.allCases.first(where: { settings.hotkeys[$0] == hotkey }) {
+            menuConflict = (command, hotkey, "your \(field.title) shortcut, which works everywhere", nil)
+        } else if let other = MenuShortcuts.conflict(for: hotkey, except: command) {
+            menuConflict = (command, hotkey, "used for \(other)", MenuCommand.allCases.first { $0.title == other })
+        } else {
+            setMenu(hotkey, for: command)
         }
     }
 
@@ -385,7 +445,7 @@ private struct AISettings: View {
                 Toggle("AI formatting", isOn: $settings.aiFormatting)
                 Toggle("Command Mode", isOn: $settings.commandModeEnabled)
                 Picker("Provider", selection: $settings.llmProvider) {
-                    ForEach(LLMProviderKind.allCases) { Text($0.displayName).tag($0) }
+                    ForEach(LLMProviderKind.available) { Text($0.displayName).tag($0) }
                 }
                 if settings.llmProvider == .ollama {
                     TextField("Ollama URL", text: $settings.ollamaURL)
@@ -412,6 +472,28 @@ private struct AISettings: View {
                         }
                         .disabled(residency == nil || unloading)
                     }
+                } else if settings.llmProvider == .mlx {
+                    MLXModelSettings()
+                    Picker("Free the model's memory", selection: $settings.modelIdleMinutes) {
+                        Text("after 5 minutes idle").tag(5)
+                        Text("after 15 minutes idle").tag(15)
+                        Text("after 30 minutes idle").tag(30)
+                        Text("after 1 hour idle").tag(60)
+                        Text("never, keep it loaded").tag(0)
+                    }
+                    HStack {
+                        Text(residencyText).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button(unloading ? "Unloading…" : "Unload now") {
+                            Task {
+                                unloading = true
+                                await controller.unloadLLM()
+                                await refreshResidency()
+                                unloading = false
+                            }
+                        }
+                        .disabled(residency == nil || unloading)
+                    }
                 } else {
                     TextField("Base URL", text: $settings.openAIBaseURL)
                     modelPicker(selection: $settings.openAIModel)
@@ -427,7 +509,7 @@ private struct AISettings: View {
             } header: {
                 Text("Language model")
             } footer: {
-                Text("Formatting removes filler words, applies your corrections and matches the style of each app. Smaller models are faster; gemma4:26b gives the best cleanup.")
+                Text("Formatting removes filler words, applies your corrections and matches the style of each app. Smaller models are faster; Gemma 4 26B gives the best cleanup.")
             }
 
             Section("Inserting text") {
@@ -436,7 +518,7 @@ private struct AISettings: View {
                 Toggle("Restore clipboard after pasting", isOn: $settings.restoreClipboard)
             }
         }
-        .task(id: settings.ollamaModel + settings.ollamaURL) {
+        .task(id: settings.llmProvider.rawValue + settings.ollamaModel + settings.ollamaURL + settings.mlxModel) {
             while !Task.isCancelled {
                 await refreshResidency()
                 try? await Task.sleep(for: .seconds(15))
@@ -568,6 +650,7 @@ private struct AISettings: View {
         let client: LLMClient?
         switch settings.llmProvider {
         case .ollama: client = URL(string: settings.ollamaURL).map { OllamaClient(baseURL: $0, model: "") }
+        case .mlx: client = nil
         case .openAICompatible:
             client = URL(string: settings.openAIBaseURL).map { OpenAICompatibleClient(baseURL: $0, model: "", apiKey: settings.openAIKey.isEmpty ? nil : settings.openAIKey) }
         }
@@ -581,19 +664,20 @@ private struct AISettings: View {
     }
 
     private var residencyText: String {
-        guard settings.llmProvider == .ollama else { return "" }
+        guard settings.llmProvider != .openAICompatible else { return "" }
+        let model = settings.llmModelName
         guard residencyChecked else { return "Checking whether the model is in memory…" }
-        guard let residency else { return "\(settings.ollamaModel) is not in memory. It loads when a dictation starts, or when notes, digests or promises need it." }
+        guard let residency else { return "\(model) is not in memory. It loads when a dictation starts, or when notes, digests or promises need it." }
         let size = ByteCountFormatter.string(fromByteCount: residency.bytes, countStyle: .memory)
         if let expires = residency.expiresAt {
             let minutes = max(0, Int(expires.timeIntervalSinceNow / 60))
-            return "\(settings.ollamaModel) is in memory (\(size)) · frees in \(minutes < 1 ? "under a minute" : "\(minutes) min") unless used again"
+            return "\(model) is in memory (\(size)) · frees in \(minutes < 1 ? "under a minute" : "\(minutes) min") unless used again"
         }
-        return "\(settings.ollamaModel) is in memory (\(size)) · kept loaded"
+        return "\(model) is in memory (\(size)) · kept loaded"
     }
 
     private func refreshResidency() async {
-        guard settings.llmProvider == .ollama, let client = settings.makeLLMClient() else { residency = nil; residencyChecked = true; return }
+        guard settings.llmProvider != .openAICompatible, let client = settings.makeLLMClient() else { residency = nil; residencyChecked = true; return }
         residency = await client.residency()
         residencyChecked = true
     }
@@ -660,15 +744,30 @@ private struct KnowledgeSettings: View {
             Section {
                 Toggle("Link people, projects and topics (uses your language model)", isOn: $settings.knowledgeGraph)
                 Toggle("Write digests for notes: title, summary, to-dos (uses your language model)", isOn: $settings.noteDigests)
-                HStack {
-                    TextField("Embedding model", text: $settings.embeddingModel)
-                    Button(knowledge.pullProgress == nil ? "Download" : "Downloading…") {
-                        Task { await knowledge.pullEmbeddingModel() }
+                if settings.llmProvider == .mlx {
+                    // Built in: the search model is downloaded like the language model, in Settings → AI.
+                    let model = settings.mlxEmbeddingModel
+                    HStack {
+                        LabeledContent("Embedding model", value: model)
+                        if MLXModels.directory(for: model) == nil {
+                            if let fraction = MLXModels.shared.progress[model] {
+                                ProgressView(value: fraction).frame(width: 80)
+                            } else {
+                                Button("Download") { MLXModels.shared.download(model) }
+                            }
+                        }
                     }
-                    .disabled(knowledge.pullProgress != nil || settings.llmProvider != .ollama)
-                }
-                if let progress = knowledge.pullProgress {
-                    ProgressView(value: progress)
+                } else {
+                    HStack {
+                        TextField("Embedding model", text: $settings.embeddingModel)
+                        Button(knowledge.pullProgress == nil ? "Download" : "Downloading…") {
+                            Task { await knowledge.pullEmbeddingModel() }
+                        }
+                        .disabled(knowledge.pullProgress != nil || settings.llmProvider != .ollama)
+                    }
+                    if let progress = knowledge.pullProgress {
+                        ProgressView(value: progress)
+                    }
                 }
                 LabeledContent("Index") {
                     Text(knowledge.status.summary).foregroundStyle(.secondary)
@@ -700,6 +799,7 @@ private struct KnowledgeSettings: View {
 
 private struct WritingCaptureSettings: View {
     @Environment(AppSettings.self) private var settings
+    @State private var addingApps = false
 
     var body: some View {
         @Bindable var settings = settings
@@ -719,6 +819,25 @@ private struct WritingCaptureSettings: View {
                         }
                     }
                 }
+                // Apps added from the list of what's running, or from Applications.
+                ForEach(settings.captureApps.filter { id in !WritingCaptureService.knownApps.contains { $0.bundleID == id } }, id: \.self) { id in
+                    HStack(spacing: 8) {
+                        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 18, height: 18)
+                        }
+                        Text(WritingCaptureService.appName(id))
+                        if WritingCaptureService.isBrowser(id) {
+                            Text(settings.captureAllSites ? "any site" : "listed sites only").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { settings.captureApps.removeAll { $0 == id } } label: { Image(systemName: "minus.circle.fill") }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Stop capturing in \(WritingCaptureService.appName(id))")
+                    }
+                }
+                Button("Add an App…") { addingApps = true }
+                    .help("Pick from the apps open now, or any app in Applications")
                 Toggle("Capture on any site (login, payment and banking pages are always skipped)", isOn: $settings.captureAllSites)
                 if !settings.captureAllSites {
                     TextField("Listed sites", text: Binding(
@@ -738,6 +857,11 @@ private struct WritingCaptureSettings: View {
                 Toggle("Turn promises and asks in captured messages into to-dos (uses your language model)", isOn: $settings.captureCommitments)
                 Toggle("Remind me on the day a promise is due", isOn: $settings.commitmentReminders)
                 Button("Open the capture log") { HubWindowController.shared.show(section: .writing) }
+            }
+        }
+        .sheet(isPresented: $addingApps) {
+            CaptureAppPicker(current: Set(settings.captureApps)) { ids in
+                settings.captureApps += ids.filter { !settings.captureApps.contains($0) }
             }
         }
     }
@@ -1401,9 +1525,15 @@ private struct AutomationEditor: View {
 /// to the recorder meanwhile: pressing a shortcut that is already set records it instead of doing it.
 private struct ShortcutField: View {
     @Environment(DictationController.self) private var controller
-    let field: HotkeyBindings.Field
+    /// Which shortcut this is, among all the fields on the page.
+    let key: String
+    /// Held while you talk (dictation), rather than pressed to do something.
+    let isHold: Bool
+    /// A menu's shortcut needs a key; a modifier on its own or tapped twice won't do.
+    var requiresKey = false
+    var removable = true
     let hotkey: Hotkey?
-    @Binding var recordingField: HotkeyBindings.Field?
+    @Binding var recording: String?
     let onRecord: (Hotkey) -> Void
     let onClear: () -> Void
 
@@ -1413,7 +1543,7 @@ private struct ShortcutField: View {
     @State private var localMonitor: Any?
     @State private var tick: Task<Void, Never>?
 
-    private var isRecording: Bool { recordingField == field }
+    private var isRecording: Bool { recording == key }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -1428,7 +1558,7 @@ private struct ShortcutField: View {
                 .tint(isRecording ? .accentColor : nil)
                 .buttonStyle(.bordered)
                 // Always there, hidden when it can't be used, so every field lines up.
-                let clearable = field != .dictation && hotkey != nil && !isRecording
+                let clearable = removable && hotkey != nil && !isRecording
                 Button(action: onClear) { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
@@ -1441,8 +1571,8 @@ private struct ShortcutField: View {
                 Text(hint).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .onChange(of: recordingField) { _, current in
-            if current != field { stop(clearOwner: false) }
+        .onChange(of: recording) { _, current in
+            if current != key { stop(clearOwner: false) }
         }
         .onDisappear { stop() }
         // Leaving the app mid-recording would otherwise keep the shortcuts off.
@@ -1450,10 +1580,10 @@ private struct ShortcutField: View {
     }
 
     private func start() {
-        recordingField = field
-        recorder = ShortcutRecorder(isHold: field.isHold)
+        recording = key
+        recorder = ShortcutRecorder(isHold: isHold)
         live = ""
-        hint = field.isHold ? nil : "A key combination, or tap a modifier twice."
+        hint = requiresKey ? "A key with ⌘, ⌥ or ⌃, such as ⌥⌘B." : isHold ? nil : "A key combination, or tap a modifier twice."
         if !controller.hotkeys.startRecording({ input, time in handle(input, at: time) }) {
             // No event tap (Accessibility is off): listen to this window instead.
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
@@ -1486,6 +1616,13 @@ private struct ShortcutField: View {
                 apply(late)
             }
         case .recorded(let hotkey):
+            if requiresKey, hotkey.keyCode == nil {
+                // Menus can't use a modifier alone: keep listening for a key.
+                recorder = ShortcutRecorder(isHold: false)
+                live = ""
+                hint = "A menu shortcut needs a key as well, such as ⌥⌘B."
+                return
+            }
             stop()
             hint = nil
             onRecord(hotkey)
@@ -1507,7 +1644,7 @@ private struct ShortcutField: View {
         localMonitor = nil
         if clearOwner, isRecording {
             controller.hotkeys.stopRecording()
-            recordingField = nil
+            recording = nil
         }
         live = ""
     }

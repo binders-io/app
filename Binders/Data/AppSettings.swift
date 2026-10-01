@@ -4,13 +4,18 @@ import ServiceManagement
 import BindersKit
 
 enum LLMProviderKind: String, CaseIterable, Codable, Identifiable {
-    case ollama, openAICompatible
+    case ollama, mlx, openAICompatible
 
     var id: String { rawValue }
+
+    /// What this Mac can use: models built in need Apple silicon.
+    static var available: [LLMProviderKind] { allCases.filter { $0 != .mlx || MLXModels.isSupported } }
+
     var displayName: String {
         switch self {
         case .ollama: "Ollama"
-        case .openAICompatible: "OpenAI-compatible (LM Studio, llama.cpp, MLX, Groq…)"
+        case .mlx: "Built in (MLX, no other app needed)"
+        case .openAICompatible: "OpenAI-compatible (LM Studio, llama.cpp, vLLM, Groq…)"
         }
     }
 }
@@ -38,6 +43,11 @@ final class AppSettings {
     var ollamaModel: String { didSet { defaults.set(ollamaModel, forKey: "ollamaModel") } }
     var openAIBaseURL: String { didSet { defaults.set(openAIBaseURL, forKey: "openAIBaseURL") } }
     var openAIModel: String { didSet { defaults.set(openAIModel, forKey: "openAIModel") } }
+    /// The MLX model: a Hugging Face name ("mlx-community/gemma-4-e4b-it-4bit") or a folder's path.
+    var mlxModel: String { didSet { defaults.set(mlxModel, forKey: "mlxModel") } }
+    var mlxEmbeddingModel: String { didSet { defaults.set(mlxEmbeddingModel, forKey: "mlxEmbeddingModel") } }
+    /// Where MLX models are downloaded from: Hugging Face, or a company's mirror of it.
+    var mlxEndpoint: String { didSet { defaults.set(mlxEndpoint, forKey: "mlxEndpoint") } }
     var styles: StyleSettings { didSet { save(styles, "styles") } }
 
     var voiceCommands: Bool { didSet { defaults.set(voiceCommands, forKey: "voiceCommands") } }
@@ -96,6 +106,12 @@ final class AppSettings {
         set { Keychain.write(newValue, for: "openai-compatible-key") }
     }
 
+    /// For models that need accepting a licence on Hugging Face, or a company mirror that wants one.
+    var mlxToken: String {
+        get { Keychain.read("mlx-download-token") ?? "" }
+        set { Keychain.write(newValue, for: "mlx-download-token") }
+    }
+
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
         set {
@@ -114,7 +130,19 @@ final class AppSettings {
         vocabularyBoost = defaults.object(forKey: "vocabularyBoost") as? Bool ?? true
         aiFormatting = defaults.object(forKey: "aiFormatting") as? Bool ?? true
         commandModeEnabled = defaults.object(forKey: "commandModeEnabled") as? Bool ?? true
-        llmProvider = LLMProviderKind(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .ollama
+        if let saved = defaults.string(forKey: "llmProvider").flatMap(LLMProviderKind.init(rawValue:)), LLMProviderKind.available.contains(saved) {
+            llmProvider = saved
+        } else {
+            // A new Mac on Apple silicon starts with the model built in: nothing else to install. A Mac that already has
+            // Binders' database keeps Ollama, as before, and so does an Intel Mac.
+            let isNew = !FileManager.default.fileExists(atPath: AppPaths.store.path)
+            let start: LLMProviderKind = MLXModels.isSupported && isNew ? .mlx : .ollama
+            llmProvider = start
+            UserDefaults.standard.set(start.rawValue, forKey: "llmProvider")
+        }
+        mlxModel = defaults.string(forKey: "mlxModel") ?? MLXModels.suggested.id
+        mlxEmbeddingModel = defaults.string(forKey: "mlxEmbeddingModel") ?? MLXModels.embeddingSuggestion.id
+        mlxEndpoint = defaults.string(forKey: "mlxEndpoint") ?? "https://huggingface.co"
         modelIdleMinutes = defaults.object(forKey: "modelIdleMinutes") as? Int ?? 15
         ollamaURL = defaults.string(forKey: "ollamaURL") ?? "http://127.0.0.1:11434"
         ollamaModel = defaults.string(forKey: "ollamaModel") ?? ModelAdvisor.recommendation(memoryGB: ModelAdvisor.memoryGB(bytes: ProcessInfo.processInfo.physicalMemory)).model
@@ -170,7 +198,11 @@ final class AppSettings {
     var languageHint: String? { language == "auto" ? nil : language }
 
     var llmModelName: String {
-        llmProvider == .ollama ? ollamaModel : openAIModel
+        switch llmProvider {
+        case .ollama: ollamaModel
+        case .mlx: mlxModel.hasPrefix("/") ? (mlxModel as NSString).lastPathComponent : (mlxModel.split(separator: "/").last.map(String.init) ?? mlxModel)
+        case .openAICompatible: openAIModel
+        }
     }
 
     /// Whether Binders manages the model's memory (as opposed to keeping it loaded).
@@ -184,6 +216,9 @@ final class AppSettings {
         case .openAICompatible:
             guard let url = URL(string: openAIBaseURL), !openAIModel.isEmpty else { return nil }
             return OpenAICompatibleClient(baseURL: url, model: openAIModel, apiKey: openAIKey.isEmpty ? nil : openAIKey)
+        case .mlx:
+            guard MLXModels.isSupported, !mlxModel.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            return MLXClient(model: mlxModel, idleMinutes: modelIdleMinutes)
         }
     }
 

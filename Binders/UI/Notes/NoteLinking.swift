@@ -103,6 +103,32 @@ enum LinkTargets {
     }
 }
 
+/// Where a title is linked or named in each note and meeting, looked for again only when the text or the title changes:
+/// the panel redraws whenever any note does.
+@MainActor
+private enum MentionCache {
+    private static var found: [String: (hash: Int, hit: (linked: Bool, range: NSRange)?)] = [:]
+
+    static func find(_ title: String, in text: String, key: String) -> (linked: Bool, range: NSRange)? {
+        var hasher = Hasher()
+        hasher.combine(title)
+        hasher.combine(text)
+        let hash = hasher.finalize()
+        if let known = found[key], known.hash == hash { return known.hit }
+        let wanted = WikiLinks.key(title)
+        let hit: (linked: Bool, range: NSRange)?
+        if let link = WikiLinks.links(in: text).first(where: { WikiLinks.key($0.target) == wanted }) {
+            hit = (true, link.range)
+        } else if let range = WikiLinks.plainMention(of: title, in: text) {
+            hit = (false, range)
+        } else {
+            hit = nil
+        }
+        found[key] = (hash, hit)
+        return hit
+    }
+}
+
 /// Where something is mentioned: notes that [[link]] to it, then notes and meetings that name it without a link. A note's
 /// mention becomes a link with one click.
 struct MentionsPanel: View {
@@ -136,20 +162,16 @@ struct MentionsPanel: View {
     static func mentions(of title: String, excluding: UUID?, notes: [NoteItem], meetings: [MeetingRecord]) -> [Mention] {
         guard searchable(title) else { return [] }
         var found: [Mention] = []
-        for note in notes where note.id != excluding && !note.text.isEmpty {
-            if let link = WikiLinks.links(in: note.text).first(where: { WikiLinks.key($0.target) == WikiLinks.key(title) }) {
-                found.append(Mention(id: note.id, title: note.title, snippet: Self.snippet(note.text, around: link.range), isMeeting: false, linked: true,
-                                     note: note, binderID: note.binderID))
-            } else if let range = WikiLinks.plainMention(of: title, in: note.text) {
-                found.append(Mention(id: note.id, title: note.title, snippet: Self.snippet(note.text, around: range), isMeeting: false, linked: false,
-                                     note: note, binderID: note.binderID))
-            }
+        for note in notes where note.id != excluding {
+            let text = note.text
+            guard !text.isEmpty, let hit = MentionCache.find(title, in: text, key: "n" + note.id.uuidString) else { continue }
+            found.append(Mention(id: note.id, title: note.title, snippet: Self.snippet(text, around: hit.range), isMeeting: false, linked: hit.linked,
+                                 note: note, binderID: note.binderID))
         }
         for meeting in meetings where meeting.id != excluding {
-            for text in [meeting.summary, meeting.userNotes] where !text.isEmpty {
-                let linked = WikiLinks.links(in: text).first { WikiLinks.key($0.target) == WikiLinks.key(title) }?.range
-                guard let range = linked ?? WikiLinks.plainMention(of: title, in: text) else { continue }
-                found.append(Mention(id: meeting.id, title: meeting.title, snippet: Self.snippet(text, around: range), isMeeting: true, linked: linked != nil,
+            for (index, text) in [meeting.summary, meeting.userNotes].enumerated() where !text.isEmpty {
+                guard let hit = MentionCache.find(title, in: text, key: "m\(index)" + meeting.id.uuidString) else { continue }
+                found.append(Mention(id: meeting.id, title: meeting.title, snippet: Self.snippet(text, around: hit.range), isMeeting: true, linked: hit.linked,
                                      binderID: meeting.binderID))
                 break
             }
@@ -199,6 +221,7 @@ struct MentionsPanel: View {
             Spacer(minLength: 0)
             if !mention.linked, let note = mention.note {
                 Button("Link") {
+                    MarkdownEditor.flushAll()
                     if let text = WikiLinks.linkingFirstMention(of: title, in: note.text) {
                         NoteHistory.willChange(note, to: text)
                         note.text = text

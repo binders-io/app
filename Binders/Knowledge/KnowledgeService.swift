@@ -54,6 +54,8 @@ struct EmbeddingClient: Sendable {
     enum Provider: Sendable {
         case ollama
         case openAICompatible(apiKey: String?)
+        /// In Binders, with MLX.
+        case mlx
     }
 
     let baseURL: URL
@@ -63,9 +65,12 @@ struct EmbeddingClient: Sendable {
     var keepAliveSeconds: Int = 900
 
     func embed(_ texts: [String]) async throws -> [[Float]] {
+        if case .mlx = provider { return try await MLXEmbedder.shared.embed(texts, model: model) }
         var request: URLRequest
         let body: [String: Any]
         switch provider {
+        case .mlx:
+            return []
         case .ollama:
             request = URLRequest(url: baseURL.appendingPathComponent("api/embed"), timeoutInterval: 120)
             body = ["model": model, "input": texts, "keep_alive": keepAliveSeconds < 0 ? -1 : keepAliveSeconds, "truncate": true]
@@ -89,6 +94,7 @@ struct EmbeddingClient: Sendable {
         let vectors: [[Double]]
         switch provider {
         case .ollama: vectors = json["embeddings"] as? [[Double]] ?? []
+        case .mlx: vectors = []
         case .openAICompatible: vectors = (json["data"] as? [[String: Any]] ?? []).compactMap { $0["embedding"] as? [Double] }
         }
         guard vectors.count == texts.count else { throw EmbeddingError.http(status, "unexpected response") }
@@ -394,9 +400,16 @@ final class KnowledgeService {
     }
 
     private func embeddingClient() -> EmbeddingClient? {
+        if settings.llmProvider == .mlx {
+            let model = settings.mlxEmbeddingModel.trimmed
+            guard !model.isEmpty else { return nil }
+            return EmbeddingClient(baseURL: MLXModels.folder, model: model, provider: .mlx)
+        }
         let model = settings.embeddingModel.trimmed
         guard !model.isEmpty else { return nil }
         switch settings.llmProvider {
+        case .mlx:
+            return nil
         case .ollama:
             let keepAlive = settings.modelIdleMinutes <= 0 ? -1 : settings.modelIdleMinutes * 60
             return URL(string: settings.ollamaURL).map { EmbeddingClient(baseURL: $0, model: model, provider: .ollama, keepAliveSeconds: keepAlive) }

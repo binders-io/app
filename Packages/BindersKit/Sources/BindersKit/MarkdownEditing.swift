@@ -55,6 +55,34 @@ public enum MarkdownEditing {
         return .newline
     }
 
+    // MARK: Moving lines
+
+    /// The lines the selection touches, moved up or down past the line next to them; nil at the top or the bottom.
+    public static func moveLines(_ text: String, selection: NSRange, up: Bool) -> Edit? {
+        let string = text as NSString
+        var end = NSMaxRange(selection)
+        // A selection that ends at the start of a line doesn't take that line along.
+        if selection.length > 0, end > 0, string.character(at: end - 1) == 0x0A { end -= 1 }
+        let lines = string.lineRange(for: NSRange(location: selection.location, length: max(0, end - selection.location)))
+        let neighbour: NSRange
+        if up {
+            guard lines.location > 0 else { return nil }
+            neighbour = string.lineRange(for: NSRange(location: lines.location - 1, length: 0))
+        } else {
+            guard NSMaxRange(lines) < string.length else { return nil }
+            neighbour = string.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))
+        }
+        let whole = NSUnionRange(lines, neighbour)
+        func line(_ range: NSRange) -> String {
+            let line = string.substring(with: range)
+            return line.hasSuffix("\n") ? line : line + "\n"
+        }
+        var swapped = up ? line(lines) + line(neighbour) : line(neighbour) + line(lines)
+        if !string.substring(with: whole).hasSuffix("\n") { swapped.removeLast() }
+        let shift = (line(neighbour) as NSString).length * (up ? -1 : 1)
+        return Edit(text: string.replacingCharacters(in: whole, with: swapped), selection: NSRange(location: selection.location + shift, length: selection.length))
+    }
+
     // MARK: Inline markers
 
     /// Bold (`**`), italic (`*`), inline code (`` ` ``) or strikethrough (`~~`): wraps the selection, unwraps it when it is

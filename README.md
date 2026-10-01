@@ -40,9 +40,11 @@ memory you can ask questions. The speech models, the language model and your dat
 - **Ask your work anything.** Meetings, notes and messages are indexed together and linked into a graph of people, projects and
   topics. Search by meaning, or ask in plain language and get an answer with its sources.
 - **Notes.** Notes, the scratchpad and meeting notes are plain Markdown, shown rendered: headings, lists, checklists you can tick,
-  code blocks, quotes and links, with the markup showing only on the line you're editing. A toolbar and the usual keys format.
-  `[[Links]]` join notes, meetings and people, and each has a "Mentioned in" list that fills itself, links or not. Notes take
-  `#tags`, a status, an owner and a due date, start from templates, keep their earlier versions, and have an outline.
+  tables, coloured code, quotes and links, pictures and videos, with the markup showing only on the line you're editing. Type `/`
+  for anything a note can hold; paste a screenshot or a web page and it comes in as it should. `[[Links]]` join notes, meetings
+  and people, and each has a "Mentioned in" list that fills itself, links or not. Notes take `#tags`, a status, an owner and a
+  due date, start from templates, keep their earlier versions, and have an outline. Pop a note out into a window that stays in
+  front, or fold it into a bubble on the edge of the screen.
 - **Find anything, and your day.** ⌘O jumps to any note, meeting, card, person or page, and ⌘P runs any command. Today
   collects the day's meetings, promises, notes, cards and dictation, next to a note of your own for the day.
 - **A board in every binder.** Cards move from Backlog to Done, and you and your AI agents work from the same board. An agent
@@ -61,8 +63,9 @@ memory you can ask questions. The speech models, the language model and your dat
 Binders has no account, no analytics and no cloud of its own.
 
 - Speech is transcribed on the Neural Engine with Parakeet or Whisper. Audio is never uploaded.
-- Formatting, notes, answers and to-do detection use a language model in [Ollama](https://ollama.com) on your Mac by default.
-  Point Binders at another server and that text goes there instead.
+- Formatting, notes, answers and to-do detection use a language model in [Ollama](https://ollama.com) on your Mac by default,
+  or one that runs inside Binders with [MLX](https://github.com/ml-explore/mlx-swift). Point Binders at another server and
+  that text goes there instead.
 - Data lives in ordinary files in `~/Library/Application Support/Binders`, which Settings can open for you.
 - Writing capture is off until you switch it on. It never reads secure fields, password managers or terminals, skips pages that
   look like a login or a payment, and redacts labelled passwords, card numbers and long keys before storing anything.
@@ -80,6 +83,9 @@ The full breakdown is on the site's privacy page (`site/privacy.html`).
   fits the Mac's memory (`gemma4:e2b-it-qat` on 8 GB, `gemma4:e4b-it-qat` on 16 GB, `gemma4:12b` from 24 GB, `gemma4:26b` from
   48 GB) and offers to download it during setup; Settings → AI changes it. `ollama pull embeddinggemma` adds search by meaning.
   Dictation works without a language model.
+- Where Ollama isn't allowed, Settings → AI → Built in (MLX) runs the model inside Binders on Apple silicon: Gemma 4 or Qwen 3.5
+  from Hugging Face (or a company mirror of it, with a token if it needs one), or a model folder IT provides, plus EmbeddingGemma
+  for search by meaning. Models are kept in `~/Library/Application Support/Binders/Models/MLX`.
 
 ## First launch
 
@@ -215,7 +221,7 @@ Binders/
   Core/                    Event-tap hotkeys, audio capture, Accessibility context, paste insertion, writing capture,
                            commitment service
   Speech/                  Parakeet (FluidAudio) and Whisper (WhisperKit) engines
-  AI/                      Ollama and OpenAI-compatible clients, formatter
+  AI/                      Ollama, OpenAI-compatible and built-in MLX clients, formatter
   Data/                    SwiftData store, settings, importer
   Meetings/                System audio tap, recorder, live transcription, notes, views
   Knowledge/               SQLite FTS5 and embeddings index, entity graph, search and ask, views

@@ -26,6 +26,8 @@ enum InboxCommands {
     }
 
     static func perform(_ request: InboxRequest, controller: DictationController) async -> InboxResult {
+        // A note being typed in is read as it is on screen, not as it was a moment ago.
+        MarkdownEditor.flushAll()
         func field(_ key: String) -> String { (request.fields[key] ?? "").trimmed }
         let store = Store.shared
         switch request.action {

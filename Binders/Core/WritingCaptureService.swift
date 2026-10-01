@@ -41,6 +41,34 @@ final class WritingCaptureService {
     /// Built on Chromium: their text fields are only exposed once asked, see `ContextReader.setEnhancedAccessibility`.
     private static let chromiumApps: Set<String> = ["com.microsoft.teams2", "com.google.Chrome", "com.microsoft.edgemac", "com.tinyspeck.slackmacgap",
                                                     "company.thebrowser.Browser", "com.brave.Browser", "com.vivaldi.Vivaldi"]
+    /// Browsers beyond the ones listed in Settings, for apps added there: captured on allowed sites only, like the others.
+    private static let otherBrowsers: Set<String> = ["com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "com.kagi.kagimacOS",
+                                                     "com.duckduckgo.macos.browser", "app.zen-browser.zen", "com.google.Chrome.beta",
+                                                     "com.google.Chrome.canary", "com.microsoft.edgemac.Beta", "org.mozilla.firefoxdeveloperedition"]
+
+    nonisolated static func isBrowser(_ bundleID: String) -> Bool {
+        knownApps.first { $0.bundleID == bundleID }?.isBrowser ?? otherBrowsers.contains(bundleID)
+    }
+
+    /// Password managers and terminals, which are never captured.
+    nonisolated static func isNeverCaptured(_ bundleID: String) -> Bool { deniedApps.contains(bundleID) }
+
+    /// An app's name as Finder shows it, from its bundle identifier.
+    nonisolated static func appName(_ bundleID: String) -> String {
+        if let known = knownApps.first(where: { $0.bundleID == bundleID }) { return known.name }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+    }
+
+    /// Electron apps (Discord, Notion, WhatsApp…) are Chromium inside, and need asking for their text fields too.
+    private static var electron: [String: Bool] = [:]
+    private static func isElectron(_ app: NSRunningApplication) -> Bool {
+        let id = app.bundleIdentifier ?? ""
+        if let known = electron[id] { return known }
+        let found = app.bundleURL.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path) } ?? false
+        electron[id] = found
+        return found
+    }
 
     private struct Draft {
         var key: String
@@ -92,7 +120,8 @@ final class WritingCaptureService {
             MainActor.assumeIsolated { self?.tick() }
         }
         let apps = Self.knownApps.filter { settings.captureApps.contains($0.bundleID) && !$0.isBrowser }.map(\.name)
-        let browsers = Self.knownApps.contains { settings.captureApps.contains($0.bundleID) && $0.isBrowser }
+            + settings.captureApps.filter { id in !Self.knownApps.contains { $0.bundleID == id } && !Self.isBrowser(id) }.map(Self.appName)
+        let browsers = settings.captureApps.contains(where: Self.isBrowser)
         var scope = apps
         if browsers { scope.append(settings.captureAllSites ? "any website" : "mail and chat sites") }
         flowBar.toast("Writing capture on · \(scope.isEmpty ? "no apps allowed yet" : scope.joined(separator: ", ")) · \(hotkeyHint) to stop",
@@ -133,7 +162,7 @@ final class WritingCaptureService {
             draft = nil
             return
         }
-        let isBrowser = Self.knownApps.first { $0.bundleID == bundleID }?.isBrowser ?? false
+        let isBrowser = Self.isBrowser(bundleID)
         if Self.isHeaderOrSearchField(label: snapshot.fieldLabel) {
             // The To, Subject or a search box: part of the same message (or not writing at all), never a message of its own.
             if var current = draft, current.key == Self.key(for: app, snapshot: snapshot) { current.missingSince = nil; draft = current }
@@ -263,7 +292,7 @@ final class WritingCaptureService {
     }
 
     private func requestFullAccessibility(of app: NSRunningApplication) {
-        guard Self.chromiumApps.contains(app.bundleIdentifier ?? ""), enhancedPIDs.insert(app.processIdentifier).inserted else { return }
+        guard Self.chromiumApps.contains(app.bundleIdentifier ?? "") || Self.isElectron(app), enhancedPIDs.insert(app.processIdentifier).inserted else { return }
         ContextReader.setEnhancedAccessibility(pid: app.processIdentifier, enabled: true)
     }
 
@@ -339,7 +368,7 @@ final class WritingCaptureService {
         if bundleID == "com.microsoft.Outlook" || (url?.contains("outlook.") ?? false) { return "outlook" }
         if bundleID == "com.apple.mail" || (url?.contains("mail.google.com") ?? false) { return "mail" }
         if bundleID == "com.tinyspeck.slackmacgap" { return "slack" }
-        return knownApps.first { $0.bundleID == bundleID }?.isBrowser == true ? "browser" : "other"
+        return isBrowser(bundleID) ? "browser" : "other"
     }
 
     /// Who the writing is for: the To field when the window exposes one, else the person or channel named in the
@@ -348,7 +377,7 @@ final class WritingCaptureService {
         let fromHeader = header.to.compactMap(WritingCleanup.cleanName)
         if !fromHeader.isEmpty { return fromHeader }
         // A browser's title is the page, not a person; only chat apps name the conversation in the title.
-        if knownApps.first(where: { $0.bundleID == context.bundleID })?.isBrowser == true { return [] }
+        if isBrowser(context.bundleID ?? "") { return [] }
         guard let title = context.windowTitle, title.contains(" | ") else { return [] }
         var parts = title.components(separatedBy: " | ").map { $0.trimmingCharacters(in: .whitespaces) }
         parts.removeAll { $0.isEmpty || $0.localizedCaseInsensitiveContains("Microsoft Teams") || $0.localizedCaseInsensitiveContains("Outlook") }

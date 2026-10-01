@@ -17,6 +17,8 @@ public enum WikiLinks {
         return pattern.matches(in: text, range: NSRange(location: 0, length: string.length)).compactMap { match in
             let target = string.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
             guard !target.isEmpty else { return nil }
+            // ![[photo.png]] shows a picture; it isn't a link to anything.
+            if match.range.location > 0, string.character(at: match.range.location - 1) == 0x21, MarkdownMedia.kind(of: target) != .other { return nil }
             let alias = match.range(at: 2).location == NSNotFound ? nil : string.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
             return WikiLink(target: target, label: alias.flatMap { $0.isEmpty ? nil : $0 } ?? target, range: match.range)
         }

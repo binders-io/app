@@ -41,6 +41,7 @@ final class ScratchpadController: NSObject {
     }
 
     private func newNote() {
+        MarkdownEditor.flushAll()
         let previous = note
         note = nil
         show()
@@ -88,7 +89,10 @@ private struct ScratchpadView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Copy") { TextInserter.copyToClipboard(note.text) }
+                Button("Copy") {
+                    MarkdownEditor.flushAll()
+                    TextInserter.copyToClipboard(note.text)
+                }
                 Button("New", action: onNew)
             }
             .padding(10)

@@ -396,9 +396,10 @@ final class Store {
         save()
     }
 
-    func delete(_ model: some PersistentModel) {
+    /// `keepingHistory` leaves a note's earlier versions for Undo; whatever's left is cleared at the next launch.
+    func delete(_ model: some PersistentModel, keepingHistory: Bool = false) {
         // A deleted note's earlier versions go with it.
-        if let note = model as? NoteItem, self === Store.shared { NoteHistory.forget(note.id) }
+        if let note = model as? NoteItem, self === Store.shared, !keepingHistory { NoteHistory.forget(note.id) }
         if let record = model as? TranscriptRecord, let url = record.audioURL {
             try? FileManager.default.removeItem(at: url)
         }
@@ -524,6 +525,12 @@ final class Store {
             if a.isTeamCopy != b.isTeamCopy { return !a.isTeamCopy }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
+    }
+
+    func note(_ id: UUID) -> NoteItem? {
+        var descriptor = FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
     }
 
     func binder(_ id: UUID?) -> BinderRecord? {

@@ -6,7 +6,7 @@ import BindersKit
 struct NotePropertiesPanel: View {
     @Bindable var note: NoteItem
 
-    private var tags: [String] { NoteTags.tags(in: note.text) }
+    private var tags: [String] { NoteTagCache.tags(of: note) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

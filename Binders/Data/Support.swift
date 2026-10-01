@@ -88,6 +88,15 @@ extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var wordCount: Int {
-        split(whereSeparator: { $0.isWhitespace }).count
+        // Counted by scalars, without making a string of every word: it runs as you type in long notes.
+        var count = 0
+        var inWord = false
+        for scalar in unicodeScalars {
+            let space = scalar.isASCII ? scalar == " " || scalar == "\n" || scalar == "\t" || scalar == "\r" || scalar.value == 0x0B || scalar.value == 0x0C
+                                       : scalar.properties.isWhitespace
+            if !space, !inWord { count += 1 }
+            inWord = !space
+        }
+        return count
     }
 }
