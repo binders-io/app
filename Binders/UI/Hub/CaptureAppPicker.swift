@@ -36,7 +36,9 @@ struct CaptureAppPicker: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(app.name)
                         if app.neverCaptured {
-                            Text("Never captured: passwords or a terminal").font(.caption).foregroundStyle(.secondary)
+                            Text(WritingCaptureService.isTerminal(app.id)
+                                 ? "Its screen isn't read; what you send Claude Code or Codex in it is, under In the terminal"
+                                 : "Never captured: it holds passwords").font(.caption).foregroundStyle(.secondary)
                         } else if WritingCaptureService.isBrowser(app.id) {
                             Text("A browser: only the sites listed in Settings, never login or payment pages").font(.caption).foregroundStyle(.secondary)
                         }
@@ -97,5 +99,44 @@ struct CaptureAppPicker: View {
         guard !ids.isEmpty else { return }
         onAdd(ids)
         dismiss()
+    }
+}
+
+/// Other AI tools: describe where one keeps your prompts, or have its hook hand them over.
+struct AgentHookRow: View {
+    @Binding var off: Bool
+    @State private var copied = false
+
+    private var command: String {
+        let binary = Bundle.main.executableURL?.path ?? "/Applications/Binders.app/Contents/MacOS/Binders"
+        return "\"\(binary)\" --capture-prompt --tool \"Name of the tool\""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Prompts from other tools' hooks", isOn: Binding(get: { !off }, set: { off = !$0 }))
+            Text("A tool that runs a command when you send a prompt (Cursor's beforeSubmitPrompt, Gemini CLI's and Copilot CLI's hooks, your own scripts) can hand it to Binders with:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(2)
+                Spacer()
+                Button(copied ? "Copied" : "Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                    copied = true
+                }
+                .controlSize(.small)
+            }
+            HStack {
+                Text("Or describe where a tool keeps your prompts, and Binders reads them like these:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Add a Tool…") { AgentHarnesses.revealCustomFile() }
+                    .controlSize(.small)
+            }
+        }
     }
 }

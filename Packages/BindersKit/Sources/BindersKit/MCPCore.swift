@@ -19,11 +19,14 @@ public struct MCPToolParameter: Equatable, Sendable {
 
 public struct MCPTool: Equatable, Sendable {
     public var name: String
+    /// Only looks things up. A tool that isn't marked counts as one that adds or changes something.
+    public var readOnly: Bool
     public var description: String
     public var parameters: [MCPToolParameter]
 
-    public init(name: String, description: String, parameters: [MCPToolParameter] = []) {
+    public init(name: String, readOnly: Bool = false, description: String, parameters: [MCPToolParameter] = []) {
         self.name = name
+        self.readOnly = readOnly
         self.description = description
         self.parameters = parameters
     }
@@ -35,7 +38,7 @@ public struct MCPTool: Equatable, Sendable {
             if let options = parameter.options { property["enum"] = options }
             properties[parameter.name] = property
         }
-        return ["name": name, "description": description,
+        return ["name": name, "description": description, "annotations": ["readOnlyHint": readOnly],
                 "inputSchema": ["type": "object", "properties": properties, "required": parameters.filter(\.required).map(\.name)]]
     }
 }

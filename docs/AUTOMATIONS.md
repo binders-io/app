@@ -141,6 +141,8 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `recent_dictations` (limit) | What you dictated lately |
 | `add_to_knowledge` (title, text, source, binder) | Anything worth remembering: a fact, a document's text, a web page, an email. Kept under the title with its source, so search and answers can cite it |
 | `add_note` (text, binder) · `append_to_note` (id, text) | A new note, with its first line as title; or more text at the end of one |
+| `update_note` (id, find, replace, or text) | Change a note: one passage, given exactly as it is, or the whole text. Its earlier version stays in its history |
+| `correct_knowledge` (wrong, right, source_id, reason, binder) | Fix something the knowledge base has wrong. A note that says it is fixed; a meeting, dictation or message stays as it was said. The correction is kept as a note tagged #correction: search marks passages that still say the wrong thing (`corrected`), and answers follow the correction |
 | `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
 | `add_meeting` (title, notes, date, attendees, duration_minutes, app, binder) | A meeting that happened elsewhere, from its notes or transcript, so it is searchable with the rest |
 | `add_todo` (text, binder) · `set_todo_status` (id, status) | A to-do, with a time at the end as its due date, in the named binder or the current one; done or open (ticks the checkbox where it lives), or dismiss a promise |
@@ -162,7 +164,9 @@ binder lets them finish.
 
 Reads go straight to the database. Writes are handed to the running app, which does them and answers with the new
 item's id, so its windows update, reminders get scheduled and the index picks the item up within seconds; if the app
-isn't running, macOS launches it. Nothing can be deleted this way.
+isn't running, macOS launches it. Nothing can be deleted this way, and a note that's changed keeps its earlier version
+in its history. Each tool tells the host whether it only reads (`readOnlyHint`), so a host can let lookups through and
+ask before anything is added or changed; Settings → MCP lists them as Reads, Adds and Changes.
 
 Dates are ISO 8601 in local time. Try it by hand:
 

@@ -349,10 +349,15 @@ struct NotesView: View {
 
     var body: some View {
         content
-            .onAppear(perform: consumePendingNote)
+            .onAppear {
+                navigation.currentNoteID = selection
+                consumePendingNote()
+            }
             .onChange(of: navigation.pendingNoteID) { consumePendingNote() }
             .onChange(of: NoteTrash.shared.restored) { _, id in if let id { selection = id } }
-            .onChange(of: selection, initial: true) { _, now in
+            // Not on appearing: then it would see the selection from before a new note's, and the new note would open
+            // without the cursor in it.
+            .onChange(of: selection) { _, now in
                 if now != focusID { focusID = nil }
                 navigation.currentNoteID = now
             }

@@ -86,6 +86,9 @@ final class AppSettings {
     var currentBinderID: UUID? { didSet { defaults.set(currentBinderID?.uuidString, forKey: "currentBinderID") } }
     /// Writing capture: which apps may be captured, which sites in browsers, and how long captures are kept.
     var captureApps: [String] { didSet { defaults.set(captureApps, forKey: "captureApps") } }
+    /// AI agents in the terminal whose prompts aren't kept: every harness is, unless it's turned off here, so new ones
+    /// are on as soon as they're described.
+    var captureAgentsOff: [String] { didSet { defaults.set(captureAgentsOff, forKey: "captureAgentsOff") } }
     var captureHosts: [String] { didSet { defaults.set(captureHosts, forKey: "captureHosts") } }
     var captureAllSites: Bool { didSet { defaults.set(captureAllSites, forKey: "captureAllSites") } }
     var captureRetentionDays: Int { didSet { defaults.set(captureRetentionDays, forKey: "captureRetentionDays") } }
@@ -176,6 +179,7 @@ final class AppSettings {
         appearance = defaults.string(forKey: "appearance") ?? "dark"
         currentBinderID = defaults.string(forKey: "currentBinderID").flatMap(UUID.init(uuidString:))
         captureApps = defaults.stringArray(forKey: "captureApps") ?? WritingCaptureService.defaultApps
+        captureAgentsOff = defaults.stringArray(forKey: "captureAgentsOff") ?? []
         captureHosts = defaults.stringArray(forKey: "captureHosts") ?? WritingCaptureService.defaultHosts
         captureAllSites = defaults.object(forKey: "captureAllSites") as? Bool ?? true
         captureRetentionDays = defaults.object(forKey: "captureRetentionDays") as? Int ?? 90

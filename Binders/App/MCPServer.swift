@@ -19,36 +19,36 @@ enum MCPServer {
         """
 
     static let tools: [MCPTool] = [
-        MCPTool(name: "search_knowledge", description: "Search meetings, notes, dictations and captured writing by keywords and meaning. Returns the best-matching passages with their source.", parameters: [
+        MCPTool(name: "search_knowledge", readOnly: true, description: "Search meetings, notes, dictations and captured writing by keywords and meaning. Returns the best-matching passages with their source.", parameters: [
             MCPToolParameter(name: "query", description: "What to look for.", required: true),
             MCPToolParameter(name: "limit", type: "integer", description: "How many passages, up to 30. Default 10."),
             MCPToolParameter(name: "kind", description: "Only this kind of source.", options: ["meeting", "note", "writing", "dictation"]),
         ]),
-        MCPTool(name: "ask_knowledge", description: "Answer a question from the knowledge base, with the passages the answer drew on. Uses the user's local language model, so it can take several seconds.", parameters: [
+        MCPTool(name: "ask_knowledge", readOnly: true, description: "Answer a question from the knowledge base, with the passages the answer drew on. Uses the user's local language model, so it can take several seconds.", parameters: [
             MCPToolParameter(name: "question", description: "The question, in plain words.", required: true),
         ]),
-        MCPTool(name: "list_binders", description: "The user's binders: one per project or area, each holding meetings and notes."),
-        MCPTool(name: "list_meetings", description: "Recent meetings, newest first, with a preview of their notes.", parameters: [
+        MCPTool(name: "list_binders", readOnly: true, description: "The user's binders: one per project or area, each holding meetings and notes."),
+        MCPTool(name: "list_meetings", readOnly: true, description: "Recent meetings, newest first, with a preview of their notes.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
             MCPToolParameter(name: "binder", description: "Only meetings in the binder with this name."),
         ]),
-        MCPTool(name: "get_meeting", description: "One meeting in full: notes, the user's own notes, attendees, and the transcript if asked.", parameters: [
+        MCPTool(name: "get_meeting", readOnly: true, description: "One meeting in full: notes, the user's own notes, attendees, and the transcript if asked.", parameters: [
             MCPToolParameter(name: "id", description: "The meeting's id, from list_meetings or a search result.", required: true),
             MCPToolParameter(name: "include_transcript", type: "boolean", description: "Also return the transcript with speakers and timestamps."),
         ]),
-        MCPTool(name: "list_notes", description: "Recent notes, newest first, with their properties (status, owner, due) and #tags.", parameters: [
+        MCPTool(name: "list_notes", readOnly: true, description: "Recent notes, newest first, with their properties (status, owner, due) and #tags.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
             MCPToolParameter(name: "binder", description: "Only notes in the binder with this name."),
             MCPToolParameter(name: "tag", description: "Only notes with this #tag (without the #)."),
             MCPToolParameter(name: "status", description: "Only notes with this status, such as Draft or Done."),
         ]),
-        MCPTool(name: "get_note", description: "One note in full.", parameters: [
+        MCPTool(name: "get_note", readOnly: true, description: "One note in full.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
         ]),
-        MCPTool(name: "list_todos", description: "The user's to-dos: promises they made in messages, asks they made of others, to-dos they added, and the checklist items in meeting notes, notes and note digests. Each has an id for set_todo_status and create_task; card_id and card_column say when one is already on a board.", parameters: [
+        MCPTool(name: "list_todos", readOnly: true, description: "The user's to-dos: promises they made in messages, asks they made of others, to-dos they added, and the checklist items in meeting notes, notes and note digests. Each has an id for set_todo_status and create_task; card_id and card_column say when one is already on a board.", parameters: [
             MCPToolParameter(name: "status", description: "Which ones. Default open.", options: ["open", "done", "dismissed", "all"]),
         ]),
-        MCPTool(name: "recent_dictations", description: "What the user dictated recently, newest first.", parameters: [
+        MCPTool(name: "recent_dictations", readOnly: true, description: "What the user dictated recently, newest first.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
         ]),
         MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. Returns its id. Opens the Binders app if it isn't running.", parameters: [
@@ -59,13 +59,13 @@ enum MCPServer {
             MCPToolParameter(name: "id", description: "The to-do's id, from list_todos or add_todo.", required: true),
             MCPToolParameter(name: "status", description: "The new status.", required: true, options: ["open", "done", "dismissed"]),
         ]),
-        MCPTool(name: "list_tasks", description: "Cards on the binders' boards, where people and agents pick up work: what's ready, in progress, blocked or waiting for review. Everything but Done unless you ask for a column.", parameters: [
+        MCPTool(name: "list_tasks", readOnly: true, description: "Cards on the binders' boards, where people and agents pick up work: what's ready, in progress, blocked or waiting for review. Everything but Done unless you ask for a column.", parameters: [
             MCPToolParameter(name: "binder", description: "Only this binder's board; see list_binders."),
             MCPToolParameter(name: "column", description: "Only this column.", options: ["backlog", "ready", "in_progress", "blocked", "review", "done"]),
             MCPToolParameter(name: "mine", type: "boolean", description: "Only the cards you (the agent named in `agent`) hold."),
             MCPToolParameter(name: "agent", description: "Your name on the board, as used with claim_task."),
         ]),
-        MCPTool(name: "get_task", description: "One card in full: its description, links, who has it, and its timeline of moves, progress reports, questions and answers.", parameters: [
+        MCPTool(name: "get_task", readOnly: true, description: "One card in full: its description, links, who has it, and its timeline of moves, progress reports, questions and answers.", parameters: [
             MCPToolParameter(name: "id", description: "The card's id, from list_tasks or create_task.", required: true),
         ]),
         MCPTool(name: "create_task", description: "Put a new card on a binder's board, or turn a to-do into one. Returns its id.", parameters: [
@@ -123,6 +123,19 @@ enum MCPServer {
         MCPTool(name: "append_to_note", description: "Add text to the end of an existing note.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id, from list_notes or add_note.", required: true),
             MCPToolParameter(name: "text", description: "What to add.", required: true),
+        ]),
+        MCPTool(name: "update_note", description: "Change an existing note, such as one added with add_note or add_to_knowledge: replace one passage with new words (find and replace), or replace the whole text. The note's earlier version is kept in its history, so the change can be undone in Binders.", parameters: [
+            MCPToolParameter(name: "id", description: "The note's id, from list_notes, get_note or a search result's source_id.", required: true),
+            MCPToolParameter(name: "find", description: "A passage of the note exactly as get_note shows it; it must appear once."),
+            MCPToolParameter(name: "replace", description: "What the passage becomes. Empty removes it."),
+            MCPToolParameter(name: "text", description: "The whole new text, instead of find and replace. The first line is the title."),
+        ]),
+        MCPTool(name: "correct_knowledge", description: "Correct something the knowledge base has wrong. Quote the wrong statement as it's written and give what's right. When source_id is a note that says it, the note is fixed (its earlier version stays in its history); meetings, dictations and messages stay as they were said. Either way the correction is kept as a note tagged #correction: search_knowledge then marks passages that still say the wrong thing with the correction, and ask_knowledge answers from the correction. Returns the correction's id.", parameters: [
+            MCPToolParameter(name: "wrong", description: "The wrong statement, as it's written where it appears: at least a few words.", required: true),
+            MCPToolParameter(name: "right", description: "What's right instead.", required: true),
+            MCPToolParameter(name: "source_id", description: "Where the wrong statement is: a search result's source_id (a note, meeting, dictation or message)."),
+            MCPToolParameter(name: "reason", description: "Why, or how it's known: \"Maya moved it on Monday\"."),
+            MCPToolParameter(name: "binder", description: "The binder to keep the correction in; default the source's, or the user's current one."),
         ]),
         MCPTool(name: "create_binder", description: "Create a binder, one per project or area. Returns its id, or the existing binder's if the name is taken.", parameters: [
             MCPToolParameter(name: "name", description: "The binder's name.", required: true),
@@ -223,7 +236,15 @@ enum MCPServer {
             guard !query.isEmpty else { throw MCPCore.ToolFailure("query is required") }
             let kinds: Set<KnowledgeKind>? = KnowledgeKind(rawValue: string("kind")).map { [$0] }
             let hits = await knowledge.search(query, kinds: kinds, limit: integer("limit", default: 10, max: 30))
-            return json(hits.map(describe))
+            let corrections = knowledge.corrections()
+            return json(hits.map { hit in
+                var described = describe(hit)
+                if let fix = knowledge.correction(for: hit, in: corrections) {
+                    described["corrected"] = ["wrong": fix.correction.wrong, "right": fix.correction.right, "correction_id": fix.id.uuidString,
+                                              "date": AutomationPayload.iso(fix.date)]
+                }
+                return described
+            })
         case "ask_knowledge":
             let question = string("question")
             guard !question.isEmpty else { throw MCPCore.ToolFailure("question is required") }
@@ -332,6 +353,15 @@ enum MCPServer {
         case "append_to_note":
             guard !string("id").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("id and text are required") }
             return try await write(name, ["id": string("id"), "text": string("text")])
+        case "update_note":
+            guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
+            guard !string("find").isEmpty || !string("text").isEmpty else { throw MCPCore.ToolFailure("give find and replace, or text") }
+            return try await write(name, ["id": string("id"), "find": (arguments["find"] as? String) ?? "", "replace": (arguments["replace"] as? String) ?? "",
+                                          "text": string("text")])
+        case "correct_knowledge":
+            guard !string("wrong").isEmpty, !string("right").isEmpty else { throw MCPCore.ToolFailure("wrong and right are required") }
+            return try await write(name, ["wrong": string("wrong"), "right": string("right"), "source_id": string("source_id"),
+                                          "reason": string("reason"), "binder": string("binder")])
         case "create_binder":
             guard !string("name").isEmpty else { throw MCPCore.ToolFailure("name is required") }
             return try await write(name, ["name": string("name")])

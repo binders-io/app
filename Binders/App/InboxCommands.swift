@@ -55,6 +55,81 @@ enum InboxCommands {
             store.save()
             return InboxResult(ok: true, id: note.id.uuidString, message: "Appended to “\(note.title)”")
 
+        case "update_note":
+            guard let id = UUID(uuidString: field("id")) else { return .failure("id must be a note id") }
+            guard let note = store.note(id) else { return .failure("No note with that id") }
+            let find = request.fields["find"] ?? "", replace = request.fields["replace"] ?? "", whole = field("text")
+            let updated: String
+            if !find.isEmpty {
+                switch KnowledgeCorrections.occurrences(of: find, in: note.text) {
+                case 0: return .failure("That passage isn't in “\(note.title)”. Give it exactly as get_note shows it.")
+                case 1: updated = note.text.replacingOccurrences(of: find, with: replace)
+                case let count: return .failure("That passage is in “\(note.title)” \(count) times. Give more of it, so it's there once.")
+                }
+            } else if !whole.isEmpty {
+                updated = whole
+            } else {
+                return .failure("Give find and replace, to change a passage, or text, to replace the whole note")
+            }
+            guard updated != note.text else { return InboxResult(ok: true, id: note.id.uuidString, message: "“\(note.title)” already says that") }
+            // What it said before stays in its history, so the change can be undone.
+            NoteHistory.willChange(note, to: updated, always: true)
+            note.text = updated
+            note.updatedAt = Date()
+            store.save()
+            return InboxResult(ok: true, id: note.id.uuidString, message: "Updated “\(note.title)”; the earlier version is in its history")
+
+        case "correct_knowledge":
+            let correction = KnowledgeCorrection(wrong: field("wrong"), right: field("right"), reason: field("reason"))
+            guard !correction.wrong.isEmpty, !correction.right.isEmpty else { return .failure("wrong and right are required") }
+            guard correction.isSpecific else {
+                return .failure("Quote at least a few words of the wrong statement as it's written, so it can be recognised where it appears")
+            }
+            // Where the wrong thing is: a note is fixed; a meeting, dictation or message stays as it was said.
+            var source: (title: String, binderID: UUID?)?
+            var fixed = false
+            if let id = UUID(uuidString: field("source_id")) {
+                if let note = store.note(id) {
+                    source = (note.title, note.binderID)
+                    if let updated = KnowledgeCorrections.fixing(note.text, wrong: correction.wrong, right: correction.right) {
+                        NoteHistory.willChange(note, to: updated, always: true)
+                        note.text = updated
+                        note.updatedAt = Date()
+                        fixed = true
+                    }
+                } else if let meeting = (try? store.context.fetch(FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == id })))?.first {
+                    source = (meeting.title, meeting.binderID)
+                } else if let writing = (try? store.context.fetch(FetchDescriptor<WritingRecord>(predicate: #Predicate { $0.id == id })))?.first {
+                    source = (writing.title, writing.binderID)
+                } else if let dictation = (try? store.context.fetch(FetchDescriptor<TranscriptRecord>(predicate: #Predicate { $0.id == id })))?.first {
+                    source = ("Dictation, \(dictation.createdAt.formatted(date: .abbreviated, time: .shortened))", nil)
+                } else {
+                    return .failure("Nothing has that source_id. Use the source_id from search_knowledge, or leave it out.")
+                }
+            }
+            let named = field("binder").isEmpty ? nil : binder(named: field("binder"))
+            if !field("binder").isEmpty, named == nil { return .failure(noBinder(field("binder"))) }
+            let target = named ?? source?.binderID.flatMap { store.binder($0) } ?? binder(named: "")
+            guard let target else { return .failure(noBinder("")) }
+            let where_ = source.map { fixed ? "fixed in “\($0.title)”, and kept" : "kept beside “\($0.title)”, which stays as it was" } ?? "kept"
+            // The same correction made again (for another place that said it) stays one correction.
+            let same = controller.knowledge.corrections().first {
+                KnowledgeCorrections.normalize($0.correction.wrong) == KnowledgeCorrections.normalize(correction.wrong)
+                    && KnowledgeCorrections.normalize($0.correction.right) == KnowledgeCorrections.normalize(correction.right)
+            }
+            if let same {
+                store.save()
+                return InboxResult(ok: true, id: same.id.uuidString, message: "Correction \(where_). It was already kept; search and answers follow it.")
+            }
+            var kept = correction
+            kept.source = source?.title
+            let note = NoteItem(text: kept.markdown)
+            note.binderID = target.id
+            note.sharedWithTeam = target.sharedWithTeam
+            store.insert(note)
+            store.save()
+            return InboxResult(ok: true, id: note.id.uuidString, message: "Correction \(where_) in \(target.name). Search marks what still says the wrong thing; answers use the correction.")
+
         case "create_binder":
             let name = field("name")
             guard !name.isEmpty else { return .failure("name is required") }

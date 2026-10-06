@@ -72,6 +72,23 @@ final class MarkdownEditingMoreTests: XCTestCase {
         XCTAssertNil(MarkdownEditing.moveLines(text, selection: NSRange(location: 10, length: 0), up: false))
     }
 
+    func testCodeBlocksInLists() {
+        // A fence typed into an item opens a code block instead of carrying the marker onto every line of code.
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "- [ ] ```swift", inCodeBlock: false), .openCodeBlock(dropping: 6))
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "  1. ```", inCodeBlock: false), .openCodeBlock(dropping: 5))
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "> ~~~", inCodeBlock: false), .openCodeBlock(dropping: 2))
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "- run ```make```", inCodeBlock: false), .continueWith("- "))
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "```swift", inCodeBlock: false), .newline)
+        XCTAssertEqual(MarkdownEditing.returnAction(lineBeforeCursor: "# ```", inCodeBlock: false), .newline)
+        // The code block button on an item with nothing in it yet takes the item's place.
+        let text = "Intro\n- [x] Test\n- [ ] \nEnd"
+        let edit = MarkdownEditing.insertCodeBlock(text, selection: NSRange(location: 23, length: 0))
+        XCTAssertEqual(edit.text, "Intro\n- [x] Test\n```\n\n```\nEnd")
+        XCTAssertEqual(edit.selection, NSRange(location: 21, length: 0))
+        // On an item with words in it, the block goes after it as before.
+        XCTAssertEqual(MarkdownEditing.insertCodeBlock("- [ ] Upload", selection: NSRange(location: 12, length: 0)).text, "- [ ] Upload\n```\n\n```\n")
+    }
+
     func testWebAddressesAreLinks() {
         let text = "See https://example.com/a_b_c/page?x=1. Or mail mailto:hi@example.com, or [the docs](https://docs.example.com)."
         let string = text as NSString

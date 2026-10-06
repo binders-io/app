@@ -9,6 +9,16 @@ if CommandLine.arguments.contains("--mcp") {
     while true { RunLoop.main.run(mode: .default, before: .distantFuture) }
 }
 
+// An AI tool's hook handing over a prompt you sent it: no app, no window, done in a moment.
+if CommandLine.arguments.contains("--capture-prompt") { PromptHook.run(CommandLine.arguments) }
+
+// A run meant for a throwaway folder whose folder was refused (it holds files and isn't one Binders made) stops here,
+// before anything reads, tidies or tests the real data in its place.
+if ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil, !AppPaths.isDemo {
+    FileHandle.standardError.write(Data("BINDERS_DATA_DIR has to be an empty folder, or one Binders made for a test run. Nothing was done.\n".utf8))
+    exit(2)
+}
+
 MainActor.assumeIsolated {
     let application = NSApplication.shared
     if let index = CommandLine.arguments.firstIndex(of: "--appearance"), CommandLine.arguments.indices.contains(index + 1) {

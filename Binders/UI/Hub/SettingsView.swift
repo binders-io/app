@@ -852,6 +852,28 @@ private struct WritingCaptureSettings: View {
                 Text("Off until you switch it on (\(settings.hotkeys.capture?.displayString() ?? "menu bar") or the menu bar). While on, what you write in these apps is kept once you send or save it, filed in the open binder and indexed like a note. Keystrokes are never recorded, secure fields are never read, and card numbers, passwords and keys are redacted before anything is stored. Everything stays on this Mac.")
             }
 
+            Section {
+                ForEach(AgentHarnesses.all().filter { $0.id != AgentHarness.hooksID }) { harness in
+                    Toggle(isOn: Binding(get: { !settings.captureAgentsOff.contains(harness.id) },
+                                         set: { on in
+                                             if on { settings.captureAgentsOff.removeAll { $0 == harness.id } } else { settings.captureAgentsOff.append(harness.id) }
+                                         })) {
+                        HStack(spacing: 6) {
+                            Text("Prompts you send \(harness.name)")
+                            if !AgentHarnesses.isInstalled(harness) { Text("not on this Mac").font(.caption).foregroundStyle(.tertiary) }
+                        }
+                    }
+                }
+                AgentHookRow(off: Binding(get: { settings.captureAgentsOff.contains(AgentHarness.hooksID) },
+                                          set: { off in
+                                              if off { settings.captureAgentsOff.append(AgentHarness.hooksID) } else { settings.captureAgentsOff.removeAll { $0 == AgentHarness.hooksID } }
+                                          }))
+            } header: {
+                Text("In the terminal")
+            } footer: {
+                Text("Exactly what you type to them, from the record each keeps on this Mac, in any terminal or editor. The screen and command output are never read, pasted blocks aren't kept, and shell commands are left out. Captured while capture is on, from then on.")
+            }
+
             Section("What happens to it") {
                 Stepper("Keep captured writing for \(settings.captureRetentionDays) days", value: $settings.captureRetentionDays, in: 7...730, step: 7)
                 Toggle("Turn promises and asks in captured messages into to-dos (uses your language model)", isOn: $settings.captureCommitments)
@@ -1234,11 +1256,13 @@ private struct MCPSettings: View {
 
     private var executable: String { MCPHost.executable }
     private var mcpJSON: String { "{\"mcpServers\":{\"binders\":{\"command\":\"\(executable)\",\"args\":[\"--mcp\"]}}}" }
-    private var readingTools: [String] { MCPServer.tools.map(\.name).filter { !Self.isWrite($0) } }
-    private var addingTools: [String] { MCPServer.tools.map(\.name).filter(Self.isWrite) }
+    private var readingTools: [String] { MCPServer.tools.filter(\.readOnly).map(\.name) }
+    private var addingTools: [String] { MCPServer.tools.filter { !$0.readOnly && Self.isAdd($0.name) }.map(\.name) }
+    private var changingTools: [String] { MCPServer.tools.filter { !$0.readOnly && !Self.isAdd($0.name) }.map(\.name) }
 
-    private static func isWrite(_ name: String) -> Bool {
-        ["add_", "append_", "create_", "set_"].contains { name.hasPrefix($0) }
+    /// Makes something new, rather than changing what's there.
+    private static func isAdd(_ name: String) -> Bool {
+        ["add_", "append_", "create_"].contains { name.hasPrefix($0) }
     }
 
     var body: some View {
@@ -1256,10 +1280,13 @@ private struct MCPSettings: View {
                 LabeledContent("Adds") {
                     Text(addingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                 }
+                LabeledContent("Changes") {
+                    Text(changingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                }
             } header: {
                 Text("Server")
             } footer: {
-                Text("A tool that supports the Model Context Protocol starts this command and talks to it over a pipe. It runs only while that tool is connected, reads the same data the app does, and everything stays on this Mac. Reads go straight to the database; anything added is handed to the app, so your windows update and the index picks it up. Nothing can be deleted this way.")
+                Text("A tool that supports the Model Context Protocol starts this command and talks to it over a pipe. It runs only while that tool is connected, reads the same data the app does, and everything stays on this Mac. Reads go straight to the database; anything added or changed is handed to the app, so your windows update and the index picks it up. Nothing can be deleted this way, and a note that's changed keeps its earlier version in its history.")
             }
 
             Section {

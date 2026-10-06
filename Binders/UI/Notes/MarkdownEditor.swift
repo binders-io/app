@@ -205,6 +205,10 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
+        // No share button over selected text. To decide whether to offer one, AppKit looks up every share extension
+        // on the main thread each time the pointer rests on a selection, and that can take many seconds: the freeze
+        // after adding a code block, which leaves its lines selected.
+        textView.usesRolloverButtonForSelection = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.textContainerInset = inset
@@ -447,6 +451,8 @@ struct MarkdownStyler {
             case .rule:
                 storage.addAttributes([.foregroundColor: NSColor.clear, .markdownRule: true], range: target)
             case .tableRow(let table, let header, let delimiter):
+                // With the Markdown showing, its pipes take room and the columns can't line up under a grid: it stays text.
+                guard concealed else { break }
                 styleTableRow(target, table: table, header: header, delimiter: delimiter, in: storage, layouts: &tables)
             case .embed(let source, let width):
                 // The picture is drawn in the room above its line, which is its caption.
@@ -957,6 +963,9 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
             insertText("\n" + marker, replacementRange: selection)
         case .endList(let count):
             insertText("", replacementRange: NSRange(location: selection.location - count, length: count))
+        case .openCodeBlock(let count):
+            let fence = (before as NSString).substring(from: count)
+            insertText(fence + "\n", replacementRange: NSRange(location: line.location, length: selection.location - line.location))
         }
     }
 

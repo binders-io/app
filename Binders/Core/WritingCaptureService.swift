@@ -36,7 +36,8 @@ final class WritingCaptureService {
     /// Never captured, whatever the allow-list says.
     private static let deniedApps: Set<String> = ["com.1password.1password", "com.agilebits.onepassword7", "com.lastpass.lastpassmacapp",
                                                   "com.bitwarden.desktop", "com.apple.keychainaccess", "com.apple.Passwords", "com.apple.Terminal",
-                                                  "com.mitchellh.ghostty", "com.googlecode.iterm2"]
+                                                  "com.mitchellh.ghostty", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "net.kovidgoyal.kitty",
+                                                  "org.alacritty", "com.github.wez.wezterm"]
     private static let deniedURLWords = ["login", "signin", "sign-in", "auth", "password", "checkout", "payment", "bank", "wallet"]
     /// Built on Chromium: their text fields are only exposed once asked, see `ContextReader.setEnhancedAccessibility`.
     private static let chromiumApps: Set<String> = ["com.microsoft.teams2", "com.google.Chrome", "com.microsoft.edgemac", "com.tinyspeck.slackmacgap",
@@ -52,6 +53,12 @@ final class WritingCaptureService {
 
     /// Password managers and terminals, which are never captured.
     nonisolated static func isNeverCaptured(_ bundleID: String) -> Bool { deniedApps.contains(bundleID) }
+
+    /// Terminals, whose screens aren't read: the prompts you send agents in them are, from the agents' own history.
+    nonisolated static func isTerminal(_ bundleID: String) -> Bool {
+        ["com.apple.Terminal", "com.mitchellh.ghostty", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "net.kovidgoyal.kitty",
+         "org.alacritty", "com.github.wez.wezterm"].contains(bundleID)
+    }
 
     /// An app's name as Finder shows it, from its bundle identifier.
     nonisolated static func appName(_ bundleID: String) -> String {
@@ -92,7 +99,12 @@ final class WritingCaptureService {
     private var lastNotifiedTick = Date.distantPast
     private var pendingTick: DispatchWorkItem?
     private var lastSiteNote: (host: String, at: Date)?
+    private let agents = AgentPromptCapture()
     private var settings: AppSettings { AppSettings.shared }
+    /// The harnesses capture reads now: the ones on this Mac that aren't turned off.
+    private var agentHarnesses: [AgentHarness] {
+        AgentHarnesses.all().filter { !settings.captureAgentsOff.contains($0.id) && AgentHarnesses.isInstalled($0) }
+    }
 
     init(flowBar: FlowBarController) {
         self.flowBar = flowBar
@@ -104,9 +116,10 @@ final class WritingCaptureService {
         if isOn { stop() } else { start() }
     }
 
-    func start() {
+    /// `requireAccessibility` is false only in tests: prompts to agents don't need it, reading other apps' fields does.
+    func start(requireAccessibility: Bool = true) {
         guard !isOn else { return }
-        guard AXIsProcessTrusted() else {
+        guard AXIsProcessTrusted() || !requireAccessibility else {
             flowBar.toast("Writing capture needs Accessibility access — grant it in Settings", symbol: "pencil.slash", duration: 5)
             return
         }
@@ -116,6 +129,10 @@ final class WritingCaptureService {
         for app in NSWorkspace.shared.runningApplications where Self.isAllowed(bundleID: app.bundleIdentifier ?? "", apps: settings.captureApps) {
             requestFullAccessibility(of: app)
         }
+        // Hooks keep prompts only while this is there; their record starts empty each time.
+        FileManager.default.createFile(atPath: AgentHarnesses.captureFlag.path, contents: nil)
+        try? Data().write(to: AgentHarnesses.hookRecord)
+        agents.start(agentHarnesses)
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -124,6 +141,7 @@ final class WritingCaptureService {
         let browsers = settings.captureApps.contains(where: Self.isBrowser)
         var scope = apps
         if browsers { scope.append(settings.captureAllSites ? "any website" : "mail and chat sites") }
+        scope += agentHarnesses.filter { $0.id != AgentHarness.hooksID && !AgentHarnesses.files(of: $0).isEmpty }.map { "prompts to \($0.name)" }
         flowBar.toast("Writing capture on · \(scope.isEmpty ? "no apps allowed yet" : scope.joined(separator: ", ")) · \(hotkeyHint) to stop",
                       symbol: "pencil.line", duration: 5)
         Log.app.notice("Writing capture on")
@@ -131,6 +149,9 @@ final class WritingCaptureService {
 
     func stop() {
         guard isOn else { return }
+        keepAgentPrompts()
+        agents.stop()
+        try? FileManager.default.removeItem(at: AgentHarnesses.captureFlag)
         if let draft, !draft.text.isEmpty { commit(draft) }
         draft = nil
         timer?.invalidate()
@@ -149,6 +170,7 @@ final class WritingCaptureService {
     // MARK: Watching
 
     private func tick() {
+        keepAgentPrompts()
         guard isOn, let app = NSWorkspace.shared.frontmostApplication else { return }
         let bundleID = app.bundleIdentifier ?? ""
         guard Self.isAllowed(bundleID: bundleID, apps: settings.captureApps) else {
@@ -342,6 +364,37 @@ final class WritingCaptureService {
         let target = draft.recipients.first.map { " → \($0)" } ?? (draft.subject.map { " · \($0)" } ?? "")
         lastCaptureSummary = "\(draft.context.appName ?? "app")\(target)"
         flowBar.toast("Kept \(record.wordCount) words\(target)\(redacted.count > 0 ? " · \(redacted.count) redacted" : "")", symbol: "pencil.line", duration: 2.5)
+    }
+
+    // MARK: Agents in the terminal
+
+    /// What you sent AI agents since the last look, kept like other writing: redacted, in the open binder, searchable.
+    /// They're instructions to an agent, not promises to people, so they aren't read for to-dos.
+    private func keepAgentPrompts() {
+        guard isOn else { return }
+        for (tool, prompt) in agents.poll() {
+            let hash = (tool + prompt.text).hashValue.description
+            if let seen = recentHashes[hash], Date().timeIntervalSince(seen) < 600 { continue }
+            recentHashes[hash] = Date()
+            let redacted = Redactor.redact(prompt.text)
+            let record = WritingRecord(text: redacted.text)
+            record.createdAt = prompt.date
+            record.appName = tool
+            record.subject = prompt.projectName.map { "\(tool) · \($0)" } ?? tool
+            record.windowTitle = prompt.project
+            record.redactions = redacted.count
+            record.source = "agent"
+            record.analyzedAt = Date()
+            let binder = Store.shared.binder(settings.currentBinderID) ?? Store.shared.defaultBinder()
+            record.binderID = binder.id
+            Store.shared.insert(record)
+            AutomationService.shared.fire(.writingCaptured, payload: AutomationPayload(
+                text: redacted.text, title: record.subject ?? "", app: tool, binder: binder.name, summary: "",
+                link: "binders://open?section=writing"))
+            capturedThisSession += 1
+            lastCaptureSummary = record.subject
+            Log.app.notice("Capture: kept \(record.wordCount) words sent to \(tool, privacy: .public), \(redacted.count) redacted")
+        }
     }
 
     // MARK: Rules

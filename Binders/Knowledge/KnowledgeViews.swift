@@ -363,6 +363,7 @@ struct KnowledgeView: View {
 struct KnowledgeHitRow: View {
     let hit: KnowledgeHit
     var emphasis: String?
+    @Environment(KnowledgeService.self) private var knowledge: KnowledgeService?
     @State private var hovering = false
 
     var body: some View {
@@ -385,6 +386,13 @@ struct KnowledgeHitRow: View {
                         .foregroundStyle(.primary.opacity(0.85))
                         .lineLimit(3)
                         .multilineTextAlignment(.leading)
+                    // Something here was corrected since: say what's right.
+                    if let knowledge, let fix = knowledge.correction(for: hit, in: knowledge.currentCorrections()) {
+                        Label("Corrected: \(fix.correction.right)", systemImage: "checkmark.seal")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    }
                 }
             }
             .padding(10)

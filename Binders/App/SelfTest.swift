@@ -324,7 +324,7 @@ enum SelfTest {
         if args.contains("--selftest-notes-view") {
             // Opens the notes page on a throwaway store, clicks from note to note and resizes the window: opening a note
             // mustn't count as editing it, and the editor's text must stay within its column at every width.
-            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            guard AppPaths.isDemo else {
                 print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
                 return 1
             }
@@ -413,6 +413,22 @@ enum SelfTest {
 
         if args.contains("--selftest-notes-stress") {
             return await notesStressSelfTest()
+        }
+
+        if args.contains("--selftest-code-block-speed") {
+            return await codeBlockSpeedSelfTest()
+        }
+
+        if args.contains("--selftest-code-blocks") {
+            return await codeBlockSelfTest()
+        }
+
+        if args.contains("--selftest-corrections") {
+            return await correctionsSelfTest()
+        }
+
+        if args.contains("--selftest-agent-capture") {
+            return await agentCaptureSelfTest()
         }
 
         if let directory = value("--selftest-capture-picker") {
@@ -734,7 +750,7 @@ enum SelfTest {
         }
         if let directory = value("--selftest-tags") {
             // Tags and properties on the demo data: MCP filters, #tag search in ⌘O, the properties panel and Today.
-            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            guard AppPaths.isDemo else {
                 print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
                 return 1
             }
@@ -845,7 +861,7 @@ enum SelfTest {
 
         if let directory = value("--selftest-history") {
             // Version history in a throwaway data folder: keeping, not over-keeping, a teammate's change, restoring, deleting.
-            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            guard AppPaths.isDemo else {
                 print("ERROR: set BINDERS_DATA_DIR to an empty folder; this writes notes and their versions there")
                 return 1
             }
@@ -893,7 +909,7 @@ enum SelfTest {
 
         if args.contains("--selftest-templates") {
             // Note templates in a throwaway data folder: the built-in ones, filling one in, saving your own, replacing one.
-            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            guard AppPaths.isDemo else {
                 print("ERROR: set BINDERS_DATA_DIR to an empty folder; this writes templates there")
                 return 1
             }
@@ -924,7 +940,7 @@ enum SelfTest {
 
         if let directory = value("--selftest-today") {
             // The Today page on the demo data, and its daily note, made on the first keystroke.
-            guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+            guard AppPaths.isDemo else {
                 print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
                 return 1
             }
@@ -1355,7 +1371,7 @@ open reports/import.html
     /// Two agents and you on a board, through the same tools Claude uses, in a throwaway folder (BINDERS_DATA_DIR).
     @MainActor
     private static func boardSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes cards")
             return 1
         }
@@ -1477,7 +1493,7 @@ open reports/import.html
     /// (with 127.0.0.1 first, for the Simulator), and commands on standard input: "todo <text>", "note <text>", "pair".
     @MainActor
     private static func linkServe() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
             return 1
         }
@@ -1533,7 +1549,7 @@ open reports/import.html
     /// which device it is, uses the tools, hears about changes, and is shut out by a wrong key and by being removed.
     @MainActor
     private static func linkSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes notes and to-dos")
             return 1
         }
@@ -1614,7 +1630,7 @@ open reports/import.html
     /// throwaway folder (BINDERS_DATA_DIR) only.
     @MainActor
     private static func boardTasksSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this test writes notes and meetings")
             return 1
         }
@@ -1656,7 +1672,7 @@ open reports/import.html
     /// Links between notes, meetings, binders and people, on the fictional demo data, in windows that never show.
     @MainActor
     private static func linksSelfTest(directory: URL) async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
             return 1
         }
@@ -1765,7 +1781,7 @@ open reports/import.html
     /// Opens the quick switcher and types into it, on the fictional demo data, checking where Return goes.
     @MainActor
     private static func switcherSelfTest(directory: URL) async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: set BINDERS_DATA_DIR to an empty folder; this seeds fictional data there")
             return 1
         }

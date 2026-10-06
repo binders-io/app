@@ -63,7 +63,7 @@ final class AutomationTests: XCTestCase {
 
 final class MCPCoreTests: XCTestCase {
     private let tools = [
-        MCPTool(name: "search", description: "Search", parameters: [
+        MCPTool(name: "search", readOnly: true, description: "Search", parameters: [
             MCPToolParameter(name: "query", description: "What to look for", required: true),
             MCPToolParameter(name: "limit", type: "integer", description: "How many"),
         ]),
@@ -97,6 +97,9 @@ final class MCPCoreTests: XCTestCase {
         XCTAssertEqual(schema?["required"] as? [String], ["query"])
         let limit = (schema?["properties"] as? [String: Any])?["limit"] as? [String: Any]
         XCTAssertEqual(limit?["type"] as? String, "integer")
+        // Hosts can tell a lookup from a change; a tool not marked as reading counts as a change.
+        XCTAssertEqual((list?.first?["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool, true)
+        XCTAssertEqual((MCPTool(name: "add", description: "Add").schema["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool, false)
     }
 
     func testToolsCallRunsTheToolAndReportsFailures() async {

@@ -67,7 +67,7 @@ Binders has no account, no analytics and no cloud of its own.
   or one that runs inside Binders with [MLX](https://github.com/ml-explore/mlx-swift). Point Binders at another server and
   that text goes there instead.
 - Data lives in ordinary files in `~/Library/Application Support/Binders`, which Settings can open for you.
-- Writing capture is off until you switch it on. It never reads secure fields, password managers or terminals, skips pages that
+- Writing capture is off until you switch it on. In the terminal it keeps only the prompts you send AI tools such as Claude Code, Codex, Gemini CLI, Copilot CLI and OpenCode, from their own records, never the screen (docs/CAPTURE.md). It never reads secure fields, password managers or terminal screens, skips pages that
   look like a login or a payment, and redacts labelled passwords, card numbers and long keys before storing anything.
 - With your permission, the app checks binders.io for a signed update at most once a day. Nothing about you is sent.
 

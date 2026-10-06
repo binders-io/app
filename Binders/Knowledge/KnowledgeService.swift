@@ -233,16 +233,77 @@ final class KnowledgeService {
             }
     }
 
+    // MARK: Corrections
+
+    /// A correction kept in a note: what was wrong, what's right, and when it was made.
+    struct CorrectionNote: Sendable {
+        let id: UUID
+        let date: Date
+        let binderID: UUID?
+        let correction: KnowledgeCorrection
+    }
+
+    @ObservationIgnored private var correctionCache: (revision: Int, list: [CorrectionNote])?
+
+    /// The corrections, looked up again only when what's indexed has changed.
+    func currentCorrections() -> [CorrectionNote] {
+        if let cache = correctionCache, cache.revision == revision { return cache.list }
+        let list = corrections()
+        correctionCache = (revision, list)
+        return list
+    }
+
+    /// Every correction in the notes, newest first.
+    func corrections() -> [CorrectionNote] {
+        let tag = KnowledgeCorrection.tag
+        let notes = (try? Store.shared.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.text.contains(tag) }))) ?? []
+        return notes.compactMap { note in
+            KnowledgeCorrection.parse(note.text).map { CorrectionNote(id: note.id, date: note.updatedAt, binderID: note.binderID, correction: $0) }
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    /// The correction to a passage that says what a correction calls wrong, if there is one.
+    func correction(for hit: KnowledgeHit, in corrections: [CorrectionNote]) -> CorrectionNote? {
+        corrections.first { $0.id.uuidString != hit.sourceID && $0.correction.corrects(hit.text) }
+    }
+
     func ask(_ question: String, searchQuery: String? = nil, binder: UUID? = nil) async -> Answer {
         var hits = await search(searchQuery ?? question, binder: binder, limit: 8)
         if hits.isEmpty, searchQuery != nil { hits = await search(question, binder: binder, limit: 8) }
         guard !hits.isEmpty else {
             return Answer(question: question, text: "I couldn't find anything about that in your meetings, notes or dictations.", sources: [])
         }
+        // Corrections to what was found come first, as sources the answer has to follow.
+        let all = corrections()
+        var seen = Set<String>()
+        let relevant = all.filter { correction in
+            hits.contains { $0.sourceID == correction.id.uuidString || correction.correction.corrects($0.text) }
+        }
+        // The same correction kept twice counts once: the newest.
+        .filter { seen.insert(KnowledgeCorrections.normalize($0.correction.wrong) + "→" + KnowledgeCorrections.normalize($0.correction.right)).inserted }
+        let allIDs = Set(all.map(\.id.uuidString)), keptIDs = Set(relevant.map(\.id.uuidString))
+        hits.removeAll { allIDs.contains($0.sourceID) && !keptIDs.contains($0.sourceID) }
+        if !relevant.isEmpty {
+            let corrections = relevant.enumerated().map { index, item in
+                hits.first { $0.sourceID == item.id.uuidString } ?? KnowledgeHit(
+                    chunkID: -Int64(index + 1), documentID: "note:\(item.id.uuidString)", kind: .note, sourceID: item.id.uuidString,
+                    title: "Correction: \(item.correction.right)", createdAt: item.date, text: item.correction.markdown, snippet: "",
+                    startTime: nil, speaker: nil, author: nil, binderID: item.binderID?.uuidString, score: 1)
+            }
+            hits = corrections + hits.filter { hit in !relevant.contains { $0.id.uuidString == hit.sourceID } }
+        }
         guard let client = settings.makeLLMClient() else {
             return Answer(question: question, text: "Choose a language model in Settings to get written answers. The closest matches are below.", sources: hits)
         }
-        let contexts = hits.map { KnowledgeContext(label: "\($0.kind.singularName) “\($0.title)” · \($0.metaLine)", text: $0.text) }
+        let contexts = hits.map { hit -> KnowledgeContext in
+            if let item = relevant.first(where: { $0.id.uuidString == hit.sourceID }) {
+                let why = item.correction.reason.map { "\nWhy: \($0)" } ?? ""
+                return KnowledgeContext(label: "CORRECTION · \(item.date.formatted(date: .abbreviated, time: .omitted))",
+                                        text: "Wrong: \(item.correction.wrong)\nRight: \(item.correction.right)\(why)")
+            }
+            return KnowledgeContext(label: "\(hit.kind.singularName) “\(hit.title)” · \(hit.metaLine)", text: hit.text)
+        }
         do {
             let output = try await client.complete(system: KnowledgePrompts.answerSystemPrompt(today: Date().formatted(date: .complete, time: .omitted)),
                                                    user: KnowledgePrompts.answerUserPrompt(question: question, contexts: contexts),

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftData
 import SwiftUI
 import BindersKit
 
@@ -215,5 +216,341 @@ extension SelfTest {
         _ = added
         print(failures == 0 ? "CAPTURE_PICKER_OK" : "CAPTURE_PICKER_FAILED: \(failures)")
         return failures == 0 ? 0 : 1
+    }
+}
+
+extension SelfTest {
+    /// Prompts sent to AI tools in the terminal, kept from each one's own record while capture is on, in a throwaway home
+    /// folder: Claude Code, Codex, Gemini CLI, Copilot CLI, OpenCode, a tool described in agent-harnesses.json, and a hook.
+    @MainActor
+    static func agentCaptureSelfTest() async -> Int32 {
+        guard AppPaths.isDemo, let home = ProcessInfo.processInfo.environment["BINDERS_AGENT_HOME"] else {
+            print("ERROR: set BINDERS_DATA_DIR and BINDERS_AGENT_HOME to throwaway folders")
+            return 1
+        }
+        var failures = 0
+        func check(_ passed: Bool, _ label: String) {
+            print("\(passed ? "PASS" : "FAIL"): \(label)")
+            if !passed { failures += 1 }
+        }
+        let manager = FileManager.default
+        func file(_ path: String) -> URL {
+            let url = URL(fileURLWithPath: home).appendingPathComponent(path)
+            try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return url
+        }
+        func json(_ object: Any) -> String { String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self) }
+        func append(_ text: String, to url: URL) {
+            if !manager.fileExists(atPath: url.path) { manager.createFile(atPath: url.path, contents: nil) }
+            let handle = try! FileHandle(forWritingTo: url)
+            handle.seekToEndOfFile()
+            handle.write(Data(text.utf8))
+            try? handle.close()
+        }
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        func claudeLine(_ display: String) -> String { json(["display": display, "timestamp": now, "project": "/Users/someone/Acme/app", "sessionId": "s1"]) + "\n" }
+        let claude = file(".claude/history.jsonl"), codex = file(".codex/history.jsonl")
+        let gemini = file(".gemini/tmp/3f2a9c/logs.json"), copilot = file(".copilot/command-history-state.json")
+        let opencode = file(".local/share/opencode/opencode.db"), mine = file(".mytool/prompts.jsonl")
+        append(claudeLine("An old prompt from before capture was on"), to: claude)
+        append(json(["session_id": "c0", "ts": 1_700_000_000, "text": "An old Codex prompt from last week"]) + "\n", to: codex)
+        try? json([["sessionId": "g", "messageId": 0, "type": "user", "message": "An old Gemini question from yesterday", "timestamp": "2026-09-30T10:00:00.000Z"]])
+            .write(to: gemini, atomically: true, encoding: .utf8)
+        try? json(["commandHistory": ["an old copilot request from before"]]).write(to: copilot, atomically: true, encoding: .utf8)
+        func sqlite(_ sql: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+            process.arguments = [opencode.path, sql]
+            try? process.run()
+            process.waitUntilExit()
+        }
+        sqlite("""
+            CREATE TABLE session (id TEXT, directory TEXT); CREATE TABLE message (id TEXT, session_id TEXT, data TEXT);
+            CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+            INSERT INTO session VALUES ('s1', '/Users/someone/Acme/site');
+            INSERT INTO message VALUES ('m0', 's1', '{"role":"user"}');
+            INSERT INTO part VALUES ('p0', 'm0', 's1', \(now - 86_400_000), '{"type":"text","text":"An old OpenCode request from yesterday"}');
+            """)
+        try? json([["id": "mytool", "name": "My Tool", "format": "jsonl", "path": "~/.mytool/prompts.jsonl", "text": "prompt", "project": "cwd"]])
+            .write(to: AgentHarnesses.customFile, atomically: true, encoding: .utf8)
+
+        let controller = DictationController()
+        let capture = controller.capture
+        func records() -> [WritingRecord] { (try? Store.shared.context.fetch(FetchDescriptor<WritingRecord>())) ?? [] }
+        func has(_ tool: String, _ text: String) -> Bool { records().contains { $0.appName == tool && $0.text == text } }
+        capture.start(requireAccessibility: false)
+        check(manager.fileExists(atPath: AgentHarnesses.captureFlag.path), "capture on tells hooks to hand prompts over")
+        try? await Task.sleep(for: .milliseconds(300))
+
+        append(claudeLine("Refactor the attachment downloader so a cancelled download leaves nothing behind"), to: claude)
+        append(claudeLine("/clear") + claudeLine("yes") + claudeLine("!git status --short"), to: claude)
+        append(claudeLine("Use the token sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123 for the test run"), to: claude)
+        append(json(["session_id": "c1", "ts": 1_759_334_400, "text": "Write the release notes for the built-in models"]) + "\n", to: codex)
+        append(String(claudeLine("A prompt still being written").dropLast(4)), to: claude)
+        try? json([["sessionId": "g", "messageId": 0, "type": "user", "message": "An old Gemini question from yesterday", "timestamp": "2026-09-30T10:00:00.000Z"],
+                   ["sessionId": "g", "messageId": 1, "type": "user", "message": "Explain how the update feed is signed", "timestamp": "2026-10-02T10:00:00.000Z"],
+                   ["sessionId": "g", "messageId": 2, "type": "gemini", "message": "The feed is signed with an EdDSA key", "timestamp": "2026-10-02T10:00:05.000Z"]])
+            .write(to: gemini, atomically: true, encoding: .utf8)
+        try? json(["commandHistory": ["an old copilot request from before", "add a test for the tables parser"]]).write(to: copilot, atomically: true, encoding: .utf8)
+        sqlite("""
+            INSERT INTO message VALUES ('m1', 's1', '{"role":"user"}'); INSERT INTO message VALUES ('m2', 's1', '{"role":"assistant"}');
+            INSERT INTO part VALUES ('p1', 'm1', 's1', \(now + 5_000), '{"type":"text","text":"Make the site download button point at 0.6.1"}');
+            INSERT INTO part VALUES ('p2', 'm1', 's1', \(now + 5_000), '{"type":"text","text":"Called the Read tool with a file","synthetic":true}');
+            INSERT INTO part VALUES ('p3', 'm2', 's1', \(now + 6_000), '{"type":"text","text":"Done, the button now points at 0.6.1"}');
+            """)
+        append(json(["prompt": "Rename the binder picker in the toolbar", "cwd": "/Users/someone/Acme/tools"]) + "\n", to: mine)
+        // A hook, the way a tool runs it: Binders as a command, the prompt on stdin.
+        func hook(_ payload: String, tool: String) {
+            let process = Process()
+            process.executableURL = Bundle.main.executableURL
+            process.arguments = ["--capture-prompt", "--tool", tool]
+            let input = Pipe()
+            process.standardInput = input
+            process.standardOutput = Pipe()
+            try? process.run()
+            input.fileHandleForWriting.write(Data(payload.utf8))
+            try? input.fileHandleForWriting.close()
+            process.waitUntilExit()
+        }
+        hook(json(["prompt": "Add keyboard shortcuts to the pop-out window", "workspace_roots": ["/Users/someone/Acme/app"]]), tool: "Cursor")
+        try? await Task.sleep(for: .seconds(2.5))
+
+        print("KEPT: " + records().map { "[\($0.appName ?? "")] \($0.text)" }.joined(separator: " | "))
+        check(has("Claude Code", "Refactor the attachment downloader so a cancelled download leaves nothing behind")
+              && records().contains { $0.subject == "Claude Code · Acme/app" }, "Claude Code, filed under its project")
+        check(has("Codex", "Write the release notes for the built-in models"), "Codex")
+        check(has("Gemini CLI", "Explain how the update feed is signed") && !records().contains { $0.text.contains("EdDSA") }, "Gemini CLI, without the model's reply")
+        check(has("GitHub Copilot CLI", "add a test for the tables parser"), "Copilot CLI")
+        check(has("OpenCode", "Make the site download button point at 0.6.1") && !records().contains { $0.text.contains("Called the Read tool") || $0.text.hasPrefix("Done,") },
+              "OpenCode, without its own notes or replies")
+        check(has("My Tool", "Rename the binder picker in the toolbar"), "a tool described in agent-harnesses.json")
+        check(has("Cursor", "Add keyboard shortcuts to the pop-out window"), "a prompt handed over by a hook")
+        check(!records().contains { $0.text.hasPrefix("An old") || $0.text.hasPrefix("an old") }, "nothing from before capture was on")
+        check(!records().contains { ["/clear", "yes", "!git status --short"].contains($0.text) }, "commands and short replies left out")
+        check(records().contains { $0.redactions > 0 && !$0.text.contains("sk-ant-api03") }, "a key in a prompt is redacted")
+        check(records().allSatisfy { $0.analyzedAt != nil }, "prompts aren't read for promises")
+
+        capture.stop()
+        check(!manager.fileExists(atPath: AgentHarnesses.captureFlag.path), "capture off: hooks hand nothing over")
+        let before = records().count
+        let hookBytes = (try? Data(contentsOf: AgentHarnesses.hookRecord))?.count ?? 0
+        append(claudeLine("Sent after capture was turned off"), to: claude)
+        hook("Also sent after capture was turned off", tool: "Cursor")
+        try? await Task.sleep(for: .seconds(2))
+        check(records().count == before && ((try? Data(contentsOf: AgentHarnesses.hookRecord))?.count ?? 0) == hookBytes, "and nothing is kept once it's off")
+        print(failures == 0 ? "AGENT_CAPTURE_OK" : "AGENT_CAPTURE_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+}
+
+extension SelfTest {
+    /// Fixing what the knowledge base has wrong, through the AI tools: editing a note, and a correction that search and
+    /// answers follow while the meeting stays as it was said. A throwaway store.
+    @MainActor
+    static func correctionsSelfTest() async -> Int32 {
+        guard AppPaths.isDemo else {
+            print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
+            return 1
+        }
+        var failures = 0
+        func check(_ passed: Bool, _ label: String) {
+            print("\(passed ? "PASS" : "FAIL"): \(label)")
+            if !passed { failures += 1 }
+        }
+        let controller = DictationController()
+        let knowledge = controller.knowledge
+        let write = MCPServer.writeInApp(controller: controller)
+        func call(_ tool: String, _ arguments: [String: Any]) async -> (ok: Bool, text: String) {
+            do { return (true, try await MCPServer.call(tool, arguments, knowledge: knowledge, write: write)) }
+            catch { return (false, (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription) }
+        }
+        let binder = Store.shared.defaultBinder()
+        let note = NoteItem(text: "# Launch plan\n\nThe launch is on the 21st. Pricing is annual, at 15% off.")
+        note.binderID = binder.id
+        Store.shared.insert(note)
+        let meeting = MeetingRecord(title: "Launch review", appName: "Zoom", templateID: "general")
+        meeting.status = "ready"
+        meeting.binderID = binder.id
+        meeting.summary = "## Decisions\n- The launch is on the 21st, with annual pricing.\n- Support gets the macros by Friday."
+        Store.shared.insert(meeting)
+        Store.shared.save()
+        await knowledge.indexNow()
+
+        // Editing a note: one passage, then the errors.
+        var result = await call("update_note", ["id": note.id.uuidString, "find": "at 15% off", "replace": "at 20% off"])
+        check(result.ok && note.text.contains("at 20% off") && NoteHistory.versions(of: note.id).first?.text.contains("at 15% off") == true,
+              "update_note changes a passage and keeps the earlier version: \(result.text)")
+        result = await call("update_note", ["id": note.id.uuidString, "find": "monthly pricing", "replace": "x"])
+        check(!result.ok && result.text.contains("isn't in"), "a passage that isn't there is refused: \(result.text)")
+        result = await call("correct_knowledge", ["wrong": "21st", "right": "28th"])
+        check(!result.ok, "a correction too short to recognise is refused: \(result.text)")
+
+        // A correction for what the meeting said: the meeting stays, the correction is kept, search marks it.
+        result = await call("correct_knowledge", ["wrong": "The launch is on the 21st", "right": "The launch is on the 28th",
+                                                  "source_id": meeting.id.uuidString, "reason": "Maya moved it on Monday"])
+        print("CORRECTION: \(result.text)")
+        check(result.ok && meeting.summary.contains("21st"), "the meeting stays as it was said")
+        let corrections = knowledge.corrections()
+        check(corrections.count == 1 && corrections[0].correction.source == "Launch review", "the correction is kept, linked to the meeting")
+        // And the note that said the same is fixed when it's named.
+        result = await call("correct_knowledge", ["wrong": "The launch is on the 21st", "right": "The launch is on the 28th",
+                                                  "source_id": note.id.uuidString])
+        check(result.ok && note.text.contains("The launch is on the 28th") && !note.text.contains("21st"), "a note that says it is fixed: \(result.text)")
+        check(knowledge.corrections().count == 1, "the same correction again is the same correction, not a second one")
+        await knowledge.indexNow()
+        let found = await call("search_knowledge", ["query": "launch date", "kind": "meeting"])
+        let hits = (try? JSONSerialization.jsonObject(with: Data(found.text.utf8)) as? [[String: Any]]) ?? []
+        let marked = hits.first { $0["title"] as? String == "Launch review" }?["corrected"] as? [String: Any]
+        check(marked?["right"] as? String == "The launch is on the 28th", "search marks the meeting's passage with the correction")
+
+        // An answer from the correction, with the model in Settings (for a quick run: -llmProvider mlx -mlxModel a small one).
+        if AppSettings.shared.makeLLMClient() != nil {
+            let answer = await knowledge.ask("When is the launch?")
+            print("ANSWER: \(answer.text)")
+            print("SOURCES: " + answer.sources.map(\.title).joined(separator: " | "))
+            check(answer.sources.first?.title.hasPrefix("Correction") == true, "the correction is the answer's first source")
+            check(answer.text.contains("28") && !answer.text.lowercased().contains("is on the 21st"), "and the answer gives the corrected date")
+            check(answer.sources.filter { $0.title.hasPrefix("Correction") }.count == 1, "the same correction is listed once")
+        }
+        print(failures == 0 ? "CORRECTIONS_OK" : "CORRECTIONS_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+}
+
+extension SelfTest {
+    /// Adding code blocks to a note that already has words, every way there is: the toolbar, the / menu, typing ```.
+    @MainActor
+    static func codeBlockSelfTest() async -> Int32 {
+        var failures = 0
+        func check(_ passed: Bool, _ label: String) {
+            print("\(passed ? "PASS" : "FAIL"): \(label)")
+            if !passed { failures += 1 }
+        }
+        var text = "# Release checklist\n\nBuild the archive, then notarize it.\n\n- [ ] Upload\n- [x] Test\n\n| Step | Who |\n| --- | --- |\n| Build | Maya |\n\nLast line"
+        let hosting = NSHostingView(rootView: MarkdownNoteEditor(text: Binding(get: { text }, set: { text = $0 })).frame(width: 700, height: 600))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .milliseconds(500))
+        func find(_ view: NSView) -> MarkdownTextView? { (view as? MarkdownTextView) ?? view.subviews.lazy.compactMap(find).first }
+        guard let editor = find(hosting) else { check(false, "the editor opens"); return 1 }
+        window.makeFirstResponder(editor)
+        // Resting the pointer on selected text would otherwise ask macOS for every share extension, on the main thread.
+        check(!editor.usesRolloverButtonForSelection, "no share button over a selection")
+        func type(_ characters: String) {
+            for character in characters {
+                if character == "\n" { editor.insertNewline(nil) } else { editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+            }
+        }
+        func at(_ phrase: String, end: Bool = true) {
+            let range = (editor.string as NSString).range(of: phrase)
+            editor.setSelectedRange(NSRange(location: end ? NSMaxRange(range) : range.location, length: 0))
+        }
+        // The toolbar's {} in the middle of a paragraph, on an empty line, over a selection, at the very end.
+        at("then notarize it.")
+        editor.run(.codeBlock)
+        type("xcodebuild archive\nxcrun notarytool submit")
+        at("- [x] Test")
+        editor.insertNewline(nil)
+        editor.run(.codeBlock)
+        type("echo done")
+        editor.setSelectedRange((editor.string as NSString).range(of: "Last line"))
+        editor.run(.codeBlock)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        editor.run(.codeBlock)
+        type("let x = 1 // a comment\n")
+        // The / menu, and typing a fence by hand, with a language, inside a list and next to the table.
+        at("| Build | Maya |")
+        editor.insertNewline(nil)
+        editor.insertNewline(nil)
+        type("/code")
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        type("SELECT 1; -- one")
+        at("- [ ] Upload")
+        editor.insertNewline(nil)
+        type("```swift\nfunc go() { print(\"hi\") }\n```\n")
+        check(!editor.string.contains("- [ ] \n```") && !editor.string.contains("- [ ] ```") && !editor.string.contains("- [ ] func go"),
+              "a code block started in a checklist leaves no empty item and no markers on its lines")
+        check(editor.string.contains("\n```swift\nfunc go() { print(\"hi\") }\n```\n"), "a fence typed in a checklist opens a code block")
+        // Undo all the way back, and redo again.
+        while editor.undoManager?.canUndo == true { editor.undoManager?.undo() }
+        check(editor.string.hasPrefix("# Release checklist") && editor.string.contains("then notarize it.") && !editor.string.contains("```"),
+              "undo takes every code block back out")
+        while editor.undoManager?.canRedo == true { editor.undoManager?.redo() }
+        MarkdownEditor.flushAll()
+        try? await Task.sleep(for: .milliseconds(300))
+        print("NOTE:\n\(editor.string)\n---")
+        check(editor.string.components(separatedBy: "```").count >= 9, "the code blocks are all there after redo")
+        // The view drew and laid out every line without trouble.
+        editor.layoutManager?.ensureLayout(for: editor.textContainer!)
+        editor.display()
+        check(true, "nothing threw while adding, typing, undoing and drawing")
+        window.close()
+        print(failures == 0 ? "CODE_BLOCKS_OK" : "CODE_BLOCKS_FAILED: \(failures)")
+        return failures == 0 ? 0 : 1
+    }
+}
+
+extension SelfTest {
+    /// How long the toolbar's code block button takes in a long note on the Notes page.
+    @MainActor
+    static func codeBlockSpeedSelfTest() async -> Int32 {
+        guard AppPaths.isDemo else { return 1 }
+        let controller = DictationController()
+        let binder = Store.shared.defaultBinder()
+        let sections = Int(ProcessInfo.processInfo.environment["BINDERS_SPEED_SECTIONS"] ?? "") ?? 200
+        var body = "# A long working note\n\n"
+        for index in 0..<sections {
+            body += "## Part \(index)\n\nSome words about part \(index), with **bold**, a [link](https://example.com/\(index)) and a [[Linked note]].\n\n"
+            body += "- [ ] Something to do in part \(index)\n- [x] Something done\n  - nested point\n\n"
+            if index % 5 == 0 { body += "```swift\nlet value\(index) = \(index) // part \(index)\nprint(value\(index))\n```\n\n" }
+            if index % 10 == 0 { body += "| Name | Value |\n| --- | ---: |\n| part | \(index) |\n\n" }
+        }
+        let note = NoteItem(text: body)
+        note.binderID = binder.id
+        Store.shared.insert(note)
+        let navigation = HubNavigation()
+        navigation.binderID = binder.id
+        navigation.selection = .binder
+        navigation.pendingBinderTab = .notes
+        let hosting = NSHostingView(rootView: HubView()
+            .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)
+            .environment(controller.capture).environment(controller.commitments).environment(navigation).environment(AppSettings.shared)
+            .modelContainer(Store.shared.container))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .milliseconds(800))
+        navigation.pendingNoteID = note.id
+        try? await Task.sleep(for: .milliseconds(1500))
+        func find(_ view: NSView) -> MarkdownTextView? { (view as? MarkdownTextView) ?? view.subviews.lazy.compactMap(find).first }
+        guard let editor = find(hosting) else { print("FAIL: editor"); return 1 }
+        print("NOTE: \((editor.string as NSString).length) characters")
+        window.makeFirstResponder(editor)
+        for (label, place) in [("start", 30), ("middle", (editor.string as NSString).length / 2), ("end", (editor.string as NSString).length)] {
+            editor.setSelectedRange(NSRange(location: place, length: 0))
+            editor.scrollRangeToVisible(editor.selectedRange())
+            try? await Task.sleep(for: .milliseconds(300))
+            print("CODE_BLOCK_START \(label)")
+            fflush(stdout)
+            let started = Date()
+            editor.run(.codeBlock)
+            editor.display()
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+            let typed = Date()
+            MarkdownEditor.flushAll()
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+            print(String(format: "CODE_BLOCK %@: %.0f ms to show, %.0f ms for the page to catch up", label,
+                         typed.timeIntervalSince(started) * 1000, Date().timeIntervalSince(typed) * 1000))
+            fflush(stdout)
+        }
+        window.close()
+        return 0
     }
 }

@@ -10,7 +10,7 @@ extension SelfTest {
     /// it showed, and crashed the app.
     @MainActor
     static func notesStressSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -193,7 +193,7 @@ extension SelfTest {
     /// Deleting notes from the list with ⌫ and ⌦, and Undo putting them back whole, on a throwaway store.
     @MainActor
     static func notesDeleteSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -286,7 +286,7 @@ extension SelfTest {
     /// How long a keystroke takes in a long note, on the Notes page with a library of notes around it.
     @MainActor
     static func notesSpeedSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -386,7 +386,7 @@ extension SelfTest {
     /// Pictures and videos in a note, on a throwaway store: shown, pasted, dropped, found under a click, tidied away.
     @MainActor
     static func notesMediaSelfTest(directory: URL) async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -727,7 +727,7 @@ extension SelfTest {
     /// A note popped out, typed in, folded into a bubble and opened again, on a throwaway store.
     @MainActor
     static func popoutsSelfTest(directory: URL) async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -807,7 +807,7 @@ extension SelfTest {
     /// ⌘N: a new note on the Notes page, with the cursor in it.
     @MainActor
     static func newNoteSelfTest() async -> Int32 {
-        guard ProcessInfo.processInfo.environment["BINDERS_DATA_DIR"] != nil else {
+        guard AppPaths.isDemo else {
             print("ERROR: run with BINDERS_DATA_DIR pointing at a throwaway folder")
             return 1
         }
@@ -828,7 +828,8 @@ extension SelfTest {
         let after = (try? Store.shared.context.fetchCount(FetchDescriptor<NoteItem>())) ?? 0
         check(after == before + 1, "it makes a note")
         let window = NSApp.windows.first { $0.title == "Binders" && $0.isVisible }
-        check(window?.firstResponder is MarkdownTextView, "and the cursor is in it, ready to type: \(String(describing: window?.firstResponder))")
+        let field = ((window?.firstResponder as? NSTextView)?.delegate as? NSTextField).map { "a text field “\($0.placeholderString ?? $0.stringValue)”" }
+        check(window?.firstResponder is MarkdownTextView, "and the cursor is in it, ready to type: \(field ?? String(describing: window?.firstResponder))")
         window?.close()
         print(failures == 0 ? "NEW_NOTE_OK" : "NEW_NOTE_FAILED: \(failures)")
         return failures == 0 ? 0 : 1

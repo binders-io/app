@@ -378,6 +378,7 @@ public enum KnowledgePrompts {
         - Answer directly in one to four sentences; add short bullets only when they help.
         - If the sources don't answer the question, say so plainly and mention the closest related information you found.
         - "You" in meeting transcripts is the user.
+        - A source labelled CORRECTION is the user's correction: what it says is right replaces what it calls wrong, in every other source, whatever their dates. Don't repeat the wrong version as fact.
         """
     }
 

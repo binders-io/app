@@ -17,6 +17,9 @@ public enum MarkdownEditing {
         case continueWith(String)
         /// The item was empty: remove its marker (the last `count` characters before the cursor) and end the list.
         case endList(count: Int)
+        /// The item holds only a code fence ("- [ ] ```swift"): its marker (the line's first `count` characters) goes,
+        /// so the fence opens a code block, and a new line starts the code.
+        case openCodeBlock(dropping: Int)
     }
 
     private static let taskItem = try! NSRegularExpression(pattern: #"^([ \t]*)([-*+])[ \t]+\[[ xX]\][ \t]?(.*)$"#)
@@ -34,6 +37,11 @@ public enum MarkdownEditing {
         if inCodeBlock {
             let indent = String(line.prefix { $0 == " " || $0 == "\t" })
             return indent.isEmpty ? .newline : .continueWith(indent)
+        }
+        // A fence typed into a list item or a quote makes a code block of its own: one inside an item isn't read as code.
+        if let marker = itemMarker(in: line) {
+            let rest = (line as NSString).substring(from: marker)
+            if rest.hasPrefix("```") || rest.hasPrefix("~~~") { return .openCodeBlock(dropping: marker) }
         }
         if let match = taskItem.firstMatch(in: line, range: whole) {
             if group(match, 3).trimmingCharacters(in: .whitespaces).isEmpty { return .endList(count: whole.length) }
@@ -136,6 +144,13 @@ public enum MarkdownEditing {
     private static let anyPrefix = try! NSRegularExpression(
         pattern: #"^([ \t]*)(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+\[[ xX]\][ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)?"#)
 
+    /// How long the list, checklist or quote marker at the start of `line` is, indentation included; nil without one.
+    static func itemMarker(in line: String) -> Int? {
+        guard let match = anyPrefix.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
+        let marker = (line as NSString).substring(with: match.range).trimmingCharacters(in: .whitespaces)
+        return marker.isEmpty || marker.hasPrefix("#") ? nil : match.range.length
+    }
+
     /// Turns the selected lines into a list, a checklist, a quote or a heading, or back to plain text when they
     /// already are. Other list or heading markers on those lines are replaced, and numbered lists count from 1.
     public static func toggle(_ style: LineStyle, in text: String, selection: NSRange) -> Edit {
@@ -229,7 +244,9 @@ public enum MarkdownEditing {
         if selection.length == 0 {
             let line = string.lineRange(for: selection)
             let lineText = string.substring(with: line).trimmingCharacters(in: .newlines)
-            if lineText.trimmingCharacters(in: .whitespaces).isEmpty {
+            // An empty line becomes the block, and so does a list item or quote with nothing in it yet.
+            let emptyItem = itemMarker(in: lineText).map { (lineText as NSString).substring(from: $0).trimmingCharacters(in: .whitespaces).isEmpty } ?? false
+            if lineText.trimmingCharacters(in: .whitespaces).isEmpty || emptyItem {
                 let lineContent = NSRange(location: line.location, length: (lineText as NSString).length)
                 let updated = string.replacingCharacters(in: lineContent, with: "```\n\n```")
                 return Edit(text: updated, selection: NSRange(location: line.location + 4, length: 0))
