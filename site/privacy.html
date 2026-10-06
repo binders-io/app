@@ -43,7 +43,7 @@
   <div class="wrap">
     <p class="kicker">Privacy</p>
     <h1>Where your data lives</h1>
-    <p class="lede">Binders is a local-first Mac app. It has no account system, no analytics and no server of its own. This page describes what the app does as of version 0.6.0.</p>
+    <p class="lede">Binders is a local-first Mac app. It has no account system, no analytics and no server of its own. This page describes what the app does as of version 0.7.0.</p>
   </div>
 </section>
 <article class="page">
@@ -72,7 +72,8 @@
     <ul>
       <li>It is off until you switch it on, and it shows in the menu bar while it is on.</li>
       <li>It reads the text field you are writing in through macOS Accessibility, and keeps the text only when you send or save it. It never records keystrokes and never reads secure fields.</li>
-      <li>Password managers, terminals, and pages whose address mentions login, sign-in, checkout, payment, banking or wallets are always skipped.</li>
+      <li>Password managers, terminal screens, and pages whose address mentions login, sign-in, checkout, payment, banking or wallets are always skipped.</li>
+      <li>In the terminal, it keeps only the prompts you send AI tools (Claude Code, Codex, Gemini CLI, Qwen Code, Copilot CLI and OpenCode), read from the history those tools keep on this Mac, starting when capture is switched on. Shell commands and pasted text are not kept. Settings → Writing capture → In the terminal turns each tool off.</li>
       <li>Labelled passwords, card numbers, social security numbers, IBANs and long keys are redacted before anything is stored.</li>
       <li>Captured writing is deleted after the period you set, 90 days by default, and you can delete any of it at any time.</li>
     </ul>
