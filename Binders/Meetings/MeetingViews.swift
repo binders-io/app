@@ -110,34 +110,38 @@ struct LiveTranscriptView: View {
         let blocks = TranscriptFormatter.blocks(segments, names: names)
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     if blocks.isEmpty {
                         Text("Listening… lines appear after each pause.").foregroundStyle(.secondary)
-                    }
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
-                        TranscriptBlockRow(block: block).id(index)
+                    } else {
+                        TranscriptText.render(blocks)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .id("transcript")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: blocks.count) {
                 guard !blocks.isEmpty else { return }
-                withAnimation { proxy.scrollTo(blocks.count - 1, anchor: .bottom) }
+                withAnimation { proxy.scrollTo("transcript", anchor: .bottom) }
             }
         }
     }
 }
 
-struct TranscriptBlockRow: View {
-    let block: TranscriptBlock
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(block.speaker).font(.caption.weight(.semibold)).foregroundStyle(SpeakerColor.color(for: block.speaker))
-                Text(TranscriptFormatter.timestamp(block.start)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-            }
-            Text(block.text).textSelection(.enabled)
+/// Renders a transcript as one concatenated Text spanning every speaker turn, instead of one View per block: the
+/// same reasoning as `MeetingDetailView.threadText` for the Ask tab applies here, and the same way — a real
+/// drag or Cmd-A/Cmd-C across several speakers' lines needs this to be a single Text, not several selectable rows.
+enum TranscriptText {
+    static func render(_ blocks: [TranscriptBlock]) -> Text {
+        blocks.enumerated().reduce(Text("")) { combined, item in
+            let (index, block) = item
+            let separator = index == 0 ? Text("") : Text("\n\n")
+            let speaker = Text(block.speaker).font(.caption.weight(.semibold)).foregroundStyle(SpeakerColor.color(for: block.speaker))
+            let timestamp = Text("  " + TranscriptFormatter.timestamp(block.start)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+            let line = speaker + timestamp + Text("\n") + Text(block.text)
+            return combined + separator + line
         }
     }
 }
@@ -677,13 +681,14 @@ struct MeetingDetailView: View {
                 }
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     let blocks = TranscriptFormatter.blocks(shownSegments, names: meeting.speakerNames)
                     if blocks.isEmpty {
                         Text(isBusy ? "Transcribing…" : "No transcript.").foregroundStyle(.secondary)
-                    }
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        TranscriptBlockRow(block: block)
+                    } else {
+                        TranscriptText.render(blocks)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -695,7 +700,7 @@ struct MeetingDetailView: View {
         VStack(spacing: 10) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 14) {
                         if meeting.chat.isEmpty {
                             Text("Ask anything about this meeting").font(.caption).foregroundStyle(.secondary)
                             ForEach(["What are the action items and who owns them?", "Draft a follow-up email",
@@ -706,21 +711,29 @@ struct MeetingDetailView: View {
                                 }
                                 .buttonStyle(.bordered)
                             }
-                        }
-                        ForEach(Array(meeting.chat.enumerated()), id: \.offset) { index, message in
-                            ChatBubble(message: message).id(index)
+                        } else {
+                            // The whole thread as one literal Text value, built by concatenation, instead of one
+                            // row per markdown line or one View per message: SwiftUI's cross-view text selection
+                            // (drag or Cmd-A/Cmd-C) never spans separate Text instances, however many share a
+                            // `.textSelection(.enabled)` ancestor or come from the same ForEach — confirmed by
+                            // testing both arrangements. Only a single Text is one selectable, draggable region.
+                            Self.threadText(meeting.chat)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .id("thread")
                         }
                         if service.chattingMeetingIDs.contains(meeting.id) {
                             HStack {
                                 ProgressView().controlSize(.small)
                                 Text("Thinking…").foregroundStyle(.secondary)
                             }
+                            .id("thinking")
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onChange(of: meeting.chat.count) {
-                    withAnimation { proxy.scrollTo(meeting.chat.count - 1, anchor: .bottom) }
+                    withAnimation { proxy.scrollTo(service.chattingMeetingIDs.contains(meeting.id) ? "thinking" : "thread", anchor: .bottom) }
                 }
             }
             HStack {
@@ -733,31 +746,28 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// The whole Ask thread as one concatenated Text, questions in the accent colour with a bold "You:" so they
+    /// still stand apart the way the old right-aligned bubble did. Plain prose, not Markdown: a single Text can
+    /// carry inline styling (what the colour and bold label need) but not block structure or per-run alignment, so
+    /// this is the one place in the Ask tab a bulleted answer shows its "- " literally instead of a styled bullet,
+    /// and a question can't sit on the right — the cost of the whole thread being one real selectable, draggable
+    /// region, which per-bubble Views could never be.
+    private static func threadText(_ chat: [MeetingRecord.ChatMessage]) -> Text {
+        chat.enumerated().reduce(Text("")) { combined, item in
+            let (index, message) = item
+            let separator = index == 0 ? Text("") : Text("\n\n\n")
+            let line = message.role == "user"
+                ? (Text("You: ").fontWeight(.semibold) + Text(message.text)).foregroundStyle(Color.accentColor)
+                : Text(message.text)
+            return combined + separator + line
+        }
+    }
+
     private func send() {
         let text = question.trimmed
         guard !text.isEmpty else { return }
         question = ""
         Task { await service.ask(text, about: meeting) }
-    }
-}
-
-private struct ChatBubble: View {
-    let message: MeetingRecord.ChatMessage
-
-    var body: some View {
-        if message.role == "user" {
-            HStack {
-                Spacer(minLength: 60)
-                Text(message.text)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.accentColor.opacity(0.15)))
-            }
-        } else {
-            MarkdownBlocks(markdown: message.text)
-                .padding(.trailing, 40)
-        }
     }
 }
 
