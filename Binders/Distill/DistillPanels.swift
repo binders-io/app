@@ -5,8 +5,9 @@ import BindersKit
 
 // MARK: - The Work panel
 
-/// Beside a Distill note: every card placed from it, with its column, who has it, what its agent says it's doing (its own
-/// words), its last update and what it waits for. Each opens its card; each card's section opens in the note.
+/// Beside a Distill note, or any note with cards (lane DS6): every card of it, with its column, who has it, what its agent
+/// says it's doing (its own words), its last update and what it waits for. Each opens its card; each card's section opens
+/// in the note.
 struct WorkPanel: View {
     @Environment(DictationController.self) private var controller
     let note: NoteItem
@@ -21,8 +22,17 @@ struct WorkPanel: View {
                 Text(progress.counts.total == 0 ? "" : "\(progress.counts.done) of \(progress.counts.total) done").font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
             .fitProbe("workpanel")
+            // Lane DS5: the note's cards chosen on the board, to act on them all at once.
+            if progress.counts.total > 0 {
+                Button { Self.selectOnBoard(note) } label: { Label("Select on Board", systemImage: "square.on.square") }
+                    .buttonStyle(.borderless)
+                    .themedLink()
+                    .font(.caption)
+                    .help("Open the board with every card from this note selected, to move, assign or delete them at once")
+            }
             if progress.items.isEmpty {
-                Text("Distill the note, review the items and place them on the board: each card shows here as it goes.")
+                Text(note.distill ? "Distill the note, review the items and place them on the board: each card shows here as it goes."
+                     : "Put the note, or words in it, on the board: each card shows here as it goes.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -32,6 +42,20 @@ struct WorkPanel: View {
             }
         }
         .followingAgentDoing()
+    }
+
+    /// Select on Board (lane DS5): the board of the note's binder, or of its cards when none is there, with the note's
+    /// cards on it selected.
+    static func selectOnBoard(_ note: NoteItem) {
+        let cards = DistillBoard.groupCards(of: note.id)
+        let board = cards.contains { $0.binderID == note.binderID } ? note.binderID : cards.first?.binderID
+        guard let board else { return }
+        let navigation = HubWindowController.shared.navigation
+        navigation.binderID = board
+        navigation.pendingBoardSelection = Set(cards.filter { $0.binderID == board }.map(\.id))
+        navigation.pendingBinderTab = .board
+        navigation.selection = .binder
+        HubWindowController.shared.show()
     }
 }
 
@@ -99,11 +123,13 @@ struct WorkItemRow: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The note, opened at a section, in the Binders window.
-    static func open(section: String, of note: NoteItem) {
+    /// The note, opened at a section, in the Binders window; with a card's words (lane DS4), at those words, flashed, when
+    /// they can still be found (else at the section). `section` nil with words: the note's opening.
+    static func open(section: String?, of note: NoteItem, quote: String? = nil) {
         let navigation = HubWindowController.shared.navigation
         navigation.open(note: note)
         navigation.pendingNotePlace = section
+        navigation.pendingNoteQuote = quote
         HubWindowController.shared.show()
     }
 
@@ -269,7 +295,8 @@ struct DistillReportSheet: View {
 
 // MARK: - The Work list
 
-/// A binder's Work list, on its overview: every note with Distill on, with its progress bar and numbers.
+/// A binder's Work list, on its overview: every note with Distill on or with cards on the board (lane DS6), with its
+/// progress bar and numbers.
 struct WorkListSection: View {
     @Environment(DictationController.self) private var controller
     let binder: BinderRecord
@@ -283,7 +310,7 @@ struct WorkListSection: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Work").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
                     Spacer()
-                    Text(list.count == 1 ? "1 spec" : "\(list.count) specs").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                    Text(list.count == 1 ? "1 note" : "\(list.count) notes").font(.callout).monospacedDigit().foregroundStyle(.secondary)
                 }
                 ForEach(list, id: \.note) { entry in
                     Button { if let id = UUID(uuidString: entry.note) { openNote(id) } } label: {
@@ -314,19 +341,26 @@ struct WorkListSection: View {
 
 /// On a card Distill placed: the note it was distilled from and its section, opened with a click, and what changed in
 /// that section since the card was made, with Looked at It · Tell when the change was an agent's and waits for a person.
+/// The same on a card made with Put on Board (lane DS6): the words it was made from, and its section's changes.
 struct DistilledFromPanel: View {
     @Environment(DictationController.self) private var controller
     @Bindable var card: TaskCard
 
     var body: some View {
-        if let from = card.distilledFrom {
+        // One you put in the note's group by hand (lane DS5) says so in its Part of line alone.
+        if let from = card.distilledFrom, from.byHand != true {
             let note = Store.shared.note(from.note)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.turn.down.right").foregroundStyle(BindersTheme.muted)
-                    Button(from.request == true ? "Asks to distill “\(card.sourceTitle ?? "a note")”" : "Distilled from “\(card.sourceTitle ?? "a note")”") {
+                    Button(from.request == true ? "Asks to distill “\(card.sourceTitle ?? "a note")”"
+                           : from.put == true ? "Put on the board from “\(note?.title ?? card.sourceTitle ?? "a note")”"
+                           : "Distilled from “\(card.sourceTitle ?? "a note")”") {
                         guard let note else { return }
-                        if let section = from.section { WorkItemRow.open(section: section, of: note) } else {
+                        // At the words it came from, flashed, when the note still has them (lane DS4); else its section.
+                        if from.section != nil || from.quote != nil {
+                            WorkItemRow.open(section: from.section, of: note, quote: from.quote)
+                        } else {
                             HubWindowController.shared.navigation.open(note: note)
                             HubWindowController.shared.show()
                         }
@@ -334,9 +368,20 @@ struct DistilledFromPanel: View {
                     .buttonStyle(.borderless)
                     .themedLink()
                     .disabled(note == nil)
-                    .help(from.section.map { "Open the note at its “\($0)” section" } ?? "Open the note")
+                    .help(from.quote != nil ? "Open the note at the words this card came from"
+                          : from.section.map { "Open the note at its “\($0)” section" } ?? "Open the note")
                 }
                 .font(.caption)
+                if let quote = from.quote {
+                    // The note's words, as Distill read them, or as you selected them (Put on Board, lane DS6).
+                    Text("“\(quote)”")
+                        .font(.caption.italic())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("From the note: \(quote)")
+                }
                 if let section = from.section {
                     Text("Section “\(section)”").font(.caption).foregroundStyle(BindersTheme.muted)
                 }

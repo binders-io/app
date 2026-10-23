@@ -21,20 +21,22 @@ public enum DistillPrompt {
         Reply with a JSON list and nothing else. For a note about a newsletter signup, a reply could be:
         [
           {"title": "Add the signup form to the footer", "brief": "Visitors can sign up from every page.", \
-        "done_when": "The footer has a working signup form.", "section": "Signup form", "waits_for": [], "size": "small", \
-        "for": "agent"},
+        "done_when": "The footer has a working signup form.", "section": "Signup form", \
+        "quote": "Put a signup form in the footer of every page", "waits_for": [], "size": "small", "for": "agent"},
           {"title": "Send a welcome email after signup", "brief": "New subscribers get a welcome email.", \
-        "done_when": "Signing up sends the welcome email.", "section": "Welcome email", "waits_for": [1], "size": "small", \
-        "for": "agent"},
+        "done_when": "Signing up sends the welcome email.", "section": "Welcome email", \
+        "quote": "Once someone signs up, send them a welcome email", "waits_for": [1], "size": "small", "for": "agent"},
           {"title": "Choose the email provider", "brief": "Someone decides who sends the emails.", \
-        "done_when": "The provider is chosen and written down.", "section": "Decisions", "waits_for": [], "size": "small", \
-        "for": "person"}
+        "done_when": "The provider is chosen and written down.", "section": "Decisions", \
+        "quote": "We still need to pick an email provider", "waits_for": [], "size": "small", "for": "person"}
         ]
 
         - title: what to do, starting with a verb, at most 10 words.
         - brief: one or two sentences on what and why, using only what the note says. No new facts, names or numbers.
         - done_when: one sentence anyone can check.
         - section: the "## " heading the item comes from, copied exactly. Use "" for text before the first heading.
+        - quote: the words of the note the item comes from, copied exactly as the note writes them: a phrase or one \
+        line, at most 25 words.
         - waits_for: the numbers of the items that must be finished first (1 is the first item). Use [] unless the note \
         says one thing comes before another ("once", "after", "then", "when it's done").
         - size: "small" (a day or less), "medium" (a few days) or "large" (more).
@@ -98,6 +100,9 @@ public enum DistillReading {
         public var section: String?
         /// What the reader named, when it matched no heading.
         public var unknownSection: String?
+        /// The note's words it came from, as the reader copied them (`DistillQuote.clean`); nil when it gave none (a reply
+        /// from before lane DS4, a stand-in, an agent that left it out).
+        public var quote: String? = nil
         public var waitsFor: [Int]
         public var size: DistillItem.Size?
         public var hint: DistillItem.Hint?
@@ -233,7 +238,7 @@ public enum DistillReading {
             kept[rawIndex] = result.items.count
             raws.append(raw)
             result.items.append(Item(title: title, brief: clean(raw.brief ?? "", lines: true), doneWhen: clean(raw.doneWhen ?? "", lines: true),
-                                     section: matched, unknownSection: unknown, waitsFor: [], size: raw.size.flatMap(DistillItem.Size.init(loose:)),
+                                     section: matched, unknownSection: unknown, quote: DistillQuote.clean(raw.quote), waitsFor: [], size: raw.size.flatMap(DistillItem.Size.init(loose:)),
                                      hint: hint ?? (name == nil ? nil : .either), forName: name))
         }
         // Waits, by number first (the model's numbering, from 1), then by title.
@@ -391,6 +396,7 @@ public enum DistillReading {
         var brief: String?
         var doneWhen: String?
         var section: String?
+        var quote: String?
         var waits: [Wait]
         var size: String?
         var forWord: String?
@@ -423,6 +429,7 @@ public enum DistillReading {
             brief = text(["brief", "description", "details", "summary", "why", "what"])
             doneWhen = text(["donewhen", "done", "definitionofdone", "acceptance", "acceptancecriteria", "doneif"])
             section = text(["section", "heading", "from", "source"])
+            quote = text(["quote", "quoted", "excerpt", "words", "fromtext", "sourcetext", "notewords"])
             size = text(["size", "effort", "estimate"])
             forWord = text(["for", "meantfor", "owner", "who", "assignee", "assignto", "by"])
             var waits: [Wait] = []
@@ -471,7 +478,7 @@ extension DistillReading.Result {
         return items.enumerated().map { index, item in
             let hash = sections.first { $0.heading == item.section }?.hash
             return DistillItem(id: ids[index], title: item.title, brief: item.brief, doneWhen: item.doneWhen, section: item.section,
-                               sectionHash: hash, waitsFor: item.waitsFor.map { ids[$0] }, size: item.size, hint: item.hint)
+                               sectionHash: hash, quote: item.quote, waitsFor: item.waitsFor.map { ids[$0] }, size: item.size, hint: item.hint)
         }
     }
 }

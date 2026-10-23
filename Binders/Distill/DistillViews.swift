@@ -7,7 +7,8 @@ import BindersKit
 
 /// Under a Distill note's title: how its work is going ("7 of 12 done · 3 in progress · 1 waits on you · 1 not started"),
 /// live from the board, with Distill (by Binders' model, or with one of your agents), the proposal waiting for your review,
-/// the report, and sections changed since their cards were made.
+/// the report, and sections changed since their cards were made. Lane DS6: under any note with cards on the board too,
+/// without Distill's part when it's off.
 struct WorkBar: View {
     @Environment(DictationController.self) private var controller
     let note: NoteItem
@@ -21,6 +22,8 @@ struct WorkBar: View {
     var panelInPlace = false
     @State private var reviewing: DistillRecord?
     @State private var reporting = false
+    /// Show Work in the Note (lane DS4): the cards marked in the note at the words they came from.
+    @AppStorage(DistillNoteMarks.shownKey, store: AppDefaults.store) private var showWork = true
     @State private var problem: DistillService.Problem?
 
     var body: some View {
@@ -174,7 +177,7 @@ struct WorkBar: View {
             Text(controller.distill.readingPart[note.id].map { "Reading part \($0.part) of \($0.of)…" } ?? "Reading the note…")
                 .font(.callout).foregroundStyle(.secondary).fixedSize()
                 .help(controller.distill.readingPart[note.id] == nil ? "" : "The note is long, so Binders' model reads it a few sections at a time.")
-        } else {
+        } else if note.distill {
             DistillMenu(note: note) { problem = $0 }
         }
         Button("Report") {
@@ -183,6 +186,11 @@ struct WorkBar: View {
         }
         .disabled(progress.counts.total == 0)
         .help("How the work from this note is going, from the board: what finished, what's in progress, what waits on whom")
+        Toggle(isOn: $showWork) { Image(systemName: "highlighter") }
+            .toggleStyle(.button)
+            .help(showWork ? "Hide the work in the note: the marks on the words each card came from, and where each card is"
+                  : "Show Work in the Note: mark the words each card came from, and say where each card is")
+            .accessibilityLabel("Show Work in the Note")
         Toggle(isOn: $panelShown) { Image(systemName: "sidebar.right") }
             .toggleStyle(.button)
             .disabled(!panelRoom)

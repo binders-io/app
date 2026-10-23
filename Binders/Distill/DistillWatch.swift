@@ -39,15 +39,19 @@ extension DistillService {
     /// What of it reaches an agent depends on whose change it was (`SectionChangeMark`, `DistilledFrom.forAgent`): yours
     /// is told to the agent holding the card, lines and all; a teammate's lines only to an agent that may read teammates'
     /// items, any other hearing who, where and how much; an agent's waits for a person to look (`passOn`). Who changed each
-    /// section, and when, is noted for its heading. Done and closed cards are left alone.
+    /// section, and when, is noted for its heading. Done and closed cards are left alone. Lane DS6: the same for cards made
+    /// with Put on Board from words under a "## " heading, Distill on or not; what of their changes reaches an agent is who
+    /// changed which section and how much, as those cards give an agent no way into the note.
     func checkSections(of note: NoteItem, by author: NoteAuthor, at now: Date = Date()) {
-        guard note.distill, let board, Store.shared.canSave else { return }
+        guard note.distill || DistillBoard.followsSections(note.id), let board, Store.shared.canSave else { return }
         let sections = DistillSections.sections(of: note.text)
-        var index = NoteHistory.index(of: note.id, note: note)
-        if !index.stamp(note.text, by: author, at: now).isEmpty { NoteHistory.save(index, for: note.id) }
+        if note.distill {
+            var index = NoteHistory.index(of: note.id, note: note)
+            if !index.stamp(note.text, by: author, at: now).isEmpty { NoteHistory.save(index, for: note.id) }
+        }
         var changed = false
         for card in DistillBoard.cards(of: note.id) where card.column != .done {
-            guard var from = card.distilledFrom, from.closed == nil else { continue }
+            guard var from = card.distilledFrom, from.closed == nil, from.followsSection else { continue }
             let section = from.section == nil ? sections.first { $0.heading == nil } : sections.first { $0.heading == from.section }
             let hash = section?.hash ?? DistilledFrom.gone
             guard hash != from.seenHash else { continue }
@@ -59,7 +63,7 @@ extension DistillService {
             let gone = section == nil
             let line = DistilledFrom.line(section: from.section, note: note.title, by: author.phrase, added: change.added, removed: change.removed,
                                           gone: gone, lines: change.lines)
-            let mark = SectionChangeMark(author, added: change.added, removed: change.removed)
+            let mark = SectionChangeMark(author, added: change.added, removed: change.removed, withoutNote: !from.opensNote)
             // A person who changes the section after an agent did has looked at it: those lines wait no more.
             if !author.isAgent, from.held == true { release(card) }
             board.note(card, text: line, sectionChange: mark)
@@ -107,7 +111,7 @@ extension DistillService {
         let by = who.isEmpty ? from.change?.by ?? "an agent" : DistillProgress.list(who)
         let added = released.isEmpty ? from.change?.added ?? 0 : released.map(\.added).reduce(0, +)
         let removed = released.isEmpty ? from.change?.removed ?? 0 : released.map(\.removed).reduce(0, +)
-        let line = DistilledFrom.passedOn(section: from.section, note: note.title, by: by, added: added, removed: removed)
+        let line = DistilledFrom.passedOn(section: from.section, note: note.title, by: by, added: added, removed: removed, opensNote: from.opensNote)
         if card.assigneeIsAgent, BoardRules.isClaimed(card.state, at: Date()) {
             controller?.board.note(card, text: "You looked at the change. Binders told \(card.assignee ?? "the agent") to work from the section as it is now.")
             controller?.agents.tell(card, notice: .init(line: line, mark: nil))

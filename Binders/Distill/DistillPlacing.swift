@@ -34,7 +34,7 @@ extension DistillService {
                                         details: DistillCards.details(item, note: note.id, noteTitle: note.title, placedByAgent: agentPlaced ? actor.name : nil),
                                         binderID: note.binderID, column: column, source: ("note", note.id.uuidString, note.title), by: actor)
                 card.distilledFrom = DistilledFrom(note: note.id, distill: record.id, item: item.id, section: item.section,
-                                                   sectionHash: item.sectionHash, version: record.version)
+                                                   sectionHash: item.sectionHash, version: record.version, quote: item.quote)
                 made.append((item, card))
                 cardOf[item.id] = card.id
             }
@@ -109,6 +109,8 @@ extension DistillService {
             if let hash = update.sectionHash { from?.sectionHash = hash }
             from?.noticedHash = nil
             from?.briefUpdated = Date()
+            // Where the note now says it (lane DS4): the words the new reading found it in.
+            if let quote = update.quote { from?.quote = quote }
             // The section as Distill again read it, which the brief now follows: the next change is told from there.
             if let note = Store.shared.note(distill.note) {
                 from?.seenText = distill.version.flatMap { NoteHistory.text(of: $0, note: note) }.flatMap { DistillSections.section(update.section, in: $0)?.text }

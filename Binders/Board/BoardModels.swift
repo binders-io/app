@@ -63,11 +63,21 @@ final class TaskCard {
         set { columnRaw = newValue.rawValue }
     }
 
-    /// Where Distill made it from, or nil.
+    /// Where Distill made it from, or nil. A card you put in a note's group by hand has one too, `byHand` (lane DS5): only
+    /// `DistilledFrom.isDistilled` ones are Distill's.
     var distilledFrom: DistilledFrom? {
         get { DistilledFrom(json: distilledJSON) }
         set { distilledJSON = newValue?.json ?? "" }
     }
+
+    /// Its place among a note's cards (lane DS6, `NoteWorkCards`): made by Distill, put in the note's group by hand, or made
+    /// with Put on Board (before this build too, adopted as it is); nil for a card that's no note's.
+    var noteMembership: NoteWorkCards.Membership? {
+        NoteWorkCards.membership(distilled: distilledJSON, sourceKind: sourceKind, sourceID: sourceID, todo: sourceRef)
+    }
+
+    /// The note whose cards it's among, and whose group it's in on the board (lanes DS5, DS6).
+    var groupNote: UUID? { noteMembership?.note }
 
     var state: CardState {
         get { CardState(column: column, assignee: assignee, assigneeIsAgent: assigneeIsAgent, claimExpires: claimExpiresAt) }

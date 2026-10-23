@@ -30,6 +30,8 @@ import BindersKit
 ///                                          Mac: each answers in time, what's kept arrives once, what's refused changed nothing
 ///     Binders --selftest-teamdb-open-perf  lane DB10: a shared binder of 400 notes opened at 80 ms a statement, while its
 ///                                          outbox goes, once it's gone, and while a teammate types: how long the main thread stalls
+///     Binders --selftest-teamdb-board-groups  lane DS5: several cards moved, put in a note's group and deleted at once on the
+///                                          team's board: what stays, what the database keeps, no Undo for a deletion
 ///     Binders --selftest-teamdb-join-copies  lane DB9: three Macs from a folder team join; no note copied under a new id, and
 ///                                          copies an earlier Binders made removed from Settings → Team
 extension SelfTest {
@@ -56,6 +58,7 @@ extension SelfTest {
             "--selftest-teamdb-reach": teamReachChecks,
             "--selftest-teamdb-open-perf": teamOpenPerfChecks,
             "--selftest-teamdb-join-copies": teamJoinCopiesChecks,
+            "--selftest-teamdb-board-groups": teamBoardGroupChecks,
         ]
         // The update starts from a database as Binders 0.10.0 sets it up: migrations 1 to 7.
         let known = flag == "--selftest-teamdb-update" ? Array(TeamSchema.migrations.prefix(7)) : TeamSchema.migrations

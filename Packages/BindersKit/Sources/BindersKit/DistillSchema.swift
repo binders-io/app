@@ -2,9 +2,9 @@ import Foundation
 
 /// The JSON schema a Distill reply is held to where the model allows it (lane DS3): an object whose `items` is the list of
 /// work items, each with the fields `DistillPrompt.system` asks for, in its order, the section one of the note's own
-/// headings (or "" for the text before the first). MLX holds the reply to it token by token (xgrammar), Ollama takes it as
-/// `format` and an OpenAI-compatible server as `response_format`, so the model can't answer in prose or think aloud
-/// instead of listing. `DistillReading.read` still reads the reply, as it reads a bare list.
+/// headings (or "" for the text before the first) and the quote the note's own words it came from (lane DS4). MLX holds
+/// the reply to it token by token (xgrammar), Ollama takes it as `format` and an OpenAI-compatible server as
+/// `response_format`, so the model can't answer in prose or think aloud instead of listing. `DistillReading.read` still reads the reply, as it reads a bare list.
 public enum DistillSchema {
     /// The name an OpenAI-compatible server's `json_schema` carries.
     public static let name = "work_items"
@@ -47,6 +47,8 @@ public enum DistillSchema {
             ("brief", text),
             ("done_when", text),
             ("section", choice(sections(headings))),
+            // The note's own words the item comes from, so the note can show where each card came from (lane DS4).
+            ("quote", text),
             ("waits_for", waits),
             ("size", choice(sizes)),
             ("for", choice(fors)),

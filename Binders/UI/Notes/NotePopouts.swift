@@ -386,6 +386,7 @@ private struct PopoutNoteView: View {
     var controller: DictationController?
     /// Every note's own window follows the same choice: its Work panel shown or not.
     @AppStorage(NotePopouts.workPanelKey, store: AppDefaults.store) private var workShown = false
+    @AppStorage(DistillNoteMarks.shownKey, store: AppDefaults.store) private var showWork = true
 
     /// From this width, the Work panel goes beside the note, this wide; narrower, in its place.
     static let panelBeside: CGFloat = 560
@@ -404,6 +405,11 @@ private struct PopoutNoteView: View {
         }
         // The team sees who's in a shared note.
         .onAppear { TeamNotes.current?.opened(note.id) }
+        // Note → Put on Board with this window in front and its editor not at the keyboard: the whole note (lane DS6).
+        .onReceive(NotificationCenter.default.publisher(for: NotePutOnBoard.wholeNote)) { notification in
+            guard let controller, notification.userInfo?["note"] as? UUID == note.id, notification.userInfo?["popout"] as? Bool == true else { return }
+            Self.put(note, selection: NSRange(location: 0, length: 0), eachLine: false, controller: controller)
+        }
         .onDisappear { TeamNotes.current?.closed(note.id) }
         .paperSheet(raised: false)
         .overlay(alignment: .top) {
@@ -426,7 +432,8 @@ private struct PopoutNoteView: View {
     /// The note, and for a Distill note its Work bar above it and its Work panel beside it or in its place.
     @ViewBuilder
     private func page(beside: Bool) -> some View {
-        if note.distill, let controller {
+        // Lane DS6: any note with cards on the board, Distill on or not.
+        if let controller, note.distill || hasCards(controller) {
             VStack(spacing: 0) {
                 WorkBar(note: note, panelShown: $workShown, compact: true, panelInPlace: !beside)
                     .padding(.horizontal, 8)
@@ -447,12 +454,28 @@ private struct PopoutNoteView: View {
         }
     }
 
+    /// Whether the note has cards on the board, read with the board's revision so the page follows it (lane DS6).
+    private func hasCards(_ controller: DictationController) -> Bool {
+        _ = controller.distill.boardRevision
+        return DistillBoard.hasCards(note.id)
+    }
+
     /// The editor; for a Distill note, hovering a heading says who last changed its section and the cards made from it.
+    /// Put on Board (lane DS6) puts the words selected in it, or the whole note, and says so.
     private func editor(_ controller: DictationController?) -> some View {
         var tip: ((String) -> String?)?
         if note.distill, let controller { tip = { [note] heading in controller.distill.headingTip(heading, in: note) } }
+        let put: ((NSRange, Bool) -> Void)? = controller.map { controller in
+            { [note] selection, eachLine in Self.put(note, selection: selection, eachLine: eachLine, controller: controller) }
+        }
         return MarkdownNoteEditor(text: $note.text, fontSize: 14, placeholder: "Write, or hold fn to dictate.", inset: NSSize(width: 14, height: 10),
-                                  compactToolbar: true, links: LinkTargets.forNote(note), focused: focused, paper: true, headingTip: tip)
+                                  compactToolbar: true, links: LinkTargets.forNote(note), focused: focused, paper: true, headingTip: tip,
+                                  work: controller.flatMap { DistillNoteMarks.work(for: note, controller: $0, shown: showWork) }, putOnBoard: put)
+    }
+
+    private static func put(_ note: NoteItem, selection: NSRange, eachLine: Bool, controller: DictationController) {
+        guard let put = NotePutOnBoard.put(note, selection: selection, eachLine: eachLine, controller: controller) else { return }
+        controller.flowBar.toast(put.line, symbol: "checkmark.circle")
     }
 }
 

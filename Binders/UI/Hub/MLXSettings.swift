@@ -136,13 +136,19 @@ struct MLXModelSettings: View {
 /// model's under its own section when the language model isn't built in, so it's never on the page twice.
 struct MLXModelSource: View {
     @Environment(AppSettings.self) private var settings
-    @State private var shows = false
+    @State private var shows: Bool
+
+    /// `shows`: open as it's drawn (the window-fit self-test draws its fields).
+    init(shows: Bool = false) {
+        _shows = State(initialValue: shows)
+    }
 
     var body: some View {
         @Bindable var settings = settings
         DisclosureGroup("Where models come from", isExpanded: $shows) {
-            TextField("Download from", text: $settings.mlxEndpoint, prompt: Text("https://huggingface.co"))
-            SecureField("Access token (optional)", text: Binding(get: { settings.mlxToken }, set: { settings.mlxToken = $0 }))
+            StackedField(label: "Download from", text: $settings.mlxEndpoint, prompt: "https://huggingface.co", probe: "field.mlx.endpoint")
+            StackedField(label: "Access token (optional)", text: Binding(get: { settings.mlxToken }, set: { settings.mlxToken = $0 }), secure: true,
+                         probe: "field.mlx.token")
             Text("Hugging Face, or your company's mirror of it. A token is needed for models with a licence to accept, or a mirror that asks for one. A model IT has provided can be used from its folder: Model → Use a Model Folder….")
                 .font(.caption)
                 .foregroundStyle(.secondary)

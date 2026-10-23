@@ -288,7 +288,7 @@ struct AgentEditor: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    TextField("Name on the boards", text: $draft.name, prompt: Text("Claude Code"))
+                    StackedField(label: "Name on the boards", text: $draft.name, prompt: "Claude Code", probe: "field.agent.name")
                 } footer: {
                     Text("Cards meant for it, and what it reports, carry this name. A run Binders starts goes by it; any other agent should have it as BINDERS_AGENT in its MCP configuration, which Binders shows below.")
                 }
@@ -330,11 +330,13 @@ struct AgentEditor: View {
                         LabeledContent("Sends cards to", value: company)
                     } else {
                         // Nil when empty: an agents.json from before reads and saves as it was.
-                        TextField("Sends cards to", text: Binding(get: { draft.vendor ?? "" }, set: { draft.vendor = $0.isEmpty ? nil : $0 }),
-                                  prompt: Text(AgentConsent.vendor(sansVendor) ?? "OpenAI, Anthropic, a server of yours…"))
+                        StackedField(label: "Sends cards to", text: Binding(get: { draft.vendor ?? "" }, set: { draft.vendor = $0.isEmpty ? nil : $0 }),
+                                     prompt: AgentConsent.vendor(sansVendor) ?? "OpenAI, Anthropic, a server of yours…", lines: 1...3,
+                                     probe: "field.agent.vendor")
                     }
-                    TextField("What it's for", text: Binding(get: { draft.purpose ?? "" }, set: { draft.purpose = $0.isEmpty ? nil : $0 }),
-                              prompt: Text(sansVendor.whatItsFor ?? "Personal errands: appointments, email, bookings"))
+                    StackedField(label: "What it's for", text: Binding(get: { draft.purpose ?? "" }, set: { draft.purpose = $0.isEmpty ? nil : $0 }),
+                                 prompt: sansVendor.whatItsFor ?? "Personal errands: appointments, email, bookings", lines: 2...5,
+                                 probe: "field.agent.purpose")
                     LabeledContent("Kinds of work") {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], alignment: .leading, spacing: 6) {
                             ForEach(AgentKinds.presets) { preset in
@@ -345,7 +347,7 @@ struct AgentEditor: View {
                             }
                         }
                     }
-                    TextField("Your own", text: $ownKinds, prompt: Text("Podcast editing, photos…"))
+                    StackedField(label: "Your own kinds of work", text: $ownKinds, prompt: "Podcast editing, photos…", lines: 1...3, probe: "field.agent.ownKinds")
                 } header: {
                     Text("Its work")
                 } footer: {
@@ -585,11 +587,12 @@ struct AgentEditor: View {
     private var reportFields: some View {
         switch report {
         case "ssh":
-            TextField("This Mac, as that machine reaches it", text: $sshHost, prompt: Text(Self.suggestedHost))
+            StackedField(label: "This Mac, as that machine reaches it", text: $sshHost, prompt: Self.suggestedHost, probe: "field.agent.sshHost")
             entryRow(sshEntry)
         case "status":
-            TextField("Status address", text: $statusAddress, prompt: Text("https://…"))
-            SecureField("Status token", text: $statusToken, prompt: Text(AgentRegistry.shared.statusToken(for: draft.id) == nil ? "None" : "Kept in your Keychain"))
+            StackedField(label: "Status address", text: $statusAddress, prompt: "https://…", probe: "field.agent.statusAddress")
+            StackedField(label: "Status token", text: $statusToken, prompt: AgentRegistry.shared.statusToken(for: draft.id) == nil ? "None" : "Kept in your Keychain",
+                         secure: true, probe: "field.agent.statusToken")
         case "manual":
             EmptyView()
         default:
@@ -597,10 +600,14 @@ struct AgentEditor: View {
         }
     }
 
+    /// The entry under its name, from the left, as the fields around it are (lane UI1): beside it, a long entry ran
+    /// right-aligned over two lines.
     private func entryRow(_ entry: String) -> some View {
-        LabeledContent("MCP entry") {
-            HStack(spacing: 6) {
+        StackedRow("MCP entry") {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(entry).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 CopyButton(text: entry)
             }
         }
@@ -666,9 +673,11 @@ struct AgentEditor: View {
             Picker("Permissions", selection: $claude.permissionMode) {
                 ForEach(ClaudeCodeWake.modes, id: \.self) { Text(Self.modeTitle($0)).tag($0) }
             }
-            TextField("Model", text: Binding(get: { claude.model ?? "" }, set: { claude.model = $0.trimmed.isEmpty ? nil : $0.trimmed }), prompt: Text("Its default"))
-            TextField("Most it may spend per run, in US dollars", text: $budget, prompt: Text("No limit"))
-            TextField("Sites its commands may reach", text: $domains, prompt: Text("None: github.com, registry.npmjs.org…"))
+            StackedField(label: "Model", text: Binding(get: { claude.model ?? "" }, set: { claude.model = $0.trimmed.isEmpty ? nil : $0.trimmed }),
+                         prompt: "Its default", probe: "field.agent.model")
+            StackedField(label: "Most it may spend per run, in US dollars", text: $budget, prompt: "No limit", probe: "field.agent.budget")
+            StackedField(label: "Sites its commands may reach", text: $domains, prompt: "None: github.com, registry.npmjs.org…", lines: 1...4,
+                         probe: "field.agent.domains")
             Text("Started by Binders, it runs on its own in \(claude.worksInFolder ? "the folder itself" : "a git worktree made for the card"), with its permission checks on and Binders' tools for that card only. It can't read ~/.ssh, your other keys and sign-ins (gh, npm, cloud tools and the coding tools' own), Binders' data folder or your team folder; Binders denies git push, and its commands reach only the sites you list. It runs under your own Claude Code sign-in. It reports on the card with those tools, and when it stops, what it said last goes on the card. A run that stops before it's finished leaves the card in Blocked, with why.")
                 .font(.caption).foregroundStyle(.secondary)
             // An organization's managed settings for Claude Code on this Mac (lane RF1): what Binders does about them.
@@ -679,9 +688,7 @@ struct AgentEditor: View {
         case _ where cliTool != nil:
             cliFields(cliTool ?? .codex)
         case "command":
-            TextField("Command", text: $command, prompt: Text("~/bin/wake-agent"), axis: .vertical)
-                .font(.body.monospaced())
-                .lineLimit(2...6)
+            StackedField(label: "Command", text: $command, prompt: "~/bin/wake-agent", lines: 2...6, monospaced: true, probe: "field.agent.command")
             LabeledContent("Folder") {
                 HStack {
                     Text(folder.isEmpty ? "Your home folder" : (folder as NSString).abbreviatingWithTildeInPath).foregroundStyle(.secondary).lineLimit(1)
@@ -691,8 +698,9 @@ struct AgentEditor: View {
             Text("The card arrives as JSON on standard input, and as BINDERS_EVENT, BINDERS_CARD, BINDERS_TITLE, BINDERS_BINDER, BINDERS_AGENT and BINDERS_LINK. Nothing from a card is pasted into the command. It runs as you, with whatever you can reach on this Mac, so only use a command you trust.")
                 .font(.caption).foregroundStyle(.secondary)
         case "webhook":
-            TextField("Address", text: $address, prompt: Text("https://…"))
-            SecureField("Token", text: $token, prompt: Text(AgentRegistry.shared.token(for: draft.id) == nil ? "None" : "Kept in your Keychain"))
+            StackedField(label: "Address", text: $address, prompt: "https://…", probe: "field.agent.address")
+            StackedField(label: "Token", text: $token, prompt: AgentRegistry.shared.token(for: draft.id) == nil ? "None" : "Kept in your Keychain", secure: true,
+                         probe: "field.agent.token")
             Text("Binders posts the card (its title, details, links, binder and due date, and your latest answer or comment on it, with any comments it missed) to this address, which sends it off this Mac. A token goes with it as Authorization: Bearer.")
                 .font(.caption).foregroundStyle(.secondary)
         case "shortcut":
@@ -738,8 +746,8 @@ struct AgentEditor: View {
         Picker("Permissions", selection: $cli.permissionMode) {
             ForEach(CLIAgentWake.modes, id: \.self) { Text(Self.modeTitle($0)).tag($0) }
         }
-        TextField("Model", text: Binding(get: { cli.model ?? "" }, set: { cli.model = $0.trimmed.isEmpty ? nil : $0.trimmed }),
-                  prompt: Text(tool.needsModel ? "provider/model, such as anthropic/claude-sonnet-4-5" : "Its default"))
+        StackedField(label: "Model", text: Binding(get: { cli.model ?? "" }, set: { cli.model = $0.trimmed.isEmpty ? nil : $0.trimmed }),
+                     prompt: tool.needsModel ? "provider/model, such as anthropic/claude-sonnet-4-5" : "Its default", probe: "field.agent.cliModel")
         Text(Self.footer(tool)).font(.caption).foregroundStyle(.secondary)
     }
 

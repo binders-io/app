@@ -74,6 +74,9 @@ enum NoteHistory {
             // Written only when it changed: a pause in your typing usually changes nothing in it.
             if due || authorChanges { save(index, for: id) }
             DistillService.shared?.noteChanged(id, by: author)
+        } else if DistillBoard.followsSections(id) {
+            // Lane DS6: cards made with Put on Board from its sections follow them, Distill on or not.
+            DistillService.shared?.noteChanged(id, by: author)
         }
     }
 
@@ -158,7 +161,7 @@ enum NoteHistory {
         sessions[note.id] = nil
         note.updatedAt = Date()
         Store.shared.save()
-        if note.distill { DistillService.shared?.noteChanged(note.id, by: .you) }
+        if note.distill || DistillBoard.followsSections(note.id) { DistillService.shared?.noteChanged(note.id, by: .you) }
     }
 
     // MARK: Who made each version (Distill notes)

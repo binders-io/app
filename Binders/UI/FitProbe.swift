@@ -62,10 +62,10 @@ private struct FitProbeView: NSViewRepresentable {
 
 extension View {
     /// Names this control for the window-fit self-test, which checks that it lies inside the window. Nothing at all outside
-    /// that test.
+    /// that test, nor for an empty name.
     @ViewBuilder
     func fitProbe(_ name: String) -> some View {
-        if FitProbe.isOn {
+        if FitProbe.isOn, !name.isEmpty {
             background(FitProbeView(name: name).allowsHitTesting(false).accessibilityHidden(true))
         } else {
             self

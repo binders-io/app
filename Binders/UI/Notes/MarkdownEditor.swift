@@ -38,6 +38,8 @@ final class MarkdownEditorModel {
 /// the same link twice goes there twice.
 struct EditorReveal: Equatable {
     let place: String
+    /// Words to go to and flash in the place's section (a card's quote, lane DS4); when they can't be found, the place.
+    var quote: String? = nil
     let id = UUID()
 }
 
@@ -71,6 +73,11 @@ struct MarkdownNoteEditor: View {
     var paper = false
     /// What hovering a "## " heading shows (a Distill note's: who last changed its section, and its cards); nil for none.
     var headingTip: ((String) -> String?)? = nil
+    /// A Distill note's cards, marked at the words they came from (lane DS4); nil for none.
+    var work: NoteWork? = nil
+    /// Put on Board from the note (lane DS6): the selection, one card or one per line, or the whole note for none; nil
+    /// where the editor isn't a note's.
+    var putOnBoard: ((_ selection: NSRange, _ eachLine: Bool) -> Void)? = nil
     @State private var model = MarkdownEditorModel()
     /// Every note editor follows the same choice.
     @AppStorage("notesShowMarkdown", store: AppDefaults.store) private var showsMarkup = false
@@ -83,7 +90,8 @@ struct MarkdownNoteEditor: View {
                             accessories: accessories)
             Divider().opacity(0.5)
             MarkdownEditor(text: $text, model: model, fontSize: (fontSize * (zoom == 0 ? 1 : zoom)).rounded(), placeholder: placeholder, inset: inset,
-                           showsMarkup: showsMarkup, links: links, focused: focused, reveal: reveal, paper: paper, headingTip: headingTip)
+                           showsMarkup: showsMarkup, links: links, focused: focused, reveal: reveal, paper: paper, headingTip: headingTip,
+                           work: work, putOnBoard: putOnBoard)
         }
     }
 }
@@ -247,6 +255,8 @@ struct MarkdownEditor: NSViewRepresentable {
     /// On the note page: its words, which follow the appearance as the page does.
     var paper = false
     var headingTip: ((String) -> String?)? = nil
+    var work: NoteWork? = nil
+    var putOnBoard: ((NSRange, Bool) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -295,6 +305,8 @@ struct MarkdownEditor: NSViewRepresentable {
         storage.delegate = textView
         textView.string = text
         textView.settledTitle = MarkdownSyntax.noteTitle(text)
+        textView.workState.work = work
+        textView.putOnBoard = putOnBoard
         textView.restyle()
         model.textView = textView
         context.coordinator.textView = textView
@@ -302,7 +314,7 @@ struct MarkdownEditor: NSViewRepresentable {
         if focused { Self.focus(textView) }
         if let reveal {
             context.coordinator.revealed = reveal.id
-            Self.go(textView, to: reveal.place)
+            Self.go(textView, to: reveal)
         }
 
         let scroll = NSScrollView()
@@ -321,9 +333,11 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.styler.linkExists = links?.exists
         textView.styler.headingTip = headingTip
         textView.showsMarkup = showsMarkup
+        textView.setWork(work)
+        textView.putOnBoard = putOnBoard
         if let reveal, reveal.id != context.coordinator.revealed {
             context.coordinator.revealed = reveal.id
-            Self.go(textView, to: reveal.place)
+            Self.go(textView, to: reveal)
         }
         // Zoomed, or on another binder's pages (or its colour changed): everything restyled, at the new size, with the
         // links in the binder's colour.
@@ -368,15 +382,15 @@ struct MarkdownEditor: NSViewRepresentable {
         }
     }
 
-    /// Goes to a heading or block once the editor is in its window and laid out.
-    private static func go(_ textView: MarkdownTextView, to place: String, tries: Int = 20) {
+    /// Goes to a heading or block (or a card's words in it) once the editor is in its window and laid out.
+    private static func go(_ textView: MarkdownTextView, to reveal: EditorReveal, tries: Int = 20) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
             guard let textView else { return }
             guard textView.window != nil else {
-                if tries > 0 { go(textView, to: place, tries: tries - 1) }
+                if tries > 0 { go(textView, to: reveal, tries: tries - 1) }
                 return
             }
-            textView.reveal(place)
+            if let quote = reveal.quote { textView.reveal(quote: quote, in: reveal.place) } else { textView.reveal(reveal.place) }
         }
     }
 
@@ -504,7 +518,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
 // MARK: - Styling
 
-private extension NSAttributedString.Key {
+extension NSAttributedString.Key {
     static let markdownCodeBlock = NSAttributedString.Key("io.binders.markdown.codeBlock")
     static let markdownQuote = NSAttributedString.Key("io.binders.markdown.quote")
     static let markdownTask = NSAttributedString.Key("io.binders.markdown.task")
@@ -862,7 +876,9 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        embedMenu(for: event) ?? super.menu(for: event)
+        if let embed = embedMenu(for: event) { return embed }
+        // Lane DS6: with words selected, Put on Board first.
+        return withPutOnBoard(super.menu(for: event))
     }
 
     // The Edit menu's Undo and Redo would go on to the window's; while the editor has focus, they're its own.
@@ -886,6 +902,10 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     }
 
     var styler = MarkdownStyler(fontSize: 15)
+    /// A Distill note's cards, where they show in it (lane DS4, MarkdownEditorWork.swift).
+    let workState = EditorWork()
+    /// Put on Board from the note this editor shows (lane DS6, NotePutOnBoard.swift); nil where it isn't a note's.
+    var putOnBoard: ((NSRange, Bool) -> Void)?
     var placeholder = ""
     /// Where [[links]] go, and what to suggest after "[[".
     var links: NoteLinks?
@@ -905,7 +925,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     }
 
     /// The paragraphs that show their markup: the ones the cursor or selection is in, while the editor has focus.
-    private var revealed = NSRange(location: NSNotFound, length: 0)
+    private(set) var revealed = NSRange(location: NSNotFound, length: 0)
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
@@ -942,6 +962,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         guard next != revealed else { return }
         let previous = revealed
         revealed = next
+        // A line being edited shows no work chip, as it shows its markup: the chip would sit where you type.
+        workRevealChanged(from: previous, to: next)
         for range in [previous, next] where range.location != NSNotFound { relayout(range) }
     }
 
@@ -1028,8 +1050,25 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         fences = MarkdownSyntax.fenceCount(in: storage.string)
         storage.beginEditing()
         styler.apply(MarkdownSyntax.spans(in: storage.string), to: storage, in: NSRange(location: 0, length: storage.length), concealed: !showsMarkup)
+        placeWork(restyling: false)
+        applyWork(in: NSRange(location: 0, length: storage.length))
         storage.endEditing()
         needsDisplay = true
+    }
+
+    /// Restyles the paragraphs `range` touches, as typing there would: a table's whole block, and a Distill note's work
+    /// marks on top.
+    func restyle(paragraphs range: NSRange) {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        let text = storage.string
+        let string = text as NSString
+        let start = min(range.location, string.length)
+        var dirty = string.paragraphRange(for: NSRange(location: start, length: min(range.length, string.length - start)))
+        for probe in [dirty.location - 1, dirty.location, NSMaxRange(dirty)] where probe >= 0 && probe < string.length {
+            if let block = MarkdownTables.block(around: probe, in: string) { dirty = NSUnionRange(dirty, block) }
+        }
+        styler.apply(MarkdownSyntax.spans(in: text, lines: dirty), to: storage, in: dirty, concealed: !showsMarkup)
+        applyWork(in: dirty)
     }
 
     // Typing restyles the paragraphs it touched; adding or removing a code fence restyles everything after it too.
@@ -1061,6 +1100,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 if let block = MarkdownTables.block(around: probe, in: string) { dirty = NSUnionRange(dirty, block) }
             }
             styler.apply(MarkdownSyntax.spans(in: text, lines: dirty), to: storage, in: dirty, concealed: !showsMarkup)
+            // A Distill note's marks move with the text; those the edit touched are found again once typing pauses.
+            workEdited(editedRange, delta: delta, dirty: dirty)
         }
     }
 
@@ -1260,6 +1301,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if clickedWorkChip(at: point) { return }
         if clickedEmbed(event, at: point) { return }
         // A [[link]] opens on a click, unless its line is being edited; ⌘-click opens it anyway. One to a heading in this
         // note ([[#Risks]]) goes there.
@@ -1411,6 +1453,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + rect.midY, width: width, height: 1).fill()
             }
         }
+        drawWorkTints(in: characters, at: origin)
         drawTables(in: characters, at: origin)
         drawEmbeds(in: characters, at: origin)
     }
@@ -1458,5 +1501,6 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 .withSymbolConfiguration(configuration)?
                 .draw(in: box)
         }
+        drawWorkChips(in: characters, at: origin)
     }
 }

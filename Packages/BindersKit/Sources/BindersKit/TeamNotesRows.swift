@@ -358,6 +358,7 @@ public enum TeamDistillRows {
             if let hash = item.sectionHash { itemExtra["section_hash"] = .string(hash) }
             if let how = item.meantForHow { itemExtra["meant_for_how"] = .string(how) }
             if let hint = item.hint { itemExtra["hint"] = .string(hint.rawValue) }
+            if let quote = item.quote { itemExtra["quote"] = .string(quote) }
             return ["id": TeamJSON(item.id), "binder_id": TeamJSON(binder), "distill_id": TeamJSON(record.id), "position": .number(Double(index)),
                     "title": .string(item.title), "brief": .string(item.brief), "done_when": .string(item.doneWhen),
                     "section": TeamJSON(item.section), "waits_for": TeamJSON(item.waitsFor), "size": TeamJSON(item.size?.rawValue),
@@ -384,7 +385,7 @@ public enum TeamDistillRows {
             let itemExtra = row["extra"]?.object ?? [:]
             return DistillItem(id: itemID, title: title, brief: row["brief"]?.string ?? "", doneWhen: row["done_when"]?.string ?? "",
                                section: row["section"]?.string, sectionHash: itemExtra["section_hash"]?.string,
-                               waitsFor: row["waits_for"]?.array?.compactMap(\.uuid) ?? [],
+                               quote: itemExtra["quote"]?.string, waitsFor: row["waits_for"]?.array?.compactMap(\.uuid) ?? [],
                                size: row["size"]?.string.flatMap(DistillItem.Size.init(rawValue:)),
                                meantFor: row["meant_for"]?.string.map(localName), meantForHow: itemExtra["meant_for_how"]?.string,
                                hint: itemExtra["hint"]?.string.flatMap(DistillItem.Hint.init(rawValue:)), card: row["card_id"]?.uuid,

@@ -71,8 +71,9 @@ final class DistillService {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard let self else { return }
-            for note in DistillBoard.notes(in: nil) {
-                self.checkSections(of: note, by: NoteHistory.index(of: note.id, note: note).current?.by ?? .you)
+            // Lane DS6: notes with cards made with Put on Board from their sections too, Distill on or not.
+            for note in DistillBoard.workNotes(in: nil) where note.distill || DistillBoard.followsSections(note.id) {
+                self.checkSections(of: note, by: note.distill ? NoteHistory.index(of: note.id, note: note).current?.by ?? .you : .you)
             }
         }
     }

@@ -58,19 +58,22 @@ struct RouterStatusSection: View {
                     }
                 }
             }
-            HStack(alignment: .firstTextBaseline) {
+            // The words across the row, the buttons under them (lane UI1): beside them, the words ran down a narrow column.
+            VStack(alignment: .leading, spacing: 8) {
                 Text("A record of how Binders sorted each card stays on this Mac for 90 days, without your words or the names of your binders and agents, for tuning: \(decisions == 1 ? "1 decision" : "\(decisions) decisions").")
                     .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Button("Show in Finder") {
-                    let url = RouterLogFile.shared.url
-                    if FileManager.default.fileExists(atPath: url.path) {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    } else {
-                        NSWorkspace.shared.open(url.deletingLastPathComponent())
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Show in Finder") {
+                        let url = RouterLogFile.shared.url
+                        if FileManager.default.fileExists(atPath: url.path) {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        } else {
+                            NSWorkspace.shared.open(url.deletingLastPathComponent())
+                        }
                     }
+                    Button("Clear…") { confirmClear = true }.disabled(decisions == 0)
                 }
-                Button("Clear…") { confirmClear = true }.disabled(decisions == 0)
             }
         } header: {
             Text("Sorting new cards")

@@ -256,9 +256,20 @@ public enum TeamRefusalLine {
 
 extension DistilledFrom {
     /// The part the whole team shares, as the database keeps it (`cards.distilled`): the note, the distill and item, the
-    /// section and its hash, the version read, a "Distill with…" request, when its brief was brought up to date and when it
-    /// was closed. What this Mac noticed about it (`noticedHash`, `held`, `change`, `seenText`) stays here.
+    /// section and its hash, the note's words it came from, the version read, a "Distill with…" request, when its brief was
+    /// brought up to date and when it was closed. What this Mac noticed about it (`noticedHash`, `held`, `change`, `seenText`) stays here.
     public var teamJSON: TeamJSON {
+        // Put in the note's group by hand (lane DS5): the note alone, so a Mac before reads no Distill part on it.
+        if byHand == true { return .object(["note": TeamJSON(note), "by_hand": true]) }
+        // Made with Put on Board (lane DS6): as one put in by hand, for a Mac before, with the words and section it came
+        // from, which this build reads.
+        if put == true {
+            var object: [String: TeamJSON] = ["note": TeamJSON(note), "by_hand": true, "put": true]
+            if let section { object["section"] = .string(section) }
+            if let sectionHash { object["section_hash"] = .string(sectionHash) }
+            if let quote, !quote.isEmpty { object["quote"] = .string(quote) }
+            return .object(object)
+        }
         var object: [String: TeamJSON] = ["note": TeamJSON(note), "distill": TeamJSON(distill), "item": TeamJSON(item)]
         if let section { object["section"] = .string(section) }
         if let sectionHash { object["section_hash"] = .string(sectionHash) }
@@ -266,19 +277,35 @@ extension DistilledFrom {
         if request == true { object["request"] = true }
         if let briefUpdated { object["brief_updated"] = TeamJSON(briefUpdated) }
         if let closed { object["closed"] = TeamJSON(closed) }
+        // The note's words it came from (lane DS4), so a teammate's note marks it there too. A Mac before ignores it.
+        if let quote, !quote.isEmpty { object["quote"] = .string(quote) }
         return .object(object)
     }
 
     /// From the team's part, keeping what this Mac noticed (`local`) when it's about the same item. Nil when there's no
     /// team part, or it isn't one.
     public init?(team: TeamJSON?, keeping local: DistilledFrom? = nil) {
-        guard let object = team?.object, let note = object["note"]?.uuid, let distill = object["distill"]?.uuid,
-              let item = object["item"]?.uuid else { return nil }
+        guard let object = team?.object, let note = object["note"]?.uuid else { return nil }
+        // Put in the note's group by hand (lane DS5): the note, and nothing of Distill.
+        if object["by_hand"]?.bool == true {
+            if object["put"]?.bool == true {
+                // Made with Put on Board (lane DS6): what this Mac noticed of its section stays, when it's the same note's.
+                let same = local.map { $0.note == note && $0.put == true } ?? false
+                self.init(note: note, distill: note, item: note, section: object["section"]?.string, sectionHash: object["section_hash"]?.string,
+                          noticedHash: same ? local?.noticedHash : nil, held: same ? local?.held : nil, change: same ? local?.change : nil,
+                          seenText: same ? local?.seenText : nil, quote: object["quote"]?.string, put: true)
+                return
+            }
+            self = .byHand(note: note)
+            return
+        }
+        guard let distill = object["distill"]?.uuid, let item = object["item"]?.uuid else { return nil }
         let same = local.map { $0.note == note && $0.item == item } ?? false
         self.init(note: note, distill: distill, item: item, section: object["section"]?.string, sectionHash: object["section_hash"]?.string,
                   version: object["version"]?.string, noticedHash: same ? local?.noticedHash : nil, held: same ? local?.held : nil,
                   request: object["request"]?.bool == true ? true : nil, change: same ? local?.change : nil,
-                  briefUpdated: object["brief_updated"]?.date, closed: object["closed"]?.date, seenText: same ? local?.seenText : nil)
+                  briefUpdated: object["brief_updated"]?.date, closed: object["closed"]?.date, seenText: same ? local?.seenText : nil,
+                  quote: object["quote"]?.string)
     }
 }
 

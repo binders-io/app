@@ -459,8 +459,14 @@ struct NotesView: View {
         }
         if navigation.pendingNoteIsNew { focusID = pending }
         navigation.pendingNoteIsNew = false
-        reveal = navigation.pendingNotePlace.map { (pending, EditorReveal(place: $0)) }
+        // A card's words in it, from the card (lane DS4), or a heading or block.
+        if navigation.pendingNotePlace != nil || navigation.pendingNoteQuote != nil {
+            reveal = (pending, EditorReveal(place: navigation.pendingNotePlace ?? "", quote: navigation.pendingNoteQuote))
+        } else {
+            reveal = nil
+        }
         navigation.pendingNotePlace = nil
+        navigation.pendingNoteQuote = nil
         selection = [pending]
         navigation.pendingNoteID = nil
     }
@@ -597,12 +603,9 @@ struct NotesView: View {
                         Button("Open in Its Own Window") { NotePopouts.shared.open(note) }
                         Button("Fold into a Bubble") { NotePopouts.shared.open(note, collapsed: true) }
                         Button("Put on Board") {
-                            guard Store.shared.allowsSave() else { return }
-                            MarkdownEditor.flushAll()
-                            let card = controller.board.create(from: note, by: .you)
-                            controller.router.suggestLater(for: card, origin: .toBoard)
-                            let name = Store.shared.binder(card.binderID)?.name
-                            controller.flowBar.toast(name.map { "Added to the \($0) board" } ?? "Added to the board", symbol: "checkmark.circle")
+                            // Lane DS6: the note's card, which its Work bar and marks follow.
+                            guard let put = NotePutOnBoard.put(note, controller: controller) else { return }
+                            controller.flowBar.toast(put.line, symbol: "checkmark.circle")
                         }
                         if let noteBinder = note.binderID {
                             Menu("Move to") {
@@ -918,10 +921,12 @@ struct NoteEditor: View {
     @State private var digestCopied = false
     /// "Updated 3 links in 2 notes", for a moment after a new title.
     @State private var renameNotice: String?
-    /// Put on Board: the card it made, and where, for a few seconds.
-    @State private var boardNotice: (card: TaskCard, line: String)?
+    /// Put on Board: the cards it made, and where, for a few seconds.
+    @State private var boardNotice: (cards: [TaskCard], line: String)?
     /// For a Distill note, what the column beside it shows: its Work, or the digest and properties.
     @AppStorage("notesSidePanel", store: AppDefaults.store) private var sidePanel = "work"
+    /// For a Distill note: its cards marked at the words they came from (lane DS4), as the Work bar's switch says.
+    @AppStorage(DistillNoteMarks.shownKey, store: AppDefaults.store) private var showWork = true
     @State private var noteToStop: NoteItem?
 
     private var digesting: Bool { knowledge.digestingNoteIDs.contains(note.id) }
@@ -975,8 +980,8 @@ struct NoteEditor: View {
                         .padding(.top, note.isTeamCopy ? 4 : 16)
                         .accessibilityLabel(here)
                 }
-                if note.distill {
-                    // Lane DS1: how the work distilled from it is going, under its title.
+                if note.distill || DistillBoard.hasCards(note.id) {
+                    // Lane DS1: how the work distilled from it is going, under its title. Lane DS6: any note with cards.
                     WorkBar(note: note, panelShown: Binding(get: { digestVisible && sidePanel == "work" && column != nil }, set: { shown in
                         sidePanel = shown ? "work" : "digest"
                         if shown { digestVisible = true }
@@ -989,7 +994,9 @@ struct NoteEditor: View {
                     MarkdownNoteEditor(text: $note.text, fontSize: 15, placeholder: "Write, or hold fn to dictate.",
                                        links: LinkTargets.forNote(note) { renamed($0) }, focused: focused, reveal: reveal,
                                        accessories: AnyView(NoteToolbarButtons(note: note, digestVisible: $digestVisible, room: column != nil)),
-                                       paper: true, headingTip: note.distill ? { [controller, note] heading in controller.distill.headingTip(heading, in: note) } : nil)
+                                       paper: true, headingTip: note.distill ? { [controller, note] heading in controller.distill.headingTip(heading, in: note) } : nil,
+                                       work: DistillNoteMarks.work(for: note, controller: controller, shown: showWork),
+                                       putOnBoard: { selection, eachLine in putOnBoard(selection: selection, eachLine: eachLine) })
                         .paperSheet()
                         .padding([.leading, .vertical], 14)
                         .padding(.trailing, 4)
@@ -1014,7 +1021,8 @@ struct NoteEditor: View {
         .sheet(isPresented: $showingHistory) { NoteHistorySheet(note: note, changesFrom: historyFrom) }
         // Leaving a Distill note: the sections your typing changed are looked at now, for the cards made from them.
         .onDisappear {
-            if note.distill { controller.distill.settleNow(note.id) }
+            // Lane DS6: cards made with Put on Board follow sections of notes without Distill too; nothing waits otherwise.
+            controller.distill.settleNow(note.id)
             // Leaving the note ends your editing session in it: what it made is kept as a version.
             NoteHistory.endSession(note.id)
             controller.teamBoard.notes.closed(note.id)
@@ -1022,7 +1030,12 @@ struct NoteEditor: View {
         // The team sees who's in a shared note (lane DB3).
         .onAppear {
             controller.teamBoard.notes.opened(note.id)
-            if let notice = Self.noticeOnOpen, notice.note == note.id { boardNotice = (notice.card, notice.line) }
+            if let notice = Self.noticeOnOpen, notice.note == note.id { boardNotice = ([notice.card], notice.line) }
+        }
+        // Note → Put on Board with no editor of this note at the keyboard: the whole note (lane DS6).
+        .onReceive(NotificationCenter.default.publisher(for: NotePutOnBoard.wholeNote)) { notification in
+            guard notification.userInfo?["note"] as? UUID == note.id, notification.userInfo?["popout"] as? Bool != true else { return }
+            putOnBoard()
         }
         .confirmationDialog("Delete this note for everyone on the team?", isPresented: $confirmDelete) {
             Button("Delete for Everyone", role: .destructive, action: delete)
@@ -1082,15 +1095,15 @@ struct NoteEditor: View {
                 .accessibilityLabel(boardNotice.line)
                 .transition(.opacity)
                 .fitProbe("note.notice")
-                Button("Open") { HubWindowController.shared.navigation.open(card: boardNotice.card) }
+                Button("Open") { NotePutOnBoard.open(boardNotice.cards) }
                     .controlSize(.small)
                     .fixedSize()
-                    .help("Open the card on its board")
+                    .help(boardNotice.cards.count == 1 ? "Open the card on its board" : "Open the board with these cards chosen")
             }
             // The buttons keep their size: where the note is and a passing notice share what's left, truncating.
             Group {
                 Button { putOnBoard() } label: { face("Put on Board", symbol: "rectangle.split.3x1", words: words) }
-                    .help("A card on this binder's board with the note's title, its first lines and a link back to the note")
+                    .help("A card on this binder's board with the note's title, its first lines and a link back to the note. To put only some of it, select those words and Control-click them.")
                     .accessibilityLabel("Put on Board")
                 Menu {
                     DistillToggleItems(note: note) { noteToStop = $0 }
@@ -1195,16 +1208,14 @@ struct NoteEditor: View {
         }
     }
 
-    /// Put on Board: a card in the note's binder, and a word that says where, with Open, for a few seconds.
-    private func putOnBoard() {
-        guard Store.shared.allowsSave() else { return }
-        MarkdownEditor.flushAll()
-        let card = controller.board.create(from: note, by: .you)
-        controller.router.suggestLater(for: card, origin: .toBoard)
-        let line = Store.shared.binder(card.binderID).map { "Added to the \($0.name) board" } ?? "Added to the board"
-        withAnimation { boardNotice = (card, line) }
+    /// Put on Board: a card in the note's binder (lane DS6: for the words selected in it, one, or one per line), and a word
+    /// that says where, with Open, for a few seconds.
+    private func putOnBoard(selection: NSRange = NSRange(location: 0, length: 0), eachLine: Bool = false) {
+        guard let put = NotePutOnBoard.put(note, selection: selection, eachLine: eachLine, controller: controller) else { return }
+        let first = put.cards[0].id
+        withAnimation { boardNotice = (put.cards, put.line) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-            if boardNotice?.card.id == card.id { withAnimation { boardNotice = nil } }
+            if boardNotice?.cards.first?.id == first { withAnimation { boardNotice = nil } }
         }
     }
 
@@ -1219,10 +1230,11 @@ struct NoteEditor: View {
         }
     }
 
-    /// Beside the note: for a Distill note, its Work or its digest and properties; for any other, the digest and properties.
+    /// Beside the note: for a Distill note, or one with cards (lane DS6), its Work or its digest and properties; for any
+    /// other, the digest and properties.
     @ViewBuilder
     private var digestColumn: some View {
-        if note.distill {
+        if note.distill || DistillBoard.hasCards(note.id) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("Beside the note", selection: $sidePanel) {
                     Text("Work").tag("work")

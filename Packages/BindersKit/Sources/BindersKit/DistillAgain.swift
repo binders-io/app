@@ -72,7 +72,7 @@ public enum DistillAgain {
                 if state == .changed, let card = same.card, !same.finished, !matched.contains(same.item) {
                     matched.insert(same.item)
                     updates.append(DistillUpdate(kind: .brief, card: card, item: same.item, section: item.section, sectionHash: section?.hash,
-                                                 brief: item.brief, doneWhen: item.doneWhen))
+                                                 brief: item.brief, doneWhen: item.doneWhen, quote: item.quote))
                 }
                 leftOut += 1
                 continue
@@ -89,7 +89,7 @@ public enum DistillAgain {
                    let card = best.card {
                     matched.insert(best.item)
                     updates.append(DistillUpdate(kind: .brief, card: card, item: best.item, section: item.section, sectionHash: section?.hash,
-                                                 brief: item.brief, doneWhen: item.doneWhen))
+                                                 brief: item.brief, doneWhen: item.doneWhen, quote: item.quote))
                 } else {
                     keep.append(item)
                 }

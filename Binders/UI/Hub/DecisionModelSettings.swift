@@ -961,7 +961,7 @@ private struct DecisionMeasureRow: View {
 
 /// Use a Decision Server on This Mac…: an address on this Mac, checked as it's typed (LoopbackRule), with Use only once it
 /// passes. A sheet, as an alert can't say why an address is refused.
-private struct DecisionServerSheet: View {
+struct DecisionServerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var address: String
     let onUse: (String) -> Void
@@ -976,7 +976,7 @@ private struct DecisionServerSheet: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    TextField(DecisionModelText.serverField, text: $address, prompt: Text(DecisionModelText.serverPrompt))
+                    StackedField(label: DecisionModelText.serverField, text: $address, prompt: DecisionModelText.serverPrompt, probe: "field.decision.server")
                     if case .failure(let refusal) = checked, !address.trimmed.isEmpty {
                         StatusLabel(refusal.words, .problem).font(.caption)
                     }

@@ -229,6 +229,8 @@ extension SelfTest {
             run.check(!holds(compact.replacingOccurrences(of: "\"medium\"", with: "\"huge\""), schema: schema), "a size that isn't small, medium or large is refused")
             run.check(!holds("Here are the items: " + compact, schema: schema), "prose before the JSON is refused")
             run.check(!holds(#"{"items": [{"title": "A"}]}"#, schema: schema), "an item missing its fields is refused")
+            run.check(!holds(compact.replacingOccurrences(of: #""quote": "Ship behind a flag to 10% of visitors", "#, with: ""), schema: schema),
+                      "an item without the note's words (quote, lane DS4) is refused")
             run.check(holds(#"{"items": []}"#, schema: schema), "an empty list is allowed")
             run.check(!holds(compact.replacingOccurrences(of: "\"waits_for\": [2]", with: "\"waits_for\": [26]"), schema: schema), "a wait past the 25th item is refused")
             let inParts = compact.replacingOccurrences(of: "\"waits_for\": [2]", with: "\"waits_for\": [2, \"Show a live order summary\"]")
@@ -236,9 +238,9 @@ extension SelfTest {
             run.check(!holds(inParts, schema: schema), "read whole, it isn't")
             run.check(holds(compact, schema: DistillSchema.json(headings: headings, bounded: false)), "the portable form compiles too")
             let odd = ["Say \"hello\"", #"C:\temp"#, "Ünïcödé"]
-            let oddReply = #"{"items": [{"title": "A", "brief": "", "done_when": "", "section": "C:\\temp", "waits_for": [], "size": "small", "for": "agent"}]}"#
+            let oddReply = #"{"items": [{"title": "A", "brief": "", "done_when": "", "section": "C:\\temp", "quote": "", "waits_for": [], "size": "small", "for": "agent"}]}"#
             run.check(holds(oddReply, schema: DistillSchema.json(headings: odd)), "a heading with quotes and backslashes is matched as written")
-            run.check(holds(#"{"items": [{"title": "A", "brief": "", "done_when": "", "section": "", "waits_for": [], "size": "small", "for": "person"}]}"#,
+            run.check(holds(#"{"items": [{"title": "A", "brief": "", "done_when": "", "section": "", "quote": "", "waits_for": [], "size": "small", "for": "person"}]}"#,
                             schema: DistillSchema.json(headings: [])), "a note with no headings: every item in the opening")
         } catch {
             run.check(false, "xgrammar reads a small vocabulary: \(error)")
@@ -414,9 +416,9 @@ extension DistillBench {
     /// A held reply for the checkout spec, as the schema has it: an object whose items have every field.
     static let schemaReply = """
         {"items": [
-        {"title": "Combine checkout into one page", "brief": "Address, delivery and card together.", "done_when": "Checkout is one page.", "section": "Payment form", "waits_for": [], "size": "medium", "for": "agent"},
-        {"title": "Ship behind a flag to 10% of visitors", "brief": "Once the form is done.", "done_when": "10% see it.", "section": "Rollout", "waits_for": [1], "size": "small", "for": "agent"},
-        {"title": "Decide on 100%", "brief": "Compare abandonment, then decide.", "done_when": "Decided.", "section": "Rollout", "waits_for": [2], "size": "small", "for": "person"}
+        {"title": "Combine checkout into one page", "brief": "Address, delivery and card together.", "done_when": "Checkout is one page.", "section": "Payment form", "quote": "Put address, delivery and card on one page", "waits_for": [], "size": "medium", "for": "agent"},
+        {"title": "Ship behind a flag to 10% of visitors", "brief": "Once the form is done.", "done_when": "10% see it.", "section": "Rollout", "quote": "Ship behind a flag to 10% of visitors", "waits_for": [1], "size": "small", "for": "agent"},
+        {"title": "Decide on 100%", "brief": "Compare abandonment, then decide.", "done_when": "Decided.", "section": "Rollout", "quote": "decide on 100%", "waits_for": [2], "size": "small", "for": "person"}
         ]}
         """
 }

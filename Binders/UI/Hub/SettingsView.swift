@@ -616,7 +616,7 @@ private struct AISettings: View {
                 ForEach(LLMProviderKind.available) { Text($0.displayName).tag($0) }
             }
             if settings.llmProvider == .ollama {
-                TextField("Ollama URL", text: $settings.ollamaURL)
+                StackedField(label: "Ollama URL", text: $settings.ollamaURL, probe: "field.ai.ollamaURL")
                 modelPicker(selection: $settings.ollamaModel)
                 modelAdvice
                 Picker("Free the model's memory", selection: $settings.modelIdleMinutes) {
@@ -663,9 +663,9 @@ private struct AISettings: View {
                     .disabled(residency == nil || unloading)
                 }
             } else {
-                TextField("Base URL", text: $settings.openAIBaseURL)
+                StackedField(label: "Base URL", text: $settings.openAIBaseURL, probe: "field.ai.baseURL")
                 modelPicker(selection: $settings.openAIModel)
-                SecureField("API key (optional)", text: Binding(get: { settings.openAIKey }, set: { settings.openAIKey = $0 }))
+                StackedField(label: "API key (optional)", text: Binding(get: { settings.openAIKey }, set: { settings.openAIKey = $0 }), secure: true, probe: "field.ai.apiKey")
             }
             HStack {
                 Button(testing ? "Testing…" : "Test formatting") { Task { await runTest() } }
@@ -1012,8 +1012,7 @@ private struct KnowledgeSettings: View {
                     }
                 }
             } else {
-                HStack {
-                    TextField("Embedding model", text: $settings.embeddingModel)
+                StackedField(label: "Embedding model", text: $settings.embeddingModel, probe: "field.knowledge.embeddingModel") {
                     Button(knowledge.pullProgress == nil ? "Download" : "Downloading…") {
                         Task { await knowledge.pullEmbeddingModel() }
                     }
@@ -1094,11 +1093,10 @@ private struct WritingCaptureSettings: View {
                 .help("Pick from the apps open now, or any app in Applications")
             Toggle("Capture on any site (login, payment and banking pages are always skipped)", isOn: $settings.captureAllSites)
             if !settings.captureAllSites {
-                TextField("Listed sites", text: Binding(
+                StackedField(label: "Listed sites", text: Binding(
                     get: { settings.captureHosts.joined(separator: ", ") },
                     set: { settings.captureHosts = $0.components(separatedBy: CharacterSet(charactersIn: ", ")).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty } }),
-                          axis: .vertical)
-                    .lineLimit(1...4)
+                             lines: 1...4, probe: "field.writing.sites")
             }
         } header: {
             SettingsHeading(part: .writing, group: "Where")
@@ -1165,7 +1163,7 @@ private struct TeamSettings: View {
         // How this Mac shares, read with the default so the page follows it (lane DB7).
         let way = teamDatabaseOn ? TeamDatabaseFeature.way(hasFolder: team.folderURL != nil) : .folderOnly
         Section {
-            TextField("Your name", text: $settings.teamMemberName, prompt: Text(NSFullUserName()))
+            StackedField(label: "Your name", text: $settings.teamMemberName, prompt: NSFullUserName(), probe: "field.team.name")
             // An invite opened on this Mac (a link, or a file from Finder): it asks before it joins, and while team
             // databases are off, whether to turn them on (lane DB7). A Mac on a team database has its team.
             if way != .database, let invite = controller.teamBoard.pendingInvite {
@@ -1336,13 +1334,17 @@ private struct PrivacySettings: View {
         Section {
             Toggle("Keep audio for re-transcription", isOn: $settings.saveAudio)
             Stepper("Delete audio after \(settings.audioRetentionDays) days", value: $settings.audioRetentionDays, in: 1...90)
-            HStack {
-                Button("Open data folder") { NSWorkspace.shared.open(AppPaths.support) }
-                Button("Acknowledgements") {
-                    if let url = Bundle.main.url(forResource: "Acknowledgements", withExtension: "txt") { NSWorkspace.shared.open(url) }
+            // On one line when they fit, the delete on its own line under the others when the window is narrow (lane UI1).
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    dataButtons
+                    Spacer()
+                    deleteButton
                 }
-                Spacer()
-                Button("Delete all history", role: .destructive) { confirmDelete = true }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack { dataButtons }
+                    deleteButton
+                }
             }
         } header: {
             SettingsHeading(part: .privacy, group: "Your data")
@@ -1366,6 +1368,18 @@ private struct PrivacySettings: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in permissionsRevision += 1 }
+    }
+
+    @ViewBuilder
+    private var dataButtons: some View {
+        Button("Open data folder") { NSWorkspace.shared.open(AppPaths.support) }
+        Button("Acknowledgements") {
+            if let url = Bundle.main.url(forResource: "Acknowledgements", withExtension: "txt") { NSWorkspace.shared.open(url) }
+        }
+    }
+
+    private var deleteButton: some View {
+        Button("Delete all history", role: .destructive) { confirmDelete = true }
     }
 
     private func permissionStatus(_ granted: Bool, open: @escaping () -> Void) -> some View {
@@ -1422,7 +1436,7 @@ private struct AutomationsSettings: View {
 
         Section {
             ForEach(Self.links, id: \.1) { title, link in
-                LabeledContent(title) {
+                StackedRow(title) {
                     HStack(spacing: 6) {
                         Text(link).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         copyButton(link)
@@ -1624,13 +1638,12 @@ private struct PhoneSettings: View {
                 .accessibilityElement(children: .combine)
             }
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    TextField("Add a name or address", text: $newAddress, prompt: Text("such as studio-mac.example.net"))
-                        .onSubmit { add(link) }
-                        .onChange(of: newAddress) { addProblem = nil }
+                StackedField(label: "Add a name or address", text: $newAddress, prompt: "such as studio-mac.example.net", probe: "field.phone.address") {
                     Button("Add") { add(link) }
                         .disabled(newAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+                .onSubmit { add(link) }
+                .onChange(of: newAddress) { addProblem = nil }
                 if let addProblem {
                     StatusLabel(addProblem, .problem).font(.caption)
                 }
@@ -1723,20 +1736,20 @@ private struct MCPSettings: View {
 
     var body: some View {
         Section {
-            LabeledContent("Command") {
+            StackedRow("Command") {
                 HStack(spacing: 6) {
                     Text("\(executable) --mcp").font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     CopyButton(text: "\(executable) --mcp")
                 }
             }
-            LabeledContent("Reads") {
-                Text(readingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            StackedRow("Reads") {
+                Text(readingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.leading)
             }
-            LabeledContent("Adds") {
-                Text(addingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            StackedRow("Adds") {
+                Text(addingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.leading)
             }
-            LabeledContent("Changes") {
-                Text(changingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            StackedRow("Changes") {
+                Text(changingTools.joined(separator: ", ")).font(.caption.monospaced()).foregroundStyle(.secondary).multilineTextAlignment(.leading)
             }
         } header: {
             SettingsHeading(part: .mcp, group: "Server")
@@ -1765,7 +1778,7 @@ private struct MCPSettings: View {
         }
 
         Section {
-            LabeledContent("Configuration") {
+            StackedRow("Configuration") {
                 HStack(spacing: 6) {
                     Text(mcpJSON).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     CopyButton(text: mcpJSON)
@@ -1978,7 +1991,7 @@ struct AutomationEditor: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    TextField("Name", text: $name, prompt: Text("Send to Things"))
+                    StackedField(label: "Name", text: $name, prompt: "Send to Things", probe: "field.automation.name")
                 }
                 Section("When") {
                     Picker("Trigger", selection: $triggerKind) {
@@ -1986,7 +1999,7 @@ struct AutomationEditor: View {
                         Text("Something happens in Binders").tag(TriggerKind.event)
                     }
                     if triggerKind == .phrase {
-                        TextField("Phrase", text: $phrase, prompt: Text("send to things"))
+                        StackedField(label: "Phrase", text: $phrase, prompt: "send to things", probe: "field.automation.phrase")
                         Text("Hold fn ⌃ and say the phrase, then the rest: what follows is {text}; a time at the end becomes {when} and {date}.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
@@ -2009,7 +2022,7 @@ struct AutomationEditor: View {
                     switch actionKind {
                     case .shortcut:
                         if shortcuts.isEmpty {
-                            TextField("Shortcut name", text: $shortcutName)
+                            StackedField(label: "Shortcut name", text: $shortcutName, probe: "field.automation.shortcutName")
                         } else {
                             Picker("Shortcut", selection: $shortcutName) {
                                 Text("Choose…").tag("")
@@ -2017,9 +2030,9 @@ struct AutomationEditor: View {
                                 ForEach(shortcuts, id: \.self) { Text($0).tag($0) }
                             }
                         }
-                        TextField("Input the Shortcut receives", text: $shortcutInput, prompt: Text("{text}"))
+                        StackedField(label: "Input the Shortcut receives", text: $shortcutInput, prompt: "{text}", probe: "field.automation.shortcutInput")
                     case .url:
-                        TextField("URL", text: $urlTemplate, prompt: Text("things:///add?title={title}&when={date}"))
+                        StackedField(label: "URL", text: $urlTemplate, prompt: "things:///add?title={title}&when={date}", probe: "field.automation.url")
                         if let urlProblem {
                             Label(urlProblem, systemImage: "exclamationmark.circle").font(.caption)
                         } else {
@@ -2027,19 +2040,16 @@ struct AutomationEditor: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     case .script:
-                        TextField("Command (zsh)", text: $script, prompt: Text("echo \"$BINDERS_TEXT\" >> ~/log.txt"), axis: .vertical)
-                            .lineLimit(2...6)
-                            .font(.body.monospaced())
+                        StackedField(label: "Command (zsh)", text: $script, prompt: "echo \"$BINDERS_TEXT\" >> ~/log.txt", lines: 2...6, monospaced: true,
+                                     probe: "field.automation.command")
                         Text("The payload arrives as BINDERS_TEXT, BINDERS_TITLE, BINDERS_WHEN, BINDERS_DATE…, a to-do's BINDERS_TODO_ORIGIN (voice, phone, suggestion, moment, agent or link), and the text on standard input.")
                             .font(.caption).foregroundStyle(.secondary)
                     case .webhook:
-                        TextField("URL", text: $webhookURL, prompt: Text("https://…"))
-                        TextField("JSON body", text: $webhookBody, prompt: Text("Leave empty to send every field"), axis: .vertical)
-                            .lineLimit(2...6)
-                            .font(.body.monospaced())
-                        HStack {
-                            SecureField("Token (kept in the Keychain)", text: $token,
-                                        prompt: Text(hasToken && !removingToken ? "Kept in your Keychain" : "None"))
+                        StackedField(label: "URL", text: $webhookURL, prompt: "https://…", probe: "field.automation.webhookURL")
+                        StackedField(label: "JSON body", text: $webhookBody, prompt: "Leave empty to send every field", lines: 2...6, monospaced: true,
+                                     probe: "field.automation.body")
+                        StackedField(label: "Token (kept in the Keychain)", text: $token,
+                                     prompt: hasToken && !removingToken ? "Kept in your Keychain" : "None", secure: true, probe: "field.automation.token") {
                             if hasToken, token.isEmpty {
                                 Button(removingToken ? "Keep Token" : "Remove Token") { removingToken.toggle() }
                             }

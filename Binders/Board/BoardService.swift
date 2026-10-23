@@ -210,7 +210,7 @@ final class BoardService {
     @discardableResult
     func create(title: String, details: String = "", binderID: UUID?, column: BoardColumn = .backlog, due: Date? = nil,
                 source: (kind: String, id: String, title: String)? = nil, sourceRef: String? = nil, id: UUID? = nil,
-                by actor: BoardActor) -> TaskCard {
+                distilled: DistilledFrom? = nil, by actor: BoardActor) -> TaskCard {
         let card = TaskCard(title: title.trimmingCharacters(in: .whitespacesAndNewlines), binderID: binderID ?? store.defaultBinder().id,
                             column: column == .done ? .backlog : column)
         // Made from something with an id of its own (a moment), it takes that id, so making it twice finds it.
@@ -224,6 +224,8 @@ final class BoardService {
             card.sourceTitle = source.title
         }
         card.sourceRef = sourceRef
+        // Its note, as a card made with Put on Board has it (lane DS6): it goes to the team with the card.
+        if let distilled { card.distilledFrom = distilled }
         store.context.insert(card)
         // On a shared board, one made from what your iPhone heard waits here until you share it.
         let kept = team?.isShared(card) == true && team?.keepsHere(card) == true
@@ -246,6 +248,7 @@ final class BoardService {
         if let id = card.sourceID { fields["source_id"] = .string(id) }
         if let title = card.sourceTitle { fields["source_title"] = .string(title) }
         if let todo = card.sourceRef.flatMap(UUID.init(uuidString:)) { fields["todo_id"] = TeamJSON(todo) }
+        if let distilled = card.distilledFrom { fields["distilled"] = distilled.teamJSON }
         return fields
     }
 
@@ -263,11 +266,26 @@ final class BoardService {
     }
 
     /// Put on Board: a card in the note's binder, in Backlog, with the note's title and, in its details, its first lines
-    /// and a link back (NoteCards). It says it's from the note, as a to-do's card says where the to-do came from.
+    /// and a link back (NoteCards). It says it's from the note, as a to-do's card says where the to-do came from, and is
+    /// among the note's cards (lane DS6), shown after the note's title.
     @discardableResult
     func create(from note: NoteItem, by actor: BoardActor) -> TaskCard {
         create(title: NoteCards.title(note.title), details: NoteCards.details(text: note.text, noteID: note.id.uuidString, agent: note.agentMark),
-               binderID: note.binderID, column: .backlog, source: ("note", note.id.uuidString, note.title), by: actor)
+               binderID: note.binderID, column: .backlog, source: (NoteWorkCards.noteKind, note.id.uuidString, note.title),
+               distilled: .put(note: note.id), by: actor)
+    }
+
+    /// Put on Board from words selected in the note (lane DS6): one card for `selection`, or with `eachLine` one for each
+    /// of its lines, in the note's binder, in Backlog, each titled from its first line, with the words and the way back to
+    /// them in its details, and marked in the note at them (`NoteSelectionCards`). An empty selection puts the whole note.
+    @discardableResult
+    func create(from note: NoteItem, selection: NSRange, eachLine: Bool = false, by actor: BoardActor) -> [TaskCard] {
+        guard selection.length > 0 else { return [create(from: note, by: actor)] }
+        return NoteSelectionCards.pieces(text: note.text, selection: selection, noteID: note.id, eachLine: eachLine, agent: note.agentMark).map { piece in
+            create(title: piece.title, details: piece.details, binderID: note.binderID, column: .backlog,
+                   source: (NoteWorkCards.noteKind, note.id.uuidString, note.title),
+                   distilled: .put(note: note.id, section: piece.section, sectionText: piece.sectionText, quote: piece.quote), by: actor)
+        }
     }
 
     /// Taking a card. `note` goes on the timeline when nothing else does: Binders holding a card for an agent says so.

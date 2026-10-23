@@ -1,11 +1,15 @@
+import AppKit
 import SwiftData
 import SwiftUI
 import BindersKit
 
-/// A binder's board: its cards in six columns, dragged between them by you, picked up by agents over MCP.
+/// A binder's board: its cards in six columns, dragged between them by you, picked up by agents over MCP. With Group by
+/// Note on (lane DS5), each column shows each note's cards together under a header; ⌘-click, ⇧-click, ⌘A and a group's
+/// Select All choose several cards, which the bar over the columns acts on at once.
 struct BoardView: View {
     @Environment(DictationController.self) private var controller
     @Environment(HubNavigation.self) private var navigation
+    @Environment(\.undoManager) private var undoManager
     @Bindable var binder: BinderRecord
     @Query private var cards: [TaskCard]
     @State private var drafting: BoardColumn?
@@ -14,16 +18,59 @@ struct BoardView: View {
     @State private var problem: String?
     /// Folded columns you opened: they stay open until you fold them again.
     @State private var opened: Set<BoardColumn> = []
+    /// Group by Note, remembered for each binder's board (lane DS5).
+    @AppStorage private var groupByNote: Bool
+    @State private var selection = BoardSelection()
+    /// Groups you folded, by column and note.
+    @State private var foldedGroups: Set<String> = []
+    /// What the last action on several cards did, with its Undo.
+    @State private var said: Said?
+    @State private var deleting: [UUID] = []
+    @State private var giving: Giving?
+    /// Giving cards to a teammate's agent, waiting for your yes (lane DB2), and the cards.
+    @State private var asking: TeamConsent?
+    @State private var askingFor: [UUID] = []
+    @FocusState private var focused: Bool
     /// For self-tests: the layout the board last drew, and the width it had for it.
     nonisolated(unsafe) static var lastLayout: (layout: BoardLayout, width: Double)?
+    /// For self-tests: what the board last showed (lane DS5): the cards selected, and each column's groups with Group by Note on.
+    nonisolated(unsafe) static var lastShown: (selection: Set<UUID>, groups: [BoardColumn: [BoardGroups.Group]]?)?
+    /// For the board-groups self-test: each card and group header named for FitProbe, to click.
+    nonisolated(unsafe) static var probesCards = false
+    /// For the window-fit self-test: cards to select as the board opens.
+    nonisolated(unsafe) static var selectOnOpen: Set<UUID>?
+
+    /// What an action on several cards said, and whether Undo can put it back.
+    struct Said: Equatable {
+        let id = UUID()
+        let line: String
+        let undoable: Bool
+    }
+
+    /// Cards to give an agent, waiting for the one question.
+    struct Giving: Equatable {
+        let ids: [UUID]
+        let name: String
+    }
+
+    /// For self-tests: what the board shows now.
+    private static func record(_ selected: Set<UUID>, _ grouping: Grouping?) {
+        lastShown = (selected, grouping.map { model in Dictionary(uniqueKeysWithValues: BoardColumn.allCases.map { ($0, model.groups(in: $0)) }) })
+    }
+
+    /// Group by Note's key in the app's defaults, for a binder's board.
+    static func groupKey(_ binderID: UUID) -> String { "boardGroupByNote." + binderID.uuidString }
 
     init(binder: BinderRecord) {
         self.binder = binder
         let id = binder.id
         _cards = Query(filter: #Predicate<TaskCard> { $0.binderID == id }, sort: [SortDescriptor(\TaskCard.position, order: .reverse)])
+        _groupByNote = AppStorage(wrappedValue: false, Self.groupKey(id), store: AppDefaults.store)
     }
 
     var body: some View {
+        let grouping = groupByNote ? Self.grouping(cards) : nil
+        let _ = Self.record(selection.ids, grouping)
         VStack(alignment: .leading, spacing: 0) {
             // On one row while it fits; short of room, the switches go under the words, then under each other.
             ViewThatFits(in: .horizontal) {
@@ -31,19 +78,33 @@ struct BoardView: View {
                     hint
                     Spacer()
                     AddTodosButton(binder: binder)
+                    groupSwitch
                     switches
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    hint
+                    // Under the switches, the words wrap rather than ask for the whole row (lane DS5).
+                    hint.modifier(IdealWidthCap(cap: 320))
                     HStack(spacing: 12) {
                         AddTodosButton(binder: binder)
+                        groupSwitch
                         Spacer(minLength: 0)
                         switches
                     }
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    hint
+                    // Under the switches, the words wrap rather than ask for the whole row (lane DS5).
+                    hint.modifier(IdealWidthCap(cap: 320))
+                    HStack(spacing: 12) {
+                        AddTodosButton(binder: binder)
+                        groupSwitch
+                    }
+                    HStack(spacing: 12) { switches }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    // Under the switches, the words wrap rather than ask for the whole row (lane DS5).
+                    hint.modifier(IdealWidthCap(cap: 320))
                     AddTodosButton(binder: binder)
+                    groupSwitch
                     switches
                 }
             }
@@ -60,6 +121,17 @@ struct BoardView: View {
             }
             // Shared through a team database that's off or out of reach: what waits, what's kept, and what to do (lane DB8).
             TeamReachLine(binderID: binder.id)
+            // Several selected (lane DS5): what to do with them all, and what stays as it is.
+            if selection.count > 1 {
+                let chosen = selectedCards
+                SeveralCardsBar(heading: BoardBulkWords.selected(chosen.count), titles: chosen.map(\.title), rules: rules(for: chosen),
+                                clear: { selection.clear() }) {
+                    severalButtons(chosen, inMenu: false)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+            }
+            if let said { saidLine(said) }
             // Columns narrow to fit the window, down to a width a card still reads at. Short of that, Done and then Backlog
             // fold to strips with their counts, so Ready, In progress, and Blocked and Review, the ones waiting on you,
             // show without scrolling sideways.
@@ -75,7 +147,7 @@ struct BoardView: View {
                                 // One you opened shows how to fold it again while there's no room for it.
                                 let foldable = opened.contains(column)
                                     && BoardLayout.fit(width: width, opened: opened.subtracting([column])).folded.contains(column)
-                                self.column(column, width: layout.columnWidth, foldable: foldable)
+                                self.column(column, width: layout.columnWidth, foldable: foldable, grouping: grouping)
                             }
                         }
                     }
@@ -86,12 +158,50 @@ struct BoardView: View {
                 .onAppear { Self.lastLayout = (layout, width) }
                 .onChange(of: layout) { Self.lastLayout = (layout, width) }
             }
+            // The board takes the keys once you choose a card on it: ⌘A selects every card, Esc clears, ⌫ deletes, asking.
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onCommand(#selector(NSText.selectAll(_:))) { selectEverything() }
+            .onExitCommand { selection.clear() }
+            .onDeleteCommand { if !selection.isEmpty { deleting = selectedCards.map(\.id) } }
         }
         // Fill the space the binder gives the board, and no more, so the header above stays put.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .alert("Couldn't do that", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(problem ?? "") }
+        .confirmationDialog(deleteQuestion, isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } }), titleVisibility: .visible) {
+            Button(deleting.count == 1 ? "Delete Card" : "Delete \(deleting.count) Cards", role: .destructive) {
+                let going = cards(deleting)
+                deleting = []
+                act(BoardBulk.delete(going, board: controller.board, undoManager: undoManager))
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let going = cards(deleting)
+            Text(BoardBulkWords.deleteMessage(going.count, shared: going.filter { BoardBulk.sharedWithTeam($0, board: controller.board) }.count))
+        }
+        .confirmationDialog(giving.map { BoardBulkWords.giveQuestion($0.ids.count, to: $0.name) } ?? "",
+                            isPresented: Binding(get: { giving != nil }, set: { if !$0 { giving = nil } }), titleVisibility: .visible, presenting: giving) { give in
+            Button("Give to \(give.name)") {
+                giving = nil
+                act(BoardBulk.assign(cards(give.ids), to: .agent(give.name), board: controller.board, undoManager: undoManager))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { give in
+            Text(BoardBulkWords.giveMessage(give.ids.count, to: give.name))
+        }
+        .teamConsent($asking) { consent in
+            // The yes for a teammate's agent is the one question.
+            controller.teamBoard.agree(to: consent.agent)
+            act(BoardBulk.assign(cards(askingFor), to: .agent(consent.name), board: controller.board, undoManager: undoManager))
+        }
+        .onAppear(perform: takePendingSelection)
+        .onChange(of: navigation.pendingBoardSelection) { takePendingSelection() }
+        // A card that's gone, or moved to another board, leaves the selection.
+        .onChange(of: cards.map(\.id)) { _, now in selection.keep(Set(now)) }
         // Column counts roll once the board has drawn what it first read.
         .settlesAfterAppearing()
         // What the runs Binders started say they're doing, on their cards.
@@ -102,6 +212,15 @@ struct BoardView: View {
         Text("Drag cards between columns. Agents such as Claude pick up Ready cards through Binders' MCP server.")
             .font(.callout)
             .foregroundStyle(.secondary)
+    }
+
+    /// Group by Note (lane DS5), remembered for this board.
+    private var groupSwitch: some View {
+        Toggle("Group by Note", isOn: $groupByNote)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .fixedSize()
+            .help("Show each note's cards together in every column, under the note's title and how its work is going. Remembered for this board.")
     }
 
     @ViewBuilder
@@ -117,10 +236,13 @@ struct BoardView: View {
             .fitProbe("board.header.last")
     }
 
-    private func column(_ column: BoardColumn, width: CGFloat, foldable: Bool) -> some View {
+    private func column(_ column: BoardColumn, width: CGFloat, foldable: Bool, grouping: Grouping?) -> some View {
         var items = cards.filter { $0.column == column }
         let count = items.count
         if column == .done { items = Array(items.prefix(30)) }
+        // With Group by Note on: each note's cards under its header, in the board's order of notes; Done keeps to 30 cards.
+        let groups = grouping.map { Self.shown($0.groups(in: column), cards: $0.byID, limit: column == .done ? 30 : nil) }
+        let order = groups.map { list in list.filter { !foldedGroups.contains(foldKey(column, $0.group)) }.flatMap { $0.cards.map(\.id) } } ?? items.map(\.id)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(column.title).font(BindersTheme.cardTitle)
@@ -150,18 +272,23 @@ struct BoardView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(spacing: 8) {
-                    ForEach(items) { card in
-                        CardTile(card: card)
-                            // Its own window, over the board, which stays as it is.
-                            .onTapGesture { navigation.open(card: card) }
-                            .draggable(card.id.uuidString)
-                            .contextMenu {
-                                Menu("Move to") {
-                                    MoveToBinderItems(current: card.binderID) { target in
-                                        do { try controller.router.move(card, to: target) } catch { problem = error.localizedDescription }
-                                    }
+                    if let groups {
+                        ForEach(groups) { entry in
+                            let key = foldKey(column, entry.group)
+                            BoardGroupHeader(group: entry.group, folded: foldedGroups.contains(key),
+                                             toggle: { if foldedGroups.contains(key) { foldedGroups.remove(key) } else { foldedGroups.insert(key) } },
+                                             selectAll: { selectGroup(entry.group.note) })
+                                // A card dropped on a group goes in it, and into this column.
+                                .dropDestination(for: String.self) { ids, _ in
+                                    join(ids, group: entry.group, column: column)
+                                    return true
                                 }
+                            if !foldedGroups.contains(key) {
+                                ForEach(entry.cards) { card in tile(card, order: order) }
                             }
+                        }
+                    } else {
+                        ForEach(items) { card in tile(card, order: order) }
                     }
                     if items.isEmpty && drafting != column {
                         Text(Self.hint(column))
@@ -181,6 +308,255 @@ struct BoardView: View {
             return true
         } isTargeted: { hovering in
             target = hovering ? column : (target == column ? nil : target)
+        }
+    }
+
+    /// A card on the board: a click opens it; with ⌘ or ⇧ it's chosen instead (lane DS5). Dragged while it's one of several
+    /// chosen, it takes them all.
+    private func tile(_ card: TaskCard, order: [UUID]) -> some View {
+        CardTile(card: card, selected: selection.contains(card.id))
+            .fitProbe(Self.probesCards ? "board.card." + card.id.uuidString : "")
+            .onTapGesture { tapped(card, order: order) }
+            // ⌘ and ⇧ as the click itself carries them, ahead of the plain click that opens the card.
+            .highPriorityGesture(TapGesture().modifiers(.command).onEnded { choose(card, command: true, order: order) }
+                .exclusively(before: TapGesture().modifiers(.shift).onEnded { choose(card, shift: true, order: order) }))
+            .draggable(dragged(card))
+            .contextMenu { menu(for: card) }
+    }
+
+    @ViewBuilder
+    private func menu(for card: TaskCard) -> some View {
+        if selection.count > 1, selection.contains(card.id) {
+            severalButtons(selectedCards, inMenu: true)
+        } else {
+            Menu("Move to") {
+                MoveToBinderItems(current: card.binderID) { target in
+                    do { try controller.router.move(card, to: target) } catch { problem = error.localizedDescription }
+                }
+            }
+            // Lane DS5: into a note's group, or out of it; a card made from a note (by Distill, or with Put on Board, lane
+            // DS6) stays in its note's.
+            if card.noteMembership?.staysInGroup != true, card.distilledFrom?.request != true {
+                Menu("Part of") {
+                    PartOfItems(binderID: binder.id, current: card.groupNote, canTakeOut: card.groupNote != nil) { note in
+                        act(BoardBulk.group([card], into: note, board: controller.board, undoManager: undoManager))
+                    }
+                }
+            }
+        }
+    }
+
+    /// The bar's buttons, and the same in a selected card's menu, for these cards.
+    private func severalButtons(_ chosen: [TaskCard], inMenu: Bool) -> some View {
+        let columns = Set(chosen.map(\.column)), notes = Set(chosen.map(\.groupNote))
+        return SeveralCardsButtons(count: chosen.count, binderID: binder.id, column: columns.count == 1 ? columns.first : nil,
+                                   group: notes.count == 1 ? notes.first ?? nil : nil, inMenu: inMenu,
+                                   move: { column in act(BoardBulk.move(chosen, to: column, board: controller.board, undoManager: undoManager)) },
+                                   assign: { choice in assign(chosen, choice) },
+                                   putIn: { note in act(BoardBulk.group(chosen, into: note, board: controller.board, undoManager: undoManager)) },
+                                   delete: { deleting = chosen.map(\.id) })
+    }
+
+    /// Assign to: an agent asks once ("Give 5 cards to Claude Code?"), a teammate's agent asks for your yes the first time;
+    /// you, a teammate or anyone happen at once, with Undo.
+    private func assign(_ chosen: [TaskCard], _ choice: AssignChoice) {
+        switch choice {
+        case .who(.agent(let name)):
+            giving = Giving(ids: chosen.map(\.id), name: name)
+        case .who(let who):
+            act(BoardBulk.assign(chosen, to: who, board: controller.board, undoManager: undoManager))
+        case .teammatesAgent(let agent):
+            let consent = controller.teamBoard.consent(for: agent)
+            if controller.teamBoard.agreed(to: agent) {
+                giving = Giving(ids: chosen.map(\.id), name: consent.name)
+            } else {
+                askingFor = chosen.map(\.id)
+                asking = consent
+            }
+        }
+    }
+
+    /// Says what an action on several cards did, with Undo, for a while; a card it took off the board leaves the selection.
+    private func act(_ outcome: BoardBulk.Outcome) {
+        let line = Said(line: outcome.line, undoable: outcome.undoable)
+        withAnimation { said = line }
+        selection.keep(Set(cards.map(\.id)).subtracting(outcome.changed.filter { controller.board.card($0) == nil }))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+            if said == line { withAnimation { said = nil } }
+        }
+    }
+
+    private func saidLine(_ said: Said) -> some View {
+        HStack(spacing: 8) {
+            Label(said.line, systemImage: "square.on.square")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            if said.undoable {
+                Button("Undo") {
+                    undoManager?.undo()
+                    withAnimation { self.said = nil }
+                }
+                .controlSize(.small)
+                .help("Put them back as they were (⌘Z)")
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+        .transition(.opacity)
+    }
+
+    /// What stays as it is when you act on these, a line each, as the several-notes panel says it.
+    private func rules(for chosen: [TaskCard]) -> [String] {
+        var rules: [String] = []
+        let working = chosen.compactMap { BoardBulk.workingOn($0) }
+        if working.count == 1, let who = working.first {
+            rules.append("1 is being worked on by \(who): it doesn't move or change hands while they have it.")
+        } else if working.count > 1 {
+            rules.append("\(working.count) are being worked on: they don't move or change hands while someone has them.")
+        }
+        let distilled = chosen.filter { $0.noteMembership?.tie == .distilled }.count
+        if distilled == 1 {
+            rules.append("1 was made by Distill: it stays in its note's group.")
+        } else if distilled > 1 {
+            rules.append("\(distilled) were made by Distill: they stay in their notes' groups.")
+        }
+        // Lane DS6: made with Put on Board from a note.
+        let put = chosen.filter { $0.noteMembership?.tie == .put }.count
+        if put == 1 {
+            rules.append("1 was put on the board from its note: it stays in that note's group.")
+        } else if put > 1 {
+            rules.append("\(put) were put on the board from their notes: they stay in their notes' groups.")
+        }
+        let shared = chosen.filter { BoardBulk.sharedWithTeam($0, board: controller.board) }.count
+        if shared == 1 {
+            rules.append("1 is on the team's board: deleting it deletes it for everyone.")
+        } else if shared > 1 {
+            rules.append("\(shared) are on the team's board: deleting them deletes them for everyone.")
+        }
+        return rules
+    }
+
+    private var deleteQuestion: String {
+        let going = cards(deleting)
+        return going.count == 1 ? "Delete “\(going[0].title)”?" : BoardBulkWords.deleteQuestion(going.count)
+    }
+
+    // MARK: Choosing cards (lane DS5)
+
+    /// The chosen cards, in the board's order.
+    private var selectedCards: [TaskCard] { cards.filter { selection.contains($0.id) } }
+
+    private func cards(_ ids: [UUID]) -> [TaskCard] {
+        let wanted = Set(ids)
+        return cards.filter { wanted.contains($0.id) }
+    }
+
+    /// A click on a card: it opens in its own window and the choice clears.
+    private func tapped(_ card: TaskCard, order: [UUID]) {
+        if !selection.click(card.id, command: false, shift: false, column: order) { navigation.open(card: card) }
+    }
+
+    /// ⌘-click adds it or takes it away; ⇧-click adds the run from the last one clicked in its column.
+    private func choose(_ card: TaskCard, command: Bool = false, shift: Bool = false, order: [UUID]) {
+        selection.click(card.id, command: command, shift: shift, column: order)
+        focused = true
+    }
+
+    /// ⌘A: every card on this board.
+    private func selectEverything() {
+        selection.select(cards.map(\.id))
+    }
+
+    /// A group's Select All: its cards in every column of this board; with ⌘, as well as those already chosen.
+    private func selectGroup(_ note: UUID?) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        selection.select(cards.filter { $0.groupNote == note }.map(\.id), adding: flags.contains(.command))
+        focused = true
+    }
+
+    /// Select on Board from a note's Work panel, or the window-fit self-test's: those of the cards on this board.
+    private func takePendingSelection() {
+        let pending = navigation.pendingBoardSelection ?? Self.selectOnOpen
+        guard let pending else { return }
+        navigation.pendingBoardSelection = nil
+        Self.selectOnOpen = nil
+        selection.select(cards.map(\.id).filter { pending.contains($0) })
+        focused = true
+    }
+
+    /// What dragging a card carries: the card, or, when it's one of several chosen, all of them, their ids with commas.
+    private func dragged(_ card: TaskCard) -> String {
+        guard selection.count > 1, selection.contains(card.id) else { return card.id.uuidString }
+        return selectedCards.map(\.id.uuidString).joined(separator: ",")
+    }
+
+    /// The cards a drop carries.
+    private func dropped(_ ids: [String]) -> [TaskCard] {
+        let wanted = ids.flatMap { $0.split(separator: ",").compactMap { UUID(uuidString: String($0)) } }
+        return wanted.compactMap { controller.board.card($0) }
+    }
+
+    /// Dropped on a group's header: into that note's group (on "Not from a note", out of its group), and into the column,
+    /// as one change one Undo puts back.
+    private func join(_ ids: [String], group: BoardGroups.Group, column: BoardColumn) {
+        let moving = dropped(ids)
+        guard !moving.isEmpty else { return }
+        let note = group.note.flatMap { Store.shared.note($0) }
+        guard group.note == nil || note != nil else { return problem = "That note isn't on this Mac, so cards can't go in its group." }
+        undoManager?.beginUndoGrouping()
+        let grouped = BoardBulk.group(moving, into: note, board: controller.board, undoManager: undoManager)
+        let off = moving.filter { $0.column != column }
+        let moved = off.isEmpty ? nil : BoardBulk.move(off, to: column, board: controller.board, undoManager: undoManager)
+        undoManager?.endUndoGrouping()
+        let line = [grouped.changed.isEmpty && grouped.stays.isEmpty ? nil : grouped.line, moved?.line].compactMap { $0 }.joined(separator: " ")
+        act(BoardBulk.Outcome(changed: grouped.changed + (moved?.changed ?? []), stays: grouped.stays + (moved?.stays ?? []),
+                              line: line.isEmpty ? (moved?.line ?? grouped.line) : line, undoable: grouped.undoable || moved?.undoable == true))
+    }
+
+    private func foldKey(_ column: BoardColumn, _ group: BoardGroups.Group) -> String { column.rawValue + "|" + group.id }
+
+    // MARK: Grouping (lane DS5)
+
+    /// The board's cards as Group by Note reads them, worked out once for every column.
+    struct Grouping {
+        let cards: [BoardGroups.Card]
+        let titles: [UUID: String]
+        let byID: [UUID: TaskCard]
+
+        func groups(in column: BoardColumn) -> [BoardGroups.Group] { BoardGroups.groups(in: column, cards: cards, titles: titles) }
+    }
+
+    /// `cards` in the board's order. A note's title is the note's own, or the title its cards keep (`sourceTitle`) when it
+    /// isn't on this Mac.
+    static func grouping(_ cards: [TaskCard]) -> Grouping {
+        var titles: [UUID: String] = [:]
+        let read = cards.map { card -> BoardGroups.Card in
+            // The note's cards (lane DS6): Distill's, put in by hand, and made with Put on Board, before this build too.
+            let member = card.noteMembership
+            let note = member?.note
+            if let note, titles[note] == nil { titles[note] = Store.shared.note(note)?.title ?? card.sourceTitle ?? "" }
+            return BoardGroups.Card(id: card.id, column: card.column, note: note, created: card.createdAt, closed: member?.from?.closed != nil)
+        }
+        return Grouping(cards: read, titles: titles, byID: Dictionary(cards.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }))
+    }
+
+    /// A group as a column shows it: its header and its cards.
+    struct ShownGroup: Identifiable {
+        let group: BoardGroups.Group
+        let cards: [TaskCard]
+        var id: String { group.id }
+    }
+
+    /// Each group with its cards, up to `limit` cards in all (Done shows its newest 30).
+    static func shown(_ groups: [BoardGroups.Group], cards: [UUID: TaskCard], limit: Int?) -> [ShownGroup] {
+        var left = limit ?? .max
+        return groups.compactMap { group in
+            guard left > 0 else { return nil }
+            let shown = Array(group.cards.compactMap { cards[$0] }.prefix(left))
+            left -= shown.count
+            return shown.isEmpty ? nil : ShownGroup(group: group, cards: shown)
         }
     }
 
@@ -237,9 +613,13 @@ struct BoardView: View {
         draft = ""
     }
 
+    /// A card dropped on a column moves there; several dropped together move as Move to does, with what stayed and Undo.
     private func move(_ ids: [String], to column: BoardColumn) {
-        for id in ids.compactMap(UUID.init(uuidString:)) {
-            guard let card = controller.board.card(id) else { continue }
+        let moving = dropped(ids)
+        if moving.count > 1 {
+            return act(BoardBulk.move(moving, to: column, board: controller.board, undoManager: undoManager))
+        }
+        for card in moving {
             do { try controller.board.move(card, to: column, by: .you) } catch { problem = error.localizedDescription }
         }
     }
@@ -261,12 +641,16 @@ private struct Sideways: Layout {
 /// A card on the board: its title, who has it, when it's due, and anything that needs you.
 struct CardTile: View {
     let card: TaskCard
+    /// One of the cards chosen on the board (lane DS5): the binder's colour round it, a tint over it and a tick.
+    var selected = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(card.title)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(3)
+                // Chosen, its tick sits in the top corner: the title leaves it room.
+                .padding(.trailing, selected ? 12 : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
             // What a run Binders started says it's doing between its reports, in its words.
             if card.column == .inProgress, let line = AgentDoingFeed.shared.lines[card.id] {
@@ -318,9 +702,30 @@ struct CardTile: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(BindersTheme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(BindersTheme.line))
+        .background {
+            if selected { RoundedRectangle(cornerRadius: 9, style: .continuous).fill(TintFill().opacity(0.14)).padding(-1) }
+        }
+        .overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(TintFill().opacity(0.10))
+                RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(TintFill(), lineWidth: 2)
+            } else {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(BindersTheme.line)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if selected {
+                Image(systemName: "checkmark.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(OnTintFill(), TintFill())
+                    .padding(5)
+                    .accessibilityHidden(true)
+            }
+        }
         .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
         .contentShape(Rectangle())
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

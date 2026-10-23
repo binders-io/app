@@ -799,6 +799,16 @@ enum SelfTest {
         if args.contains("--selftest-board") {
             return await boardSelfTest()
         }
+        if args.contains("--selftest-board-groups") {
+            // A note's cards as one group on the board, and acting on many at once (lane DS5). A folder after the flag gets
+            // drawings.
+            return await boardGroupsSelfTest(drawingTo: value("--selftest-board-groups").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
+        }
+        if args.contains("--selftest-put-on-board") {
+            // Put on Board tracked as Distill's cards are (lane DS6): the whole note, a selection, each line of a list. A
+            // folder after the flag gets drawings.
+            return await putOnBoardSelfTest(drawingTo: value("--selftest-put-on-board").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
+        }
         if args.contains("--selftest-mcp-reads") {
             return await mcpReadsSelfTest()
         }
@@ -846,6 +856,11 @@ enum SelfTest {
         if args.contains("--selftest-distill") {
             // Distill (lane DS1), with a stand-in model, the router's stand-in decision model and stand-in agents.
             return await distillSelfTest()
+        }
+        if args.contains("--selftest-distill-marks") {
+            // Work in the note (lane DS4): cards marked at the words they came from, with stand-in items. A folder after the
+            // flag gets a drawing.
+            return await distillMarksSelfTest(drawingTo: value("--selftest-distill-marks").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
         if args.contains("--selftest-distill-more") {
             // Distill finished (lane RF2): what of a section's change reaches an agent, and Distill's smaller gaps.

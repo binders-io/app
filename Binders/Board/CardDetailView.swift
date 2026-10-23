@@ -880,7 +880,9 @@ struct CardDetailsPanel: View {
                     ForEach(card.links, id: \.self) { link in linkRow(link) }
                 }
             }
-            if card.distilledFrom != nil {
+            // Lane DS5: the note whose group it's in on the board, and Part of… to change it.
+            CardGroupLine(card: card)
+            if let from = card.distilledFrom, from.byHand != true {
                 // Lane DS1: its spec, its section and what changed in it since, and what it waits for.
                 DistilledFromPanel(card: card)
             } else if let source = card.sourceTitle {

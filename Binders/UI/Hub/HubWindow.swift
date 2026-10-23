@@ -61,6 +61,10 @@ final class HubNavigation {
     var pendingNoteIsNew = false
     /// A heading, or "^" and a block's id, to show in the pending note: where a link to it points.
     var pendingNotePlace: String?
+    /// A card's words to show and flash in the pending note, in `pendingNotePlace`'s section (lane DS4).
+    var pendingNoteQuote: String?
+    /// Cards to select on the board as it opens (lane DS5): a note's work, from its Work panel's Select on Board.
+    var pendingBoardSelection: Set<UUID>?
     /// The note open on the Notes page, for the Note menu.
     var currentNoteID: UUID?
     var pendingHistorySearch: String?
@@ -212,6 +216,13 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
         }
     }
 
+    /// Put on Board (lane DS6): the words selected in the note being edited, or the note in front as a whole.
+    @objc func putOnBoard(_ sender: Any?) {
+        if let editor = NSApp.keyWindow?.firstResponder as? MarkdownTextView, editor.putOnBoardFromMenu() { return }
+        guard let (id, inPopout) = noteInFront else { return }
+        NotificationCenter.default.post(name: NotePutOnBoard.wholeNote, object: nil, userInfo: ["note": id, "popout": inPopout])
+    }
+
     @objc func toggleDigest(_ sender: Any?) {
         let defaults = AppDefaults.store
         defaults.set(!(defaults.object(forKey: "notesShowDigest") as? Bool ?? true), forKey: "notesShowDigest")
@@ -226,6 +237,13 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
         case #selector(popOutNote(_:)):
             return noteInFront.map { !$0.inPopout } ?? false
         case #selector(foldIntoBubble(_:)):
+            return noteInFront != nil
+        case #selector(putOnBoard(_:)):
+            if let editor = NSApp.keyWindow?.firstResponder as? MarkdownTextView, editor.putOnBoard != nil {
+                item.title = editor.selectedRange().length > 0 ? "Put Selection on Board" : "Put on Board"
+                return true
+            }
+            item.title = "Put on Board"
             return noteInFront != nil
         case #selector(toggleDigest(_:)):
             item.title = (AppDefaults.store.object(forKey: "notesShowDigest") as? Bool ?? true) ? "Hide Digest" : "Show Digest"

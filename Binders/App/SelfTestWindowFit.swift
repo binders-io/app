@@ -12,7 +12,8 @@ extension SelfTest {
     /// controls (the note's bottom row, its toolbar, its digest column's edge, the Work bar, the meeting's tabs, Today's
     /// and the board's headers) lie inside it, by their frames (`FitProbe`). The other windows that hold pages (a note's own
     /// window, a card's, the Scratchpad, the live meeting notes) keep their sizes with long content too. Draws each page to
-    /// `directory`. A throwaway store (BINDERS_DATA_DIR).
+    /// `directory`. Then every text field in Settings and its sheets, stacked (`formFieldsFit`, lane UI1). A throwaway
+    /// store (BINDERS_DATA_DIR).
     ///
     ///     BINDERS_DATA_DIR=$(mktemp -d) Binders --selftest-window-fit <dir> -notesShowMarkdown NO
     @MainActor
@@ -57,12 +58,14 @@ extension SelfTest {
         Store.shared.save()
         controller.distill.setDistill(true, for: distilled)
         let distill = UUID()
+        var boardSeveral: Set<UUID> = []
         for (title, column, section) in [("Settle the pricing tiers", BoardColumn.done, "Pricing"), ("Write the support macros", .inProgress, "Support"),
                                          ("Brief the reporters", .ready, "Press")] {
             let card = TaskCard(title: title, binderID: harbor.id, column: column)
             card.sourceID = distilled.id.uuidString
             card.distilledFrom = DistilledFrom(note: distilled.id, distill: distill, item: UUID(), section: section)
             context.insert(card)
+            boardSeveral.insert(card.id)
         }
         // A note three folders deep, the folders with long names, with Put on Board's notice showing.
         let top = Store.shared.createFolder(named: "Marketing and communications", in: harbor.id)
@@ -157,6 +160,9 @@ extension SelfTest {
             Page(name: "today", probes: ["today.header.last"], configure: { $0.selection = .today }),
             Page(name: "home", probes: ["home.header.last"], configure: { $0.selection = .home }),
             Page(name: "board", probes: ["board.header.last"], configure: { $0.selection = .binder; $0.pendingBinderTab = .board }),
+            // Lane DS5: grouped by note, with several cards chosen: the bar over the columns, every button of it.
+            Page(name: "board-several", probes: ["board.header.last", "board.several", "board.several.last"],
+                 configure: { $0.selection = .binder; $0.pendingBinderTab = .board }),
         ]
         // Every other page fits too, from its smallest: the page lies inside the window.
         let others: [Page] = [
@@ -182,6 +188,9 @@ extension SelfTest {
             AppDefaults.store.set(page.markdown, forKey: "notesShowMarkdown")
             MeetingsView.selectOnOpen = page.selected
             defer { MeetingsView.selectOnOpen = nil }
+            AppDefaults.store.set(page.name == "board-several", forKey: BoardView.groupKey(harbor.id))
+            BoardView.selectOnOpen = page.name == "board-several" ? boardSeveral : nil
+            defer { BoardView.selectOnOpen = nil; AppDefaults.store.removeObject(forKey: BoardView.groupKey(harbor.id)) }
             let window = HubWindowController.makeWindow(hub(page.configure), size: sizes[0])
             window.alphaValue = 0
             window.orderFrontRegardless()
@@ -200,7 +209,7 @@ extension SelfTest {
                     frame.minX >= pane.minX - 0.5 && frame.maxX <= pane.maxX + 0.5 && frame.minY >= pane.minY - 0.5 && frame.maxY <= pane.maxY + 0.5
                 }
                 let drawn = FitProbe.all(in: window).filter { $0.name != "sidebar" }
-                let outside = drawn.filter { !inside($0.frame) }.map { "\($0.name) \(Int($0.frame.minX))–\(Int($0.frame.maxX))" }
+                let outside = drawn.filter { !inside($0.frame) }.map { "\($0.name) \(Int($0.frame.minX))–\(Int($0.frame.maxX)) y\(Int($0.frame.minY))–\(Int($0.frame.maxY))" }
                 let missing = (page.probes + ["page"]).filter { name in !drawn.contains { $0.name == name } }
                 check(sidebar != nil && missing.isEmpty && outside.isEmpty,
                       "\(label): the page and its controls lie inside the window, beside the sidebar (\(Int(pane.minX))–\(Int(pane.maxX)) pt)"
@@ -335,6 +344,9 @@ extension SelfTest {
         let live = NSApp.windows.first { $0.title == "Meeting notes" }
         await settle(live, "the live meeting notes, with a long meeting")
         MeetingWindowController.shared.close()
+
+        // Lane UI1: every text field in Settings and its sheets, its name above a box from the left, at both sizes and themes.
+        await formFieldsFit(directory: directory, controller: controller, hub: { AnyView(hub($0)) }, check: check)
 
         print(failures == 0 ? "WINDOW_FIT_OK" : "WINDOW_FIT_FAILED: \(failures)")
         return failures == 0 ? 0 : 1

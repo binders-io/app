@@ -148,6 +148,9 @@ public struct DistillItem: Codable, Equatable, Identifiable, Sendable {
     public var section: String?
     /// That section's version: the hash of its text as it was read (`DistillSections.hash`).
     public var sectionHash: String?
+    /// The note's words it came from, as the reader copied them (lane DS4): where the note marks it. Nil for an item read
+    /// before, or one whose reader gave none; it's then shown at its section's heading.
+    public var quote: String?
     /// The items of the same distill it waits for.
     public var waitsFor: [UUID]
     public var size: Size?
@@ -162,14 +165,15 @@ public struct DistillItem: Codable, Equatable, Identifiable, Sendable {
     public var dropped: Bool
 
     public init(id: UUID = UUID(), title: String, brief: String = "", doneWhen: String = "", section: String? = nil, sectionHash: String? = nil,
-                waitsFor: [UUID] = [], size: Size? = nil, meantFor: String? = nil, meantForHow: String? = nil, hint: Hint? = nil,
-                card: UUID? = nil, dropped: Bool = false) {
+                quote: String? = nil, waitsFor: [UUID] = [], size: Size? = nil, meantFor: String? = nil, meantForHow: String? = nil,
+                hint: Hint? = nil, card: UUID? = nil, dropped: Bool = false) {
         self.id = id
         self.title = title
         self.brief = brief
         self.doneWhen = doneWhen
         self.section = section
         self.sectionHash = sectionHash
+        self.quote = quote
         self.waitsFor = waitsFor
         self.size = size
         self.meantFor = meantFor
@@ -180,7 +184,7 @@ public struct DistillItem: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, brief, doneWhen, section, sectionHash, waitsFor, size, meantFor, meantForHow, hint, card, dropped
+        case id, title, brief, doneWhen, section, sectionHash, quote, waitsFor, size, meantFor, meantForHow, hint, card, dropped
     }
 
     public init(from decoder: Decoder) throws {
@@ -191,6 +195,7 @@ public struct DistillItem: Codable, Equatable, Identifiable, Sendable {
         doneWhen = try c.decodeIfPresent(String.self, forKey: .doneWhen) ?? ""
         section = try c.decodeIfPresent(String.self, forKey: .section)
         sectionHash = try c.decodeIfPresent(String.self, forKey: .sectionHash)
+        quote = try? c.decodeIfPresent(String.self, forKey: .quote)
         waitsFor = (try? c.decodeIfPresent([UUID].self, forKey: .waitsFor)) ?? []
         size = try? c.decodeIfPresent(Size.self, forKey: .size)
         meantFor = try c.decodeIfPresent(String.self, forKey: .meantFor)
@@ -221,9 +226,11 @@ public struct DistillUpdate: Codable, Equatable, Identifiable, Sendable {
     public var doneWhen: String
     /// Done in the review: taken or let be.
     public var taken: Bool?
+    /// For a brief, the note's words the new reading found it in (lane DS4): taken, the card is marked there.
+    public var quote: String?
 
     public init(id: UUID = UUID(), kind: Kind, card: UUID, item: UUID? = nil, section: String? = nil, sectionHash: String? = nil,
-                brief: String = "", doneWhen: String = "", taken: Bool? = nil) {
+                brief: String = "", doneWhen: String = "", taken: Bool? = nil, quote: String? = nil) {
         self.id = id
         self.kind = kind
         self.card = card
@@ -233,10 +240,11 @@ public struct DistillUpdate: Codable, Equatable, Identifiable, Sendable {
         self.brief = brief
         self.doneWhen = doneWhen
         self.taken = taken
+        self.quote = quote
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, card, item, section, sectionHash, brief, doneWhen, taken
+        case id, kind, card, item, section, sectionHash, brief, doneWhen, taken, quote
     }
 
     public init(from decoder: Decoder) throws {
@@ -250,6 +258,7 @@ public struct DistillUpdate: Codable, Equatable, Identifiable, Sendable {
         brief = try c.decodeIfPresent(String.self, forKey: .brief) ?? ""
         doneWhen = try c.decodeIfPresent(String.self, forKey: .doneWhen) ?? ""
         taken = try c.decodeIfPresent(Bool.self, forKey: .taken)
+        quote = try? c.decodeIfPresent(String.self, forKey: .quote)
     }
 }
 
@@ -332,6 +341,22 @@ public struct DistilledFrom: Codable, Equatable, Sendable {
     /// from it, so each line says only that change, with the words of the one who made it. Nil until then: the section as
     /// the distill read it. What this Mac noticed, so it stays here.
     public var seenText: String?
+    /// The note's words the card came from (lane DS4), which the note marks; nil for a card made before, or from an item
+    /// with none, which the note shows at its section's heading. Shared with the team (`teamJSON`).
+    public var quote: String?
+    /// Lane DS5: a card you put in the note's group by hand, not one Distill made: the note is its parent and nothing more.
+    /// It has no distill or item (both hold the note's id, as a "Distill with…" request's item holds its distill's), no
+    /// section and no words in the note, so nothing of Distill reads it: not the Work panel, the note's marks, a section's
+    /// changes or Distill again. Shared with the team as `by_hand`, without a distill or item, so a Mac before this build
+    /// reads no Distill part on it rather than take it for a card made from the note's opening.
+    public var byHand: Bool?
+    /// Lane DS6: a card made with Put on Board from the note, or from words selected in it: the note is its parent, as
+    /// Distill's cards have theirs, and it stays in the note's group. Made from a selection, it has the selection's words
+    /// (`quote`) and the "## " section they're in, with that section's hash and text, so the note marks it there and its
+    /// section's changes are said on it, as on Distill's; made from the whole note, it has neither and shows after the
+    /// note's title. It has no distill or item (both hold the note's id) and gives an agent no way into the note, as one put
+    /// in by hand doesn't. Shared with the team as `by_hand` with `put`, so a Mac before reads it as put in by hand.
+    public var put: Bool?
 
     /// A section's change, as Binders said it on the card.
     public struct Notice: Codable, Equatable, Sendable {
@@ -355,7 +380,7 @@ public struct DistilledFrom: Codable, Equatable, Sendable {
 
     public init(note: UUID, distill: UUID, item: UUID, section: String? = nil, sectionHash: String? = nil, version: String? = nil,
                 noticedHash: String? = nil, held: Bool? = nil, request: Bool? = nil, change: Notice? = nil, briefUpdated: Date? = nil,
-                closed: Date? = nil, seenText: String? = nil) {
+                closed: Date? = nil, seenText: String? = nil, quote: String? = nil, byHand: Bool? = nil, put: Bool? = nil) {
         self.note = note
         self.distill = distill
         self.item = item
@@ -369,7 +394,39 @@ public struct DistilledFrom: Codable, Equatable, Sendable {
         self.briefUpdated = briefUpdated
         self.closed = closed
         self.seenText = seenText
+        self.quote = quote
+        self.byHand = byHand
+        self.put = put
     }
+
+    /// A card put in `note`'s group by hand (lane DS5).
+    public static func byHand(note: UUID) -> DistilledFrom {
+        DistilledFrom(note: note, distill: note, item: note, byHand: true)
+    }
+
+    /// A card made with Put on Board from `note` (lane DS6): from the whole note (no section, no words), or from words
+    /// selected in it, with the section they're in as it reads now (`sectionText`), from which its changes are told.
+    public static func put(note: UUID, section: String? = nil, sectionText: String? = nil, quote: String? = nil) -> DistilledFrom {
+        DistilledFrom(note: note, distill: note, item: note, section: section, sectionHash: section == nil ? nil : sectionText.map(DistillSections.hash),
+                      seenText: section == nil ? nil : sectionText, quote: quote, put: true)
+    }
+
+    /// Made by Distill from an item of the note: not put in its group by hand, not made with Put on Board, and not a card
+    /// asking an agent to distill it.
+    public var isDistilled: Bool { byHand != true && request != true && put != true }
+
+    /// Whether the agent holding the card may reach its note through it (get_note_version, the note's history): a card
+    /// Distill made, or one asking it to distill the note. Not one put in the note's group by hand (lane DS5) or made with
+    /// Put on Board (lane DS6): those give an agent what they always did, their details and the link.
+    public var opensNote: Bool { byHand != true && put != true }
+
+    /// Whether Binders says on the card when its section changes: a card Distill made, and one made with Put on Board from
+    /// words under a "## " heading (lane DS6). Not a whole note's, or one put in by hand.
+    public var followsSection: Bool { isDistilled || (put == true && section != nil) }
+
+    /// The note whose group the card is in on the board (lane DS5): the one Distill made it from, or the one you put it in.
+    /// Nil for a card that asks an agent to distill a note: it's about the note, not part of its work.
+    public var groupNote: UUID? { request == true ? nil : note }
 
     /// What Binders says on a card when its section changed after the card was made: who, how much, and the changed lines
     /// under it.
@@ -392,11 +449,14 @@ public struct DistilledFrom: Codable, Equatable, Sendable {
 
     /// What the agent holding the card hears once a person has looked at an agent's change: who changed it, how much, and
     /// where to read it, never the agent's words themselves.
-    public static func passedOn(section: String?, note: String, by: String, added: Int = 0, removed: Int = 0) -> String {
+    /// `opensNote` false (a card made with Put on Board, lane DS6): the agent isn't pointed at the note, which the card
+    /// gives it no way into.
+    public static func passedOn(section: String?, note: String, by: String, added: Int = 0, removed: Int = 0, opensNote: Bool = true) -> String {
         let what = section.map { "The \($0) section" } ?? "The opening"
         let much = added + removed > 0 ? ": " + NoteVersions.counts(added: added, removed: removed).lowercased() : ""
-        return "\(what) of “\(note)” changed after this card was made, by \(by)\(much), and the user has looked at it. Work from the section as it is "
-            + "now: get_note_version with this card's id and version \"now\" gives the note."
+        let said = "\(what) of “\(note)” changed after this card was made, by \(by)\(much), and the user has looked at it."
+        guard opensNote else { return said }
+        return said + " Work from the section as it is now: get_note_version with this card's id and version \"now\" gives the note."
     }
 
     /// What of a section's change, said on a card by Binders (`line`), reaches an agent: in its wake, in get_task, in any
@@ -404,8 +464,15 @@ public struct DistilledFrom: Codable, Equatable, Sendable {
     /// and the agent may read teammates' items (`readsTeam`, Settings → MCP). Another agent's changed lines never reach a
     /// different agent: nothing of its change until a person has looked at it, then who changed which section and how
     /// much, and where to read it, as every other case gets. A line whose mark doesn't read gets that short form too.
+    /// A card that gives its agent no way into the note (`SectionChangeMark.withoutNote`, Put on Board's, lane DS6): only
+    /// who changed which section and how much, never its lines, and no pointer to the note; an agent's change not even
+    /// that until a person has looked at it.
     public static func forAgent(_ line: String, mark: SectionChangeMark?, readsTeam: Bool) -> String? {
         guard let mark else { return briefly(line) }
+        if mark.withoutNote == true {
+            if mark.kind == .agent, mark.held == true { return nil }
+            return line.components(separatedBy: "\n").first ?? line
+        }
         switch mark.kind {
         case .person: return line
         case .teammate: return readsTeam ? line : briefly(line)
@@ -453,18 +520,24 @@ public struct SectionChangeMark: Codable, Equatable, Sendable {
     public var removed: Int
     /// An agent's change that no person has looked at yet: nothing of it reaches the agent holding the card.
     public var held: Bool?
+    /// Lane DS6: on a card that gives its agent no way into the note (made with Put on Board): an agent hears who changed
+    /// which section and how much, never the lines. A build before reads the line as it reads Distill's.
+    public var withoutNote: Bool?
 
-    public init(kind: NoteAuthor.Kind, by: String, added: Int = 0, removed: Int = 0, held: Bool? = nil) {
+    public init(kind: NoteAuthor.Kind, by: String, added: Int = 0, removed: Int = 0, held: Bool? = nil, withoutNote: Bool? = nil) {
         self.kind = kind
         self.by = by
         self.added = added
         self.removed = removed
         self.held = held
+        self.withoutNote = withoutNote
     }
 
-    /// The change `author` made: an agent's held until a person looks.
-    public init(_ author: NoteAuthor, added: Int, removed: Int) {
-        self.init(kind: author.kind, by: author.phrase, added: added, removed: removed, held: author.isAgent ? true : nil)
+    /// The change `author` made: an agent's held until a person looks. `withoutNote`: on a card that gives its agent no
+    /// way into the note.
+    public init(_ author: NoteAuthor, added: Int, removed: Int, withoutNote: Bool = false) {
+        self.init(kind: author.kind, by: author.phrase, added: added, removed: removed, held: author.isAgent ? true : nil,
+                  withoutNote: withoutNote ? true : nil)
     }
 
     public var json: String {
@@ -675,8 +748,8 @@ public enum DistillCards {
         return """
             Read the note below and propose work items for it with propose_work_items, giving this card's id. Each item has a \
             title (starting with a verb), a brief (what and why, from the note), done_when (one sentence anyone can check), \
-            section (the "## " heading it comes from, exactly as written), waits_for (the numbers of the items it needs \
-            first), size (small, medium or large) and for (agent, person or either). Propose only: the user reviews your list \
+            section (the "## " heading it comes from, exactly as written), quote (the note's own words it comes from, copied \
+            exactly: a phrase or one line), waits_for (the numbers of the items it needs first), size (small, medium or large) and for (agent, person or either). Propose only: the user reviews your list \
             and places it on the board. Then complete this card.\(marked)
 
             The note, as it is now ([open it](\(NoteCards.link(noteID: note.uuidString)))):

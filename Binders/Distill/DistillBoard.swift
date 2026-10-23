@@ -2,26 +2,57 @@ import Foundation
 import SwiftData
 import BindersKit
 
-/// What the board says about the work distilled from a note, read the same way by the app's Work bar and panel and by the
-/// MCP tools in `Binders --mcp`: the cards placed from it, each as the progress reads it (`DistillProgress.Card`), the
+/// What the board says about the work from a note, read the same way by the app's Work bar and panel and by the MCP tools
+/// in `Binders --mcp`: its cards (lane DS6: Distill's, put in by hand, and made with Put on Board), each as the progress reads it (`DistillProgress.Card`), the
 /// note's progress and report, and a binder's Work list. From the board alone; nothing here writes.
 @MainActor
 enum DistillBoard {
-    /// The cards placed from a note, in the order its distills placed them, then any others made from it by Distill. The
-    /// cards that asked an agent to distill it aren't among them.
+    /// A note's cards (lane DS6, `NoteWorkCards`): the ones Distill placed from it, in the order its distills placed them,
+    /// then the others, oldest first: any other Distill made, the ones you put in its group by hand (lane DS5) and the ones
+    /// made from it with Put on Board, those from before this build among them. The cards that asked an agent to distill
+    /// it aren't among them.
     static func cards(of note: UUID) -> [TaskCard] {
-        let context = Store.shared.context
-        // A card that came back from a team database names its note in lower case (lane DB3): either is the note.
-        let id = note.uuidString, lower = note.uuidString.lowercased()
-        let made = ((try? context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { ($0.sourceID == id || $0.sourceID == lower) && $0.distilledJSON != "" },
-                                                                   sortBy: [SortDescriptor(\.createdAt)]))) ?? [])
-            .filter { $0.distilledFrom.map { $0.note == note && $0.request != true } ?? false }
+        let made = candidates(of: note).filter { $0.groupNote == note }
         let order = DistillStore.shared.file(for: note).distills.flatMap { $0.items.compactMap(\.card) }
         let ranked = Dictionary(order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
         return made.enumerated().sorted { a, b in
             (ranked[a.element.id] ?? order.count + a.offset) < (ranked[b.element.id] ?? order.count + b.offset)
         }.map(\.element)
     }
+
+    /// The cards that may be the note's, oldest first: made from it (a card that came back from a team database names it
+    /// in lower case, lane DB3), or with a Distill part, which may name it.
+    private static func candidates(of note: UUID) -> [TaskCard] {
+        let id = note.uuidString, lower = note.uuidString.lowercased()
+        return (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.sourceID == id || $0.sourceID == lower || $0.distilledJSON != "" },
+                                                                          sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+    }
+
+    /// Which notes have cards, and which of them have cards made with Put on Board whose sections are followed (lane DS6),
+    /// worked out once for each change to the board while the app runs (`DistillService.boardRevision`).
+    private static var known: (revision: Int, work: Set<UUID>, sections: Set<UUID>)?
+
+    private static func index() -> (work: Set<UUID>, sections: Set<UUID>) {
+        let revision = DistillService.shared?.boardRevision
+        if let revision, let known, known.revision == revision { return (known.work, known.sections) }
+        let kind = NoteWorkCards.noteKind
+        let cards = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.sourceKind == kind || $0.distilledJSON != "" }))) ?? []
+        var work: Set<UUID> = [], sections: Set<UUID> = []
+        for card in cards {
+            guard let member = card.noteMembership else { continue }
+            work.insert(member.note)
+            if member.tie == .put, member.from?.followsSection == true, card.column != .done { sections.insert(member.note) }
+        }
+        if let revision { known = (revision, work, sections) }
+        return (work, sections)
+    }
+
+    /// Whether the note has cards on the board, so its editor shows them and the Work bar shows over it (lane DS6).
+    static func hasCards(_ note: UUID) -> Bool { index().work.contains(note) }
+
+    /// Whether the note has open cards made with Put on Board from words under a "## " heading: its sections are then
+    /// followed for them, Distill on or not (lane DS6).
+    static func followsSections(_ note: UUID) -> Bool { index().sections.contains(note) }
 
     /// The cards that asked an agent to distill the note ("Distill with…").
     static func requests(of note: UUID) -> [TaskCard] {
@@ -141,9 +172,19 @@ enum DistillBoard {
         return binder.map { id in notes.filter { $0.binderID == id } } ?? notes
     }
 
-    /// A binder's Work list: each Distill note with its numbers.
+    /// The notes whose work is followed in a binder (every binder for nil), newest first: those with Distill on, and those
+    /// with cards on the board (lane DS6).
+    static func workNotes(in binder: UUID?) -> [NoteItem] {
+        let withCards = index().work.subtracting(notes(in: nil).map(\.id))
+        let ids = Array(withCards)
+        let more = ids.isEmpty ? [] : (try? Store.shared.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { ids.contains($0.id) }))) ?? []
+        let all = (notes(in: nil) + more).sorted { $0.updatedAt > $1.updatedAt }
+        return binder.map { id in all.filter { $0.binderID == id } } ?? all
+    }
+
+    /// A binder's Work list: each note whose work is followed, with its numbers.
     static func workList(in binder: UUID?, now: Date = Date()) -> [DistillProgress.WorkListEntry] {
-        notes(in: binder).map { note in
+        workNotes(in: binder).map { note in
             let counts = counts(of: note.id, now: now)
             let proposed = proposedCount(DistillStore.shared.file(for: note.id))
             return DistillProgress.WorkListEntry(note: note.id.uuidString, title: note.title, counts: counts, line: counts.line,
@@ -152,10 +193,17 @@ enum DistillBoard {
     }
 
     /// The card the agent holding it may read its spec through: its own card, when Distill made it or asked it to distill.
+    /// Not one you put in the note's group by hand (lane DS5) or made with Put on Board (lane DS6): those give an agent no
+    /// way into the note.
     static func note(forCard id: UUID) -> NoteItem? {
         guard let card = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == id })))?.first,
-              let from = card.distilledFrom else { return nil }
+              let from = card.distilledFrom, from.opensNote else { return nil }
         return Store.shared.note(from.note)
+    }
+
+    /// Every card in the note's group on the boards (lanes DS5, DS6): the note's cards (`cards(of:)`), newest first.
+    static func groupCards(of note: UUID) -> [TaskCard] {
+        cards(of: note).sorted { $0.position > $1.position }
     }
 }
 

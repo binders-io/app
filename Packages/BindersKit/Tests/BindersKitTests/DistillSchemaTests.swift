@@ -29,7 +29,7 @@ final class DistillSchemaTests: XCTestCase {
         XCTAssertEqual(list["type"] as? String, "array")
         XCTAssertEqual(list["maxItems"] as? Int, DistillPrompt.maxItems)
         let item = try item(schema)
-        let fields = ["title", "brief", "done_when", "section", "waits_for", "size", "for"]
+        let fields = ["title", "brief", "done_when", "section", "quote", "waits_for", "size", "for"]
         XCTAssertEqual(Set((item["properties"] as? [String: Any])?.keys.map { $0 } ?? []), Set(fields))
         XCTAssertEqual(item["required"] as? [String], fields, "every field, in the prompt's order")
         XCTAssertEqual(item["additionalProperties"] as? Bool, false)

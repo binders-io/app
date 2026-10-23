@@ -360,11 +360,12 @@ struct TeamDatabaseSetUpSheet: View {
     var body: some View {
         Form {
             Section {
-                TextField("Server", text: $host, prompt: Text("team-db.postgres.database.azure.com"))
+                StackedField(label: "Server", text: $host, prompt: "team-db.postgres.database.azure.com", probe: "field.teamdb.server")
                 TextField("Port", text: $port)
-                TextField("Database", text: $database)
+                StackedField(label: "Database", text: $database, probe: "field.teamdb.database")
                 if Self.isAddress(host) {
-                    TextField("Name on its certificate", text: $serverName, prompt: Text("The server's name, which its certificate carries"))
+                    StackedField(label: "Name on its certificate", text: $serverName, prompt: "The server's name, which its certificate carries",
+                                 probe: "field.teamdb.serverName")
                 }
             } header: {
                 Text("The server")
@@ -372,16 +373,16 @@ struct TeamDatabaseSetUpSheet: View {
                 Text("Postgres 15 or later with pgvector, reachable from this Mac inside your VPN. Binders connects only with TLS, and checks the server's certificate.")
             }
             Section {
-                TextField("Admin login", text: $adminLogin)
-                SecureField("Admin password", text: $adminPassword)
+                StackedField(label: "Admin login", text: $adminLogin, probe: "field.teamdb.adminLogin")
+                StackedField(label: "Admin password", text: $adminPassword, secure: true, probe: "field.teamdb.adminPassword")
             } header: {
                 Text("The server's admin login")
             } footer: {
                 Text("Used once, to make the team's roles and tables, and never kept. Members get logins of their own.")
             }
             Section {
-                TextField("Team name", text: $teamName)
-                TextField("Your name in the team", text: $yourName)
+                StackedField(label: "Team name", text: $teamName, probe: "field.teamdb.teamName")
+                StackedField(label: "Your name in the team", text: $yourName, probe: "field.teamdb.yourName")
             } footer: {
                 Text("You become the team's first member, and an admin. This Mac makes your password and keeps it in its Keychain.")
             }
@@ -437,8 +438,8 @@ struct TeamDatabaseUpdateSheet: View {
                 if let server = controller.teamBoard.server {
                     LabeledContent("Database") { Text("\(server.database) on \(server.host)").textSelection(.enabled) }
                 }
-                TextField("Admin login", text: $adminLogin)
-                SecureField("Admin password", text: $adminPassword)
+                StackedField(label: "Admin login", text: $adminLogin, probe: "field.teamdb.update.adminLogin")
+                StackedField(label: "Admin password", text: $adminPassword, secure: true, probe: "field.teamdb.update.adminPassword")
             } header: {
                 Text("The server's admin login")
             } footer: {
@@ -743,11 +744,11 @@ struct TeamAddMemberSheet: View {
                 Text("A headless agent").tag(true)
             }
             .pickerStyle(.segmented)
-            TextField(headless ? "Its login's name, such as Build server" : "Their name", text: $name)
+            StackedField(label: headless ? "Its login's name, such as Build server" : "Their name", text: $name, probe: "field.teamdb.member.name")
                 .onChange(of: name) { _, typed in if !loginEdited { login = TeamNames.login(for: typed, taken: Set(directory.members.values.map(\.login))) } }
-            TextField("Login", text: Binding(get: { login }, set: { login = $0; loginEdited = true }))
+            StackedField(label: "Login", text: Binding(get: { login }, set: { login = $0; loginEdited = true }), probe: "field.teamdb.member.login")
             if headless {
-                TextField("The agent's name on the boards", text: $agentName)
+                StackedField(label: "The agent's name on the boards", text: $agentName, probe: "field.teamdb.member.agentName")
                 Picker("Its owner", selection: Binding(get: { owner ?? directory.me }, set: { owner = $0 })) {
                     ForEach([directory.me].compactMap { $0 } + directory.teammates.map(\.id), id: \.self) { id in
                         Text(id == directory.me ? "You" : directory.memberName(id) ?? "A teammate").tag(Optional(id))
