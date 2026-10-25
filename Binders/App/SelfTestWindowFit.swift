@@ -163,6 +163,10 @@ extension SelfTest {
             // Lane DS5: grouped by note, with several cards chosen: the bar over the columns, every button of it.
             Page(name: "board-several", probes: ["board.header.last", "board.several", "board.several.last"],
                  configure: { $0.selection = .binder; $0.pendingBinderTab = .board }),
+            // A shared board whose team database is out of reach: the line over the columns says so, and the page still fits.
+            // Its words wrap, so measured narrow they once asked for thousands of points and pushed the page off the window.
+            Page(name: "board-unreachable", probes: ["board.header.last", "board.teamReach.unreachable"],
+                 configure: { $0.selection = .binder; $0.pendingBinderTab = .board }),
         ]
         // Every other page fits too, from its smallest: the page lies inside the window.
         let others: [Page] = [
@@ -191,6 +195,8 @@ extension SelfTest {
             AppDefaults.store.set(page.name == "board-several", forKey: BoardView.groupKey(harbor.id))
             BoardView.selectOnOpen = page.name == "board-several" ? boardSeveral : nil
             defer { BoardView.selectOnOpen = nil; AppDefaults.store.removeObject(forKey: BoardView.groupKey(harbor.id)) }
+            TeamReachLine.reachOnOpen = page.name == "board-unreachable" ? .unreachable : nil
+            defer { TeamReachLine.reachOnOpen = nil }
             let window = HubWindowController.makeWindow(hub(page.configure), size: sizes[0])
             window.alphaValue = 0
             window.orderFrontRegardless()
