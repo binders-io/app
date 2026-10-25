@@ -3,7 +3,7 @@ import BindersKit
 
 /// The menu bar's commands whose shortcuts can be changed in Settings → Shortcuts.
 enum MenuCommand: String, CaseIterable, Identifiable {
-    case newNote, newNoteWindow, popOut, foldIntoBubble, putOnBoard, toggleDigest, zoomIn, zoomOut, actualSize, openQuickly, commandPalette
+    case newNote, newNoteWindow, popOut, foldIntoBubble, putOnBoard, distill, toggleDigest, zoomIn, zoomOut, actualSize, openQuickly, commandPalette
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum MenuCommand: String, CaseIterable, Identifiable {
         case .popOut: "Pop Out Note"
         case .foldIntoBubble: "Fold into a Bubble"
         case .putOnBoard: "Put on Board"
+        case .distill: "Distill"
         case .toggleDigest: "Show or Hide the Digest"
         case .zoomIn: "Zoom In"
         case .zoomOut: "Zoom Out"
@@ -31,6 +32,8 @@ enum MenuCommand: String, CaseIterable, Identifiable {
         case .foldIntoBubble: Hotkey(modifiers: [.command, .option], keyCode: 11)     // ⌥⌘B
         // Lane DS6: the selection in the note (or the whole note) as a card. ⌥⌘B is Fold into a Bubble's.
         case .putOnBoard: Hotkey(modifiers: [.command, .shift], keyCode: 11)          // ⇧⌘B
+        // Lane DS9: the note in front, as its Distill button does.
+        case .distill: Hotkey(modifiers: [.command, .shift], keyCode: 2)              // ⇧⌘D
         case .toggleDigest: Hotkey(modifiers: [.command, .option], keyCode: 34)       // ⌥⌘I
         case .zoomIn: Hotkey(modifiers: .command, keyCode: 24)                        // ⌘=
         case .zoomOut: Hotkey(modifiers: .command, keyCode: 27)                       // ⌘-
@@ -47,6 +50,7 @@ enum MenuCommand: String, CaseIterable, Identifiable {
         case .popOut: #selector(HubWindowController.popOutNote(_:))
         case .foldIntoBubble: #selector(HubWindowController.foldIntoBubble(_:))
         case .putOnBoard: #selector(HubWindowController.putOnBoard(_:))
+        case .distill: #selector(HubWindowController.distillNote(_:))
         case .toggleDigest: #selector(HubWindowController.toggleDigest(_:))
         case .zoomIn: #selector(HubWindowController.zoomIn(_:))
         case .zoomOut: #selector(HubWindowController.zoomOut(_:))

@@ -7,6 +7,8 @@ extension DistillService {
     /// A Distill note is changing, or changed, by `author` (NoteHistory says): an agent's or a teammate's change is looked
     /// at once it lands, with any typing of yours before it looked at first, as yours; your own typing once it settles.
     func noteChanged(_ id: UUID, by author: NoteAuthor) {
+        // Lane DS9: your typing, read again in the background once it pauses, for a note with Distill on.
+        if author.isYou { background.typed(id) }
         if author.isYou {
             settling[id]?.cancel()
             settling[id] = Task { [weak self] in

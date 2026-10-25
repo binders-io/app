@@ -19,6 +19,9 @@ struct DistillReviewSheet: View {
     @State private var placedLine: String?
     /// An item meant for a teammate's agent you haven't said yes to giving cards (lane DB2): asked before placing.
     @State private var asking: TeamConsent?
+    /// Suggest Who Again is asking the decision model (lane AS1), and what it found.
+    @State private var suggesting = false
+    @State private var suggestedLine: String?
 
     init(distill: DistillRecord, note: NoteItem) {
         _distill = State(initialValue: distill)
@@ -45,6 +48,8 @@ struct DistillReviewSheet: View {
                                           others: distill.items.indices.filter { $0 != index && !distill.items[$0].dropped }.map { distill.items[$0] },
                                           sections: DistillSections.sections(of: note.text).compactMap(\.heading),
                                           people: people(for: distill.items[index]),
+                                          pickedBy: DistillMeantFor.pickedLine(how: distill.items[index].meantForHow, meantFor: distill.items[index].meantFor,
+                                                                               readBy: distill.readBy, readByAgent: distill.readByAgent),
                                           wouldCircle: { wouldCircle(distill.items[index].id, with: $0) },
                                           actions: actions(for: index, position: position))
                     }
@@ -65,6 +70,8 @@ struct DistillReviewSheet: View {
         .frame(width: 860, height: 640)
         .pageGround()
         .onDisappear { controller.distill.save(distill) }
+        // Lane DS8: who the decision model suggests comes after the sheet opens, into the items still meant for no one.
+        .onChange(of: controller.distill.suggestedRevision) { takeSuggestions() }
     }
 
     private var header: some View {
@@ -85,8 +92,91 @@ struct DistillReviewSheet: View {
                     .font(.caption)
                     .foregroundStyle(BindersTheme.agent)
             }
+            whoLines
         }
         .padding(16)
+    }
+
+    /// The open items meant for no one that you didn't leave so: what Suggest Who Again asks about.
+    private var unassigned: [Int] { open.filter { distill.items[$0].meantFor == nil && distill.items[$0].meantForHow != "you" } }
+
+    /// Lane AS1: agents Distill can only guess about, with the way to Settings → Agents; and Suggest Who Again for the
+    /// items meant for no one.
+    @ViewBuilder private var whoLines: some View {
+        if let line = DistillMeantFor.noPurposeLine(controller.distill.withoutPurpose(in: note.binderID)) {
+            HStack(spacing: 6) {
+                StatusLabel(line, .waiting).font(.caption)
+                Button("Open Settings → Agents") {
+                    // The proposal waits on the Work bar, as with Not Now.
+                    controller.distill.save(distill)
+                    dismiss()
+                    HubWindowController.shared.navigation.pendingSettingsPage = .agents
+                    HubWindowController.shared.show(section: .settings)
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+        }
+        let suggesting = suggesting || controller.distill.suggesting.contains(distill.id)
+        if !unassigned.isEmpty || suggesting || suggestedLine != nil {
+            HStack(spacing: 8) {
+                if !unassigned.isEmpty || suggesting {
+                    Button("Suggest Who Again") { suggestAgain() }
+                        .controlSize(.small)
+                        .disabled(suggesting)
+                        .help("Ask the decision model again, with your agents as they are now, who the items meant for no one are for. What you chose stays.")
+                }
+                if suggesting {
+                    ProgressView().controlSize(.small)
+                    Text("Asking the decision model…").font(.caption).foregroundStyle(.secondary)
+                } else if let suggestedLine {
+                    Text(suggestedLine).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Suggest Who Again: the decision model asked for the open items meant for no one; what it suggests fills only those
+    /// still meant for no one when it answers, so nothing you chose meanwhile changes.
+    private func suggestAgain() {
+        let asked = unassigned.map { distill.items[$0] }
+        guard !asked.isEmpty else { return }
+        suggesting = true
+        suggestedLine = nil
+        Task {
+            let result = await controller.distill.suggestAgain(asked, binder: note.binderID)
+            var filled = 0
+            for item in result.items where item.meantFor != nil {
+                guard let index = distill.items.firstIndex(where: { $0.id == item.id }),
+                      distill.items[index].meantFor == nil, distill.items[index].meantForHow != "you" else { continue }
+                distill.items[index].meantFor = item.meantFor
+                distill.items[index].meantForHow = item.meantForHow
+                filled += 1
+            }
+            suggesting = false
+            suggestedLine = Self.suggestedLine(filled: filled, asked: asked.count)
+        }
+    }
+
+    /// The decision model's suggestions made after the proposal (lane DS8, `DistillService.suggestLater`), as kept: each
+    /// into an item here still meant for no one that you didn't leave so.
+    private func takeSuggestions() {
+        guard let stored = DistillStore.shared.distill(distill.id, of: note.id) else { return }
+        for item in stored.items where item.meantFor != nil {
+            guard let index = distill.items.firstIndex(where: { $0.id == item.id }), distill.items[index].meantFor == nil,
+                  distill.items[index].meantForHow != "you" else { continue }
+            distill.items[index].meantFor = item.meantFor
+            distill.items[index].meantForHow = item.meantForHow
+        }
+    }
+
+    /// What Suggest Who Again found, in a sentence.
+    static func suggestedLine(filled: Int, asked: Int) -> String {
+        if filled == 0 {
+            return "The decision model had no suggestion: it wasn't sure, or isn't set up in Settings → AI. Choose who in For."
+        }
+        let items = filled == 1 ? "1 item" : "\(filled) items"
+        return filled == asked ? "Suggested who for \(items)." : "Suggested who for \(items) of \(asked); choose who for the rest in For."
     }
 
     /// ", in 4 parts, as the note is long": how a long note was read (lane DS2); nothing for one read whole.
@@ -293,6 +383,8 @@ struct DistillItemEditor: View {
     let others: [DistillItem]
     let sections: [String]
     let people: [String]
+    /// Who picked who it's for, in a few words (`DistillMeantFor.pickedLine`), or nil.
+    var pickedBy: String? = nil
     let wouldCircle: ([UUID]) -> Bool
     let actions: Actions
 
@@ -358,8 +450,8 @@ struct DistillItemEditor: View {
                         ForEach(people, id: \.self) { Text($0 == BoardActor.you.name ? "You" : $0).tag($0) }
                     }
                     .frame(maxWidth: 200)
-                    if item.meantForHow == "model", item.meantFor != nil {
-                        Text("Binders' suggestion").font(.caption).foregroundStyle(.secondary)
+                    if let pickedBy {
+                        Text(pickedBy).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 .controlSize(.small)

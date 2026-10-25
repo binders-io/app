@@ -387,6 +387,11 @@ private struct PopoutNoteView: View {
     /// Every note's own window follows the same choice: its Work panel shown or not.
     @AppStorage(NotePopouts.workPanelKey, store: AppDefaults.store) private var workShown = false
     @AppStorage(DistillNoteMarks.shownKey, store: AppDefaults.store) private var showWork = true
+    /// Lane DS9: the Distill list, beside the note or over it, and where Distill's motion is drawn in this window.
+    @State private var distillShown = false
+    @State private var stage = DistillStage()
+    @Environment(\.binderTint) private var binderTint
+    @ReducedMotion private var reduceMotion
 
     /// From this width, the Work panel goes beside the note, this wide; narrower, in its place.
     static let panelBeside: CGFloat = 560
@@ -411,6 +416,15 @@ private struct PopoutNoteView: View {
             Self.put(note, selection: NSRange(location: 0, length: 0), eachLine: false, controller: controller)
         }
         .onDisappear { TeamNotes.current?.closed(note.id) }
+        // Lane DS9: Distill (its button, the Note menu, the Work bar) opens the list in this window too.
+        .onReceive(NotificationCenter.default.publisher(for: DistillActions.show)) { notification in
+            guard notification.userInfo?["note"] as? UUID == note.id else { return }
+            withAnimation(BindersTheme.motion(BoardDesign.settle, reduced: reduceMotion)) { distillShown = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: DistillActions.fromMenu)) { notification in
+            guard let controller, notification.userInfo?["note"] as? UUID == note.id, notification.userInfo?["popout"] as? Bool == true else { return }
+            DistillActions.press(note, controller: controller, popout: true)
+        }
         .paperSheet(raised: false)
         .overlay(alignment: .top) {
             look.color.frame(height: 3).ignoresSafeArea()
@@ -434,21 +448,44 @@ private struct PopoutNoteView: View {
     private func page(beside: Bool) -> some View {
         // Lane DS6: any note with cards on the board, Distill on or not.
         if let controller, note.distill || hasCards(controller) {
+            let listShown = distillShown && note.distill
             VStack(spacing: 0) {
                 WorkBar(note: note, panelShown: $workShown, compact: true, panelInPlace: !beside)
                     .padding(.horizontal, 8)
                     .padding(.top, 6)
                 HStack(spacing: 0) {
-                    if !workShown || beside { editor(controller) }
-                    if workShown {
+                    if !(workShown && !listShown) || beside { editor(controller, listShown: listShown) }
+                    if listShown {
+                        // Lane DS9: the Distill list beside the note; narrower, over the note until it's closed.
+                        if beside {
+                            Divider()
+                            DistillListPanel(note: note, onClose: { distillShown = false }).padding(12).frame(width: Self.panelWidth + 20)
+                        }
+                    } else if workShown {
                         if beside { Divider() }
                         ScrollView { WorkPanel(note: note).padding(12) }
                             .frame(width: beside ? Self.panelWidth : nil)
                             .frame(maxWidth: beside ? nil : .infinity)
                     }
                 }
+                .overlay {
+                    if listShown, !beside {
+                        DistillListPanel(note: note, onClose: { distillShown = false })
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BindersTheme.surface))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(BindersTheme.line))
+                            .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+                            .padding(8)
+                            .transition(.opacity)
+                    }
+                }
             }
+            .distillStage(stage, note: note, listShown: listShown)
             .environment(controller)
+        } else if let controller {
+            editor(controller, listShown: false)
+                .distillStage(stage, note: note, listShown: false)
+                .environment(controller)
         } else {
             editor(nil)
         }
@@ -462,15 +499,32 @@ private struct PopoutNoteView: View {
 
     /// The editor; for a Distill note, hovering a heading says who last changed its section and the cards made from it.
     /// Put on Board (lane DS6) puts the words selected in it, or the whole note, and says so.
-    private func editor(_ controller: DictationController?) -> some View {
+    private func editor(_ controller: DictationController?, listShown: Bool = false) -> some View {
         var tip: ((String) -> String?)?
         if note.distill, let controller { tip = { [note] heading in controller.distill.headingTip(heading, in: note) } }
         let put: ((NSRange, Bool) -> Void)? = controller.map { controller in
             { [note] selection, eachLine in Self.put(note, selection: selection, eachLine: eachLine, controller: controller) }
         }
+        // Lane DS9: the Distill button in its toolbar, and the list's items lit in the note.
+        let accessories = controller.map { controller in
+            AnyView(DistillButton(note: note, popout: true).environment(controller))
+        }
+        var distill: EditorDistill?
+        if let controller, note.distill {
+            let service = controller.distill
+            let list = service.list(for: note.id)
+            let accent = binderTint.map { BinderPalette.nsColor($0.index) } ?? BindersTheme.NS.accent
+            distill = list.editorDistill(service: service, rows: list.rows(service, text: note.text), stage: stage, accent: accent,
+                                         reduceMotion: reduceMotion, listShown: listShown) { [note] id in
+                list.selected = id
+                DistillActions.open(note.id, popout: true)
+            }
+        }
         return MarkdownNoteEditor(text: $note.text, fontSize: 14, placeholder: "Write, or hold fn to dictate.", inset: NSSize(width: 14, height: 10),
-                                  compactToolbar: true, links: LinkTargets.forNote(note), focused: focused, paper: true, headingTip: tip,
-                                  work: controller.flatMap { DistillNoteMarks.work(for: note, controller: $0, shown: showWork) }, putOnBoard: put)
+                                  compactToolbar: true, links: LinkTargets.forNote(note), focused: focused,
+                                  accessories: Store.shared.canSave ? accessories : nil, paper: true, headingTip: tip,
+                                  work: controller.flatMap { DistillNoteMarks.work(for: note, controller: $0, shown: showWork) }, putOnBoard: put,
+                                  distill: distill)
     }
 
     private static func put(_ note: NoteItem, selection: NSRange, eachLine: Bool, controller: DictationController) {

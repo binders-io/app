@@ -52,10 +52,10 @@ struct CardDetailView: View {
                     // A short window (under about 700 pt, its title bar with it): the approval's text in its shorter box.
                     CardConversationColumn(card: card, events: events, registry: registry, draft: $draft, problem: $problem,
                                            editingContext: $editingContext, close: close, compactApproval: geometry.size.height < 668,
-                                           detailsOver: !docked && detailsOver ? AnyView(detailsPanel(overlaid: true)) : nil)
+                                           detailsOver: !docked && detailsOver ? AnyView(detailsPanel(overlaid: true, width: geometry.size.width)) : nil)
                     if docked {
                         Divider()
-                        detailsPanel(overlaid: false)
+                        detailsPanel(overlaid: false, width: geometry.size.width)
                     }
                 }
             }
@@ -117,8 +117,8 @@ struct CardDetailView: View {
     }
 
     @ViewBuilder
-    private func detailsPanel(overlaid: Bool) -> some View {
-        let panel = CardDetailsPanel(card: card, confirmDelete: $confirmDelete)
+    private func detailsPanel(overlaid: Bool, width: CGFloat) -> some View {
+        let panel = CardDetailsPanel(card: card, confirmDelete: $confirmDelete, hide: { toggleDetails(width: width) })
             .frame(width: CardLayout.detailsWidth)
             .frame(maxHeight: .infinity, alignment: .top)
         if overlaid {
@@ -263,10 +263,13 @@ struct CardHeader: View {
                 DoingLine(agent: card.assignee ?? "The agent", line: line, lines: 2, words: BindersTheme.muted)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .cardIdentityPanel()
+        .padding(.horizontal, 16)
         // Just under the title bar, and under the tab bar when cards are tabs: the window's safe area holds both.
-        .padding(.top, 2)
-        .padding(.bottom, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
         .teamConsent($asking) { consent in
             controller.teamBoard.agree(to: consent.agent)
             giveTo(consent.name)
@@ -284,9 +287,9 @@ struct CardHeader: View {
     @MainActor static var titleTops: [UUID: CGFloat] = [:]
 
     private var titleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             TextField("Title", text: $card.title, axis: .vertical)
-                .font(BindersTheme.title(22))
+                .font(CardDesign.title)
                 .textFieldStyle(.plain)
                 .lineLimit(1...2)
                 .accessibilityLabel("Title")
@@ -300,6 +303,23 @@ struct CardHeader: View {
                     }
                 }
             Spacer(minLength: 12)
+            // The quick ways back to where the card lives: its board and, when it's a note's, the note.
+            Button { navigation.showOnBoard(card) } label: {
+                Image(systemName: "rectangle.split.3x1")
+            }
+            .buttonStyle(.borderless)
+            .quietControl()
+            .help("Show it on its board")
+            .accessibilityLabel("Show on Board")
+            if let note = card.groupNote.flatMap({ Store.shared.note($0) }) {
+                Button { open(note) } label: {
+                    Image(systemName: "square.stack.3d.down.right")
+                }
+                .buttonStyle(.borderless)
+                .quietControl()
+                .help("Open “\(note.title)”")
+                .accessibilityLabel("Open the note")
+            }
             Button(action: toggleDetails) { Image(systemName: "sidebar.right") }
                 .buttonStyle(.borderless)
                 .quietControl()
@@ -309,8 +329,15 @@ struct CardHeader: View {
             moreMenu
             // An ordinary button: Return never closes the card from a focused chip or button.
             Button("Done", action: close)
+                .buttonStyle(.bordered)
                 .help("Close the card (Esc)")
         }
+    }
+
+    /// The note this card is part of, opened at the note in the Binders window.
+    private func open(_ note: NoteItem) {
+        HubWindowController.shared.navigation.open(note: note)
+        HubWindowController.shared.show()
     }
 
     private var moreMenu: some View {
@@ -381,7 +408,8 @@ struct CardHeader: View {
     }
 
     private var chips: some View {
-        HStack(spacing: 6) {
+        // They wrap at a narrow width, so every chip stays whole and pressable rather than running off the card.
+        Wrapping(spacing: 6, lineSpacing: 6) {
             BinderChip(binderID: card.binderID, column: card.column,
                        move: { target in attempt { try controller.router.move(card, to: target) } },
                        showOnBoard: { navigation.showOnBoard(card) })
@@ -390,7 +418,6 @@ struct CardHeader: View {
             // In every column, as today's Due checkbox is: a Done card can still be given a date.
             DueChip(card: card)
         }
-        .fixedSize()
     }
 
     @ViewBuilder
@@ -538,7 +565,8 @@ struct Prominent: ViewModifier {
 
 // MARK: - The chips
 
-/// A chip's look: a glyph in its colour, ink words, a small chevron when it opens a menu or a popover, on a faint capsule.
+/// A chip's look: a glyph in its colour, ink words, a small chevron when it opens a menu or a popover, on a soft rounded
+/// chip. Under the pointer it lifts its fill and edge.
 private struct ChipLabel: View {
     var glyph: String?
     var glyphColor: Color = BindersTheme.muted
@@ -548,17 +576,7 @@ private struct ChipLabel: View {
     var opens = true
 
     var body: some View {
-        HStack(spacing: 5) {
-            if let glyph { Image(systemName: glyph).imageScale(.small).foregroundStyle(glyphColor).accessibilityHidden(true) }
-            Text(words).foregroundStyle(BindersTheme.ink).lineLimit(1)
-            if let trailing { Text(trailing).monospacedDigit().foregroundStyle(BindersTheme.muted).lineLimit(1).fixedSize() }
-            if opens { Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(BindersTheme.muted).accessibilityHidden(true) }
-        }
-        .font(.caption.weight(.medium))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(fill))
-        .contentShape(Capsule())
+        CardChipLabel(glyph: glyph, glyphColor: glyphColor, words: words, trailing: trailing, fill: fill, opens: opens)
     }
 }
 
@@ -569,6 +587,7 @@ struct BinderChip: View {
     let column: BoardColumn
     let move: (BinderRecord) -> Void
     let showOnBoard: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         let binder = Store.shared.binder(binderID)
@@ -578,18 +597,31 @@ struct BinderChip: View {
             }
             Button("Show on Board", action: showOnBoard)
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 if let binder {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous).fill(BinderPalette.color(binder.colorIndex)).frame(width: 10, height: 10)
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(BinderPalette.color(binder.colorIndex))
+                        .frame(width: 11, height: 11)
                 }
-                Text(binder?.name ?? "No binder").foregroundStyle(BindersTheme.ink).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(BindersTheme.muted).accessibilityHidden(true)
+                Text(binder?.name ?? "No binder").font(CardDesign.chip).foregroundStyle(BindersTheme.ink).lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(BindersTheme.muted)
+                    .accessibilityHidden(true)
             }
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(BindersTheme.ink.opacity(0.07)))
-            .contentShape(Capsule())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: CardDesign.chipRadius, style: .continuous)
+                .fill(BindersTheme.ink.opacity(hovering ? 0.12 : 0.07)))
+            .overlay {
+                RoundedRectangle(cornerRadius: CardDesign.chipRadius, style: .continuous)
+                    .strokeBorder(hovering ? BindersTheme.lineStrong : BindersTheme.line)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: CardDesign.chipRadius, style: .continuous))
+            .onHover { inside in
+                withAnimation(CardDesign.hover) { hovering = inside }
+                if inside { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+            }
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -865,18 +897,34 @@ private extension String {
 struct CardDetailsPanel: View {
     @Bindable var card: TaskCard
     @Binding var confirmDelete: Bool
+    /// Hides the panel, from its own header.
+    var hide: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Description").font(.caption.weight(.semibold)).foregroundStyle(BindersTheme.muted)
-            MarkdownNoteEditor(text: $card.details, fontSize: 13, placeholder: "What's this about? What does done look like?",
-                               inset: NSSize(width: 6, height: 6), compactToolbar: true, links: LinkTargets.forEditor(in: card.binderID))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Details").font(CardDesign.panelTitle)
+                Spacer(minLength: 8)
+                if let hide {
+                    Button(action: hide) {
+                        Image(systemName: "sidebar.right")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .quietControl()
+                    .help("Hide Details")
+                    .accessibilityLabel("Hide Details")
+                }
+            }
+            CardSectionTitle(text: "Description")
+            MarkdownNoteEditor(text: $card.details, fontSize: 14, placeholder: "What's this about? What does done look like?",
+                               inset: NSSize(width: 8, height: 8), compactToolbar: true, links: LinkTargets.forEditor(in: card.binderID))
                 .frame(minHeight: 160, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.surface))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(BindersTheme.line))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BindersTheme.surface))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(BindersTheme.line))
             if !card.links.isEmpty {
-                Text("Links").font(.caption.weight(.semibold)).foregroundStyle(BindersTheme.muted).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 4) {
+                CardSectionTitle(text: "Links")
+                VStack(alignment: .leading, spacing: 5) {
                     ForEach(card.links, id: \.self) { link in linkRow(link) }
                 }
             }
@@ -886,22 +934,24 @@ struct CardDetailsPanel: View {
                 // Lane DS1: its spec, its section and what changed in it since, and what it waits for.
                 DistilledFromPanel(card: card)
             } else if let source = card.sourceTitle {
-                Label("From \(source)", systemImage: "arrow.turn.down.right").font(.caption).foregroundStyle(BindersTheme.muted)
+                Label("From \(source)", systemImage: "arrow.turn.down.right")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(BindersTheme.muted)
             }
             if !card.waitsFor.isEmpty { CardWaitsPanel(card: card) }
             if card.sourceRef != nil {
                 Label("Its to-do is ticked off when this card is done.", systemImage: "checklist")
-                    .font(.caption)
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(BindersTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Button("Delete Card…", role: .destructive) { confirmDelete = true }
                 .buttonStyle(.borderless)
                 .quietControl(words: true)
-                .font(.caption)
+                .font(.system(size: 11.5, weight: .medium))
                 .padding(.top, 4)
         }
-        .padding(14)
+        .padding(16)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Details")
     }
@@ -911,14 +961,34 @@ struct CardDetailsPanel: View {
     @ViewBuilder
     private func linkRow(_ link: String) -> some View {
         let symbol = ApprovalBox.web(link) != nil ? "link" : "doc"
+        let row = HStack(spacing: 7) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(BindersTheme.ink.opacity(0.06))
+                .overlay {
+                    Image(systemName: symbol)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(BindersTheme.muted)
+                }
+                .frame(width: 18, height: 18)
+                .accessibilityHidden(true)
+            Text(link)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .cardBubble(fill: BindersTheme.surface2, edge: BindersTheme.line)
         if CardActions.opens(link) {
-            Button { CardActions.open(link: link) } label: {
-                Label(link, systemImage: symbol).lineLimit(1).truncationMode(.middle)
-            }
-            .themedLink()
-            .help(ApprovalBox.web(link) != nil ? "Open it in your browser" : CardActions.runLog(link) != nil ? "Open the run's log" : "Show it in the Finder")
+            Button { CardActions.open(link: link) } label: { row }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tintText)
+                .help(ApprovalBox.web(link) != nil ? "Open it in your browser" : CardActions.runLog(link) != nil ? "Open the run's log" : "Show it in the Finder")
         } else {
-            Label(link, systemImage: "link").font(.callout).foregroundStyle(BindersTheme.muted).textSelection(.enabled).lineLimit(2)
+            row
+                .foregroundStyle(BindersTheme.muted)
+                .textSelection(.enabled)
         }
     }
 }

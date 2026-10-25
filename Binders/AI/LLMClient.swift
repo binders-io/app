@@ -46,12 +46,32 @@ protocol LLMClient: Sendable {
     /// How many tokens the model reads at once (its context: the prompt and the reply together), where Binders can tell:
     /// what Distill sizes the parts of a long note by (lane DS2). Nil when it can't.
     func contextTokens() async -> Int?
+    /// Where the model runs: in Binders, on a server on this Mac, or elsewhere. A slow model here has a long note read in
+    /// smaller parts (lane DS7, `DistillBudget.paced`).
+    var place: ModelPlace { get }
+    /// How many of a Distill reading's parts it may be asked at once (lane DS8): a server that answers more than one
+    /// request at a time; 1 for a model in Binders, whose container answers one at a time.
+    var concurrentAsks: Int { get }
+    /// Loads the model ahead of its first request where that frees no other model (lane DS8, a model in Binders: Distill's,
+    /// when a note with Distill on is opened). Whether it's loaded now; false where the client doesn't load models.
+    func warmBeside() async -> Bool
 }
 
 extension LLMClient {
     func unload() async {}
     func residency() async -> ModelResidency? { nil }
     func contextTokens() async -> Int? { nil }
+    var place: ModelPlace { .elsewhere }
+    var concurrentAsks: Int { 1 }
+    func warmBeside() async -> Bool { false }
+
+    /// A server's: `defaults write io.binders.mac distillConcurrency -int N` (1 to 4), 2 when not set. Ollama answers that
+    /// many when its OLLAMA_NUM_PARALLEL allows (it does by default), llama.cpp when started with that many slots (-np);
+    /// one that answers one at a time just answers them in turn.
+    static var serverConcurrency: Int {
+        let set = AppDefaults.store.object(forKey: "distillConcurrency") as? Int ?? 2
+        return min(4, max(1, set))
+    }
 
     /// A client that can't hold a reply to a schema: the reply as it comes.
     func stream(system: String, user: String, maxTokens: Int, temperature: Double, timeout: TimeInterval, schema: ReplySchema,
@@ -118,6 +138,9 @@ struct LanedClient: LLMClient {
     func unload() async { await inner.unload() }
     func residency() async -> ModelResidency? { await inner.residency() }
     func contextTokens() async -> Int? { await inner.contextTokens() }
+    var place: ModelPlace { inner.place }
+    var concurrentAsks: Int { inner.concurrentAsks }
+    func warmBeside() async -> Bool { await inner.warmBeside() }
 }
 
 /// A JSON schema a reply is held to, where the model's client can hold it (lane DS3; Distill's is `DistillSchema`).
@@ -133,6 +156,34 @@ struct ReplySchema: Sendable {
     /// When to stop a reply that ends up not held to the schema (a client that can't, a server that turned it down), in
     /// place of the `stopWhen` given for a held one; nil for the same.
     var stopWhenNotHeld: (@Sendable (String) -> Bool)?
+    /// Lane DS8: the start of the question every ask of one reading shares (Distill v2's title and headings): a model in
+    /// Binders keeps what it read of the instructions and this, and reads only the rest for the next ask
+    /// (`MLXPrefixCache`). Nil for none.
+    var userPrefix: String? = nil
+    /// About how many tokens one item of the reply takes (Distill v2's 30): the zone that brings a reply to a close near
+    /// its limit is sized from it rather than from the last third of the reply. Nil for the last third.
+    var itemTokens: Int? = nil
+}
+
+/// How one reply went, in tokens, where the client counts them (a model in Binders, lane DS8): the question read
+/// (`prefill`, of which `reused` were kept from the ask before), the answer written, and the seconds each took.
+struct ReplyTokens: Sendable, Equatable {
+    var prefill: Int
+    var reused: Int
+    var decode: Int
+    var prefillSeconds: Double
+    var decodeSeconds: Double
+
+    var prefillPerSecond: Double? { prefillSeconds > 0.01 && prefill > reused ? Double(prefill - reused) / prefillSeconds : nil }
+    var decodePerSecond: Double? { decodeSeconds > 0.01 && decode > 0 ? Double(decode) / decodeSeconds : nil }
+
+    /// "prefill 2,140 tokens (1,600 kept from the last ask) in 1.8 s, 300 a second; wrote 412 in 25.0 s, 16.5 a second"
+    var line: String {
+        let kept = reused > 0 ? " (\(reused) kept from the ask before)" : ""
+        let reads = prefillPerSecond.map { String(format: ", %.0f a second", $0) } ?? ""
+        let writes = decodePerSecond.map { String(format: ", %.1f a second", $0) } ?? ""
+        return "read \(prefill) tokens\(kept) in \(String(format: "%.1f", prefillSeconds)) s\(reads); wrote \(decode) in \(String(format: "%.1f", decodeSeconds)) s\(writes)"
+    }
 }
 
 /// A reply asked for with a schema, and whether it was held to it.
@@ -141,6 +192,10 @@ struct SchemaReply: Sendable {
     var held: Bool
     /// Why it wasn't, for the log and the bench.
     var why: String?
+    /// How it came, for a reply asked at a pace (`paced`, lane DS7).
+    var timing: StreamTiming? = nil
+    /// Its tokens, where the client counts them (lane DS8).
+    var tokens: ReplyTokens? = nil
 }
 
 /// Servers that turned a reply's schema down (`format`, `response_format`) once: asked without it from then on, until
@@ -288,6 +343,9 @@ struct OllamaClient: LLMClient {
     var keepAliveSeconds: Int = 900
 
     private var keepAlive: Int { keepAliveSeconds < 0 ? -1 : keepAliveSeconds }
+
+    var place: ModelPlace { ModelPlace.server(baseURL) }
+    var concurrentAsks: Int { Self.serverConcurrency }
 
     private var chatURL: URL { baseURL.appendingPathComponent("api/chat") }
 
@@ -437,6 +495,9 @@ struct OpenAICompatibleClient: LLMClient {
     private var headers: [String: String] {
         apiKey.map { ["Authorization": "Bearer \($0)"] } ?? [:]
     }
+
+    var place: ModelPlace { ModelPlace.server(baseURL) }
+    var concurrentAsks: Int { Self.serverConcurrency }
 
     private var chatURL: URL { baseURL.appendingPathComponent("chat/completions") }
 
@@ -597,5 +658,146 @@ struct OpenAICompatibleClient: LLMClient {
             if let tokens = number(entry[key]), tokens > 0 { return tokens }
         }
         return nil
+    }
+}
+
+extension ModelPlace {
+    /// A server's place: on this Mac when its address is this Mac's own (localhost, 127.0.0.1, ::1), else elsewhere.
+    static func server(_ url: URL) -> ModelPlace {
+        ["localhost", "127.0.0.1", "::1", "[::1]"].contains(url.host?.lowercased() ?? "") ? .thisMac : .elsewhere
+    }
+}
+
+// MARK: - A reply at a pace (lane DS7)
+
+extension LLMClient {
+    /// A reply that may take as long as the model keeps writing (`StreamPace`), for Distill's asks: it's stopped only when
+    /// its first words don't come in time, when nothing new comes for the idle limit, at the ceiling, or when `stopped`
+    /// says you stopped it; then `StreamStopped` is thrown with what it had written, and the model's own request is
+    /// cancelled behind it (MLX stops at its next token; a server's connection is closed, which stops it). Held to `schema`
+    /// where the client can hold it; nil asks without one (`SchemaReply.held` false). The client's own limit is set past the
+    /// ceiling, so the pace decides. Other callers keep their fixed `timeout`. Every client goes this way, as each tells
+    /// `onText` the reply so far as it grows; for a server, URLRequest's timeout was already a limit between reads, not
+    /// on the whole reply.
+    func paced(system: String, user: String, maxTokens: Int, temperature: Double, pace: StreamPace, schema: ReplySchema?,
+               stopWhen: @escaping @Sendable (String) -> Bool, stopped: @escaping @Sendable () -> Bool = { false },
+               onText: @escaping @Sendable (String) -> Void = { _ in }) async throws -> SchemaReply {
+        let watch = PaceWatch(pace: pace)
+        let client = self
+        let timeout = pace.ceiling + 30
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SchemaReply, Error>) in
+                watch.begin(continuation)
+                let work = Task {
+                    do {
+                        let heard: @Sendable (String) -> Void = { text in
+                            watch.wrote(text)
+                            onText(text)
+                        }
+                        var reply: SchemaReply
+                        if let schema {
+                            reply = try await client.stream(system: system, user: user, maxTokens: maxTokens, temperature: temperature, timeout: timeout,
+                                                            schema: schema, stopWhen: stopWhen, onText: heard)
+                        } else {
+                            let text = try await client.stream(system: system, user: user, maxTokens: maxTokens, temperature: temperature,
+                                                               timeout: timeout, stopWhen: stopWhen, onText: heard)
+                            reply = SchemaReply(text: text, held: false, why: nil)
+                        }
+                        reply.timing = watch.timing(characters: reply.text.count)
+                        watch.finish(.success(reply))
+                    } catch {
+                        watch.finish(.failure(error))
+                    }
+                }
+                let timer = Task {
+                    while !Task.isCancelled, !watch.isDone {
+                        try? await Task.sleep(for: .seconds(pace.tick))
+                        if let stop = watch.check(stopped: stopped()) { watch.finish(.failure(stop)) }
+                    }
+                }
+                watch.attach([work, timer])
+            }
+        } onCancel: {
+            watch.finish(.failure(CancellationError()))
+        }
+    }
+}
+
+/// What a reply at a pace has done so far: when it started, when new words last came, and what it had written; it
+/// answers its caller once, with the reply, an error, or a stop, and cancels the rest.
+private final class PaceWatch: @unchecked Sendable {
+    let pace: StreamPace
+    private let lock = NSLock()
+    private let start = Date()
+    private var first: Date?
+    private var last: Date?
+    private var text = ""
+    private var done = false
+    private var continuation: CheckedContinuation<SchemaReply, Error>?
+    /// An answer that came before the caller was waiting for it (cancelled at once).
+    private var early: Result<SchemaReply, Error>?
+    private var tasks: [Task<Void, Never>] = []
+
+    init(pace: StreamPace) { self.pace = pace }
+
+    var isDone: Bool { lock.withLock { done } }
+
+    func begin(_ continuation: CheckedContinuation<SchemaReply, Error>) {
+        let early = lock.withLock { () -> Result<SchemaReply, Error>? in
+            if self.early == nil { self.continuation = continuation }
+            return self.early
+        }
+        if let early { continuation.resume(with: early) }
+    }
+
+    /// The tasks to cancel once it has answered; cancelled at once when it already has.
+    func attach(_ tasks: [Task<Void, Never>]) {
+        let cancel = lock.withLock { () -> Bool in
+            self.tasks = tasks
+            return done
+        }
+        if cancel { tasks.forEach { $0.cancel() } }
+    }
+
+    /// The reply so far, as the client tells it: new words when it grew.
+    func wrote(_ now: String) {
+        lock.withLock {
+            // Replies only grow: a longer one is new words.
+            guard now.utf8.count != text.utf8.count else { return }
+            let date = Date()
+            if first == nil { first = date }
+            last = date
+            text = now
+        }
+    }
+
+    func timing(characters: Int? = nil) -> StreamTiming {
+        lock.withLock {
+            StreamTiming(firstWords: first.map { $0.timeIntervalSince(start) }, lastWords: last.map { $0.timeIntervalSince(start) },
+                         characters: characters ?? text.count, total: Date().timeIntervalSince(start))
+        }
+    }
+
+    /// A stop, when the pace says it's time, or you stopped it.
+    func check(stopped: Bool) -> StreamStopped? {
+        let (elapsed, since, written) = lock.withLock { () -> (TimeInterval, TimeInterval?, String) in
+            let now = Date()
+            return (now.timeIntervalSince(start), last.map { now.timeIntervalSince($0) }, text)
+        }
+        guard let why = stopped ? .stopped : pace.stop(elapsed: elapsed, sinceWords: since) else { return nil }
+        return StreamStopped(why: why, pace: pace, text: written, timing: timing())
+    }
+
+    /// Answers the caller, the first time only, and cancels the work and the timer.
+    func finish(_ result: Result<SchemaReply, Error>) {
+        let (continuation, tasks) = lock.withLock { () -> (CheckedContinuation<SchemaReply, Error>?, [Task<Void, Never>]) in
+            guard !done else { return (nil, []) }
+            done = true
+            if self.continuation == nil { early = result }
+            defer { self.continuation = nil; self.tasks = [] }
+            return (self.continuation, self.tasks)
+        }
+        tasks.forEach { $0.cancel() }
+        continuation?.resume(with: result)
     }
 }

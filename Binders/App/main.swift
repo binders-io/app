@@ -5,8 +5,8 @@ import AppKit
 // can end or hang the app, and a crash in it shows no window.
 if CommandLine.arguments.count > 1, CommandLine.arguments[1] == DecisionFolderCheck.flag { DecisionFolderCheck.run(CommandLine.arguments) }
 
-// The self-tests' stand-in for a coding tool's command-line program (Codex, OpenCode, GitHub Copilot CLI): before anything
-// else, and only against a throwaway data folder; anywhere else it does nothing.
+// The self-tests' stand-in for a coding tool's command-line program (Codex, OpenCode, GitHub Copilot CLI, Antigravity):
+// before anything else, and only against a throwaway data folder; anywhere else it does nothing.
 if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--stub-cli-agent" { CLIAgentStub.run(CommandLine.arguments) }
 
 if CommandLine.arguments.contains("--mcp") {

@@ -356,6 +356,7 @@ final class CLIAgentLaunchTests: XCTestCase {
             .opencode: ["PWD", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_DISABLE_SHARE",
                         "OPENCODE_DISABLE_AUTOUPDATE", "OPENCODE_DISABLE_CLAUDE_CODE", "OPENCODE_DISABLE_LSP_DOWNLOAD", "NO_COLOR"],
             .copilot: ["COPILOT_HOME", "COPILOT_AUTO_UPDATE", "NO_COLOR"],
+            .antigravity: ["PWD", "NO_COLOR"],
         ]
         for tool in CLIAgent.allCases {
             let environment = try launch(run(tool)).environment
@@ -377,7 +378,8 @@ final class CLIAgentLaunchTests: XCTestCase {
             for mode in ["acceptEdits", "plan", "bypassPermissions", "", "auto"] {
                 for model in ["", "--yolo", "--dangerously-skip-permissions", "gpt-5", "anthropic/claude-sonnet-4-5", "anthropic/--yolo"] {
                     guard let line = try? launch(run(tool, mode: mode, model: model)) else {
-                        XCTAssertEqual(tool, .opencode, "only OpenCode refuses a model: \(model)")
+                        // Antigravity starts only to edit files: any other mode is refused, never run as something looser.
+                        XCTAssertTrue(tool == .opencode || tool == .antigravity && mode != "acceptEdits", "only OpenCode refuses a model: \(tool) \(mode) \(model)")
                         continue
                     }
                     let command = ([tool.program] + line.arguments.map(AgentMCPEntry.quoted)).joined(separator: " ")
@@ -388,7 +390,8 @@ final class CLIAgentLaunchTests: XCTestCase {
                     for (_, contents) in line.files { XCTAssertTrue(AgentCommands.isAllowed(tool.program + " " + AgentMCPEntry.quoted(contents))) }
                     XCTAssertFalse(line.arguments.contains { $0.hasPrefix("-") && $0.lowercased().contains("yolo") }, "no model argument that's a flag") // the coding tools' own flag, not a name of ours
                     XCTAssertFalse(line.arguments.contains { $0 == "-m" || $0 == "--model" } && model.hasPrefix("-"))
-                    for flag in ["--sandbox", "-s", "--share", "--auto", "--add-dir", "--autopilot"] {
+                    // Antigravity's --sandbox turns its sandbox on, which Binders always does; Codex's would set a looser one.
+                    for flag in ["--sandbox", "-s", "--share", "--auto", "--add-dir", "--autopilot"] where !(tool == .antigravity && flag == "--sandbox") {
                         XCTAssertFalse(line.arguments.contains { $0 == flag || $0.hasPrefix(flag + "=") }, "\(tool): \(flag)")
                     }
                     XCTAssertFalse(line.arguments.contains { $0.hasPrefix("--allow-all") || $0 == "--yolo" })
@@ -400,7 +403,9 @@ final class CLIAgentLaunchTests: XCTestCase {
     func testEveryLongFlagIsInTheToolsHelp() throws {
         let help: [CLIAgent: String] = [.codex: try CLIAgentTests.fixture("codex-0.162.0-exec-help.txt"),
                                         .opencode: try CLIAgentTests.fixture("opencode-1.18.27-run-help.txt"),
-                                        .copilot: try CLIAgentTests.fixture("copilot-1.0.10-help.txt")]
+                                        .copilot: try CLIAgentTests.fixture("copilot-1.0.10-help.txt"),
+                                        // From Antigravity's documentation and changelog: Binders couldn't run agy --help.
+                                        .antigravity: try CLIAgentTests.fixture("agy-1.4.7-documented-flags.txt")]
         for tool in CLIAgent.allCases {
             let text = try XCTUnwrap(help[tool])
             let arguments = try launch(run(tool, model: tool == .opencode ? nil : "a-model")).arguments
@@ -436,7 +441,8 @@ final class CLIAgentLaunchTests: XCTestCase {
     }
 
     func testNothingGoesIntoTheWorktree() throws {
-        for tool in CLIAgent.allCases {
+        // But Antigravity's server for the run, which it reads only from the workspace (AntigravityTests).
+        for tool in CLIAgent.allCases where tool != .antigravity {
             let line = try launch(run(tool))
             for path in line.files.keys {
                 XCTAssertTrue(path.hasPrefix(logs + "/"), path)

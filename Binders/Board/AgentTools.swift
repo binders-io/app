@@ -11,7 +11,7 @@ import BindersKit
 final class AgentTools {
     static let shared = AgentTools()
 
-    /// Each program found, by its name: codex, opencode, copilot, grok.
+    /// Each program found, by its name: codex, opencode, copilot, agy, grok.
     private(set) var found: [String: String] = [:]
     @ObservationIgnored private var looking = false
 
@@ -25,7 +25,7 @@ final class AgentTools {
         guard !looking, !AppPaths.isDemo else { return }
         looking = true
         defer { looking = false }
-        let script = #"for p in codex opencode copilot grok; do printf '%s=%s\n' "$p" "$(command -v "$p")"; done"#
+        let script = #"for p in codex opencode copilot agy grok; do printf '%s=%s\n' "$p" "$(command -v "$p")"; done"#
         guard let result = try? await AutomationService.runProcess("/bin/zsh", ["-lc", script], stdin: nil, environment: nil, timeout: 20) else { return }
         var found: [String: String] = [:]
         for line in result.stdout.split(whereSeparator: \.isNewline) {
@@ -172,5 +172,90 @@ enum CLIProgram {
         }
         return CopilotHome.problem(present: present, mcpConfig: try? Data(contentsOf: folder.appendingPathComponent("mcp-config.json")),
                                    folder: AgentWorktrees.display(folder.path))
+    }
+}
+
+// MARK: - Antigravity's files
+
+/// What Binders reads and writes around an Antigravity run: two settings in your Antigravity settings file (read, never
+/// changed), Binders' server for the run in the worktree's .agents folder (written before, taken out after), and the
+/// card's last conversation, so the next run carries on from it. In a throwaway folder, the settings file sits under
+/// Binders' folder for runs, so a self-test never reads yours.
+enum AntigravityFiles {
+    /// Your Antigravity settings: ~/.gemini/antigravity-cli/settings.json.
+    static var settings: URL {
+        let home = AppPaths.isDemo ? AgentPlaces.root : FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(AntigravitySettings.path)
+    }
+
+    /// What no run may read, as a run is given it (`AgentDispatcher.cliRun`), with the team folder when there is one.
+    private static func privatePaths(team: String?) -> [String] {
+        CLIAgentLaunches.privatePaths(home: NSHomeDirectory(), dataFolder: AppPaths.support.path, alsoPrivate: [AgentPlaces.logs.path] + [team].compactMap { $0 })
+    }
+
+    /// Why a run in `worktree` can't start with your settings as they are, or nil. Only toolPermission and
+    /// permissions.allow are looked at (AntigravitySettings).
+    static func settingsProblem(worktree: String, team: String?) -> String? {
+        AntigravitySettings.problem(try? Data(contentsOf: settings), worktree: worktree, home: NSHomeDirectory(), privatePaths: privatePaths(team: team))
+    }
+
+    /// The same, for Check; nil when a run could start.
+    static func settingsFound(team: String?) -> String? {
+        AntigravitySettings.found(try? Data(contentsOf: settings), worktree: nil, home: NSHomeDirectory(), privatePaths: privatePaths(team: team))
+    }
+
+    private static func folder(_ worktree: String) -> URL {
+        URL(fileURLWithPath: worktree, isDirectory: true).appendingPathComponent(AntigravityLaunch.workspaceFolder, isDirectory: true)
+    }
+
+    /// Takes out Binders' server for a run, when it's the one Binders wrote, and the .agents folder when nothing else is
+    /// in it. One a run changed, or anyone else's, stays.
+    static func takeOut(worktree: String) {
+        let manager = FileManager.default
+        let file = URL(fileURLWithPath: AntigravityLaunch.mcpConfigPath(worktree: worktree))
+        if let data = try? Data(contentsOf: file), AntigravityLaunch.isOurs(data, binders: MCPHost.executable) { try? manager.removeItem(at: file) }
+        let place = folder(worktree)
+        if let left = try? manager.contentsOfDirectory(atPath: place.path), left.isEmpty { try? manager.removeItem(at: place) }
+    }
+
+    /// What's in the worktree's .agents folder: the names there, of files and of folders that hold anything.
+    private static func present(worktree: String) -> Set<String> {
+        let manager = FileManager.default
+        let place = folder(worktree)
+        var present: Set<String> = []
+        for name in (try? manager.contentsOfDirectory(atPath: place.path)) ?? [] {
+            let path = place.appendingPathComponent(name).path
+            var isFolder: ObjCBool = false
+            manager.fileExists(atPath: path, isDirectory: &isFolder)
+            if !isFolder.boolValue || !((try? manager.contentsOfDirectory(atPath: path)) ?? []).isEmpty { present.insert(name) }
+        }
+        return present
+    }
+
+    /// Before a run: Binders' own server left from one that ended badly goes; then why the worktree can't have a run, or nil.
+    static func workspaceProblem(worktree: String) -> String? {
+        takeOut(worktree: worktree)
+        return AntigravityWorkspace.problem(present: present(worktree: worktree))
+    }
+
+    /// After a run, before the commit: Binders' server goes; then why Binders won't commit what's there, or nil.
+    static func commitProblem(worktree: String) -> String? {
+        takeOut(worktree: worktree)
+        return AntigravityWorkspace.added(present: present(worktree: worktree), worktree: AgentWorktrees.display(worktree))
+    }
+
+    /// The card's last conversation, beside the runs' logs (pruned with them after 14 days).
+    private static func conversationFile(_ card: UUID) -> URL {
+        AgentPlaces.logs.appendingPathComponent("\(CLIAgentLaunches.card12(card))-antigravity.conversation")
+    }
+
+    static func conversation(for card: UUID) -> String? {
+        (try? String(contentsOf: conversationFile(card), encoding: .utf8)).flatMap(AntigravityLaunch.conversationID)
+    }
+
+    static func remember(_ conversation: String?, for card: UUID) {
+        guard let id = conversation.flatMap(AntigravityLaunch.conversationID) else { return }
+        try? FileManager.default.createDirectory(at: AgentPlaces.logs, withIntermediateDirectories: true)
+        try? AgentPlaces.write(Data(id.utf8), to: conversationFile(card))
     }
 }

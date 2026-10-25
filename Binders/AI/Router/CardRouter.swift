@@ -555,19 +555,29 @@ final class CardRouter {
     /// A card made some other way: from the iPhone, over MCP, with Add to Board or Put on Board, or from a capture. The
     /// agent whose work it is is suggested a moment later, and never started without your tap. Only your own typing names
     /// one (RouteOrigin.typedByYou): an agent's, a tool's or a capture's words, and a to-do's or a note's put on the board,
-    /// are read by the model alone.
+    /// are read by the model alone. A card put on the board from a note is read by its title and the start of its details
+    /// (`DistillWhoState.cardState`, lane AS1); the others by their title, as before.
     func suggestLater(for card: TaskCard, origin: RouteOrigin) {
         guard card.meantFor == nil, card.column == .ready || card.column == .backlog else { return }
         let id = card.id, title = card.title
-        Task { await routeCard(id, title: title, origin: origin) }
+        let state = Self.state(for: card, origin: origin)
+        Task { await routeCard(id, title: title, origin: origin, state: state) }
     }
 
-    /// For the self-tests: the same as `typedCard`'s and `suggestLater`'s work, awaited.
-    func routeCard(_ id: UUID, title: String, origin: RouteOrigin) async {
+    /// What the decision model reads to suggest who a card is for: for Put on Board from a note, its title and the start of
+    /// its details; else nil, its title alone.
+    static func state(for card: TaskCard, origin: RouteOrigin) -> String? {
+        guard origin == .toBoard, card.distilledFrom?.put == true else { return nil }
+        return DistillWhoState.cardState(title: card.title, details: card.details)
+    }
+
+    /// For the self-tests: the same as `typedCard`'s and `suggestLater`'s work, awaited. `state`: what the decision model
+    /// reads, when it's more than the title.
+    func routeCard(_ id: UUID, title: String, origin: RouteOrigin, state: String? = nil) async {
         let library = gather()
         // A name counts as one you named only in words you typed: never an agent's, a tool's or a capture's.
         let named = origin.typedByYou ? NamedAgents.find(in: [title], agents: library.agentNames) : []
-        let answer = await ask(title, binder: false, agent: true, library: library)
+        let answer = await ask(state ?? title, binder: false, agent: true, library: library)
         guard answer != nil || !named.isEmpty, let board = controller?.board, let card = board.card(id) else { return }
         let binderName = Store.shared.binder(card.binderID)?.name ?? "General"
         let binderID = card.binderID ?? Store.shared.defaultBinder().id

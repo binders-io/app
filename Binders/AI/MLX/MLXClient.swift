@@ -5,6 +5,7 @@ import MLXEmbedders
 import MLXGuidedGeneration
 import MLXLMCommon
 import Tokenizers
+import BindersKit
 
 enum MLXError: LocalizedError {
     case notInstalled(String)
@@ -66,6 +67,20 @@ actor MLXRuntime {
         slots.append(Slot(directory: directory, container: container, bytes: bytes))
         return container
     }
+
+    /// Lane DS8: loads the model in `directory` ahead of its first request (Distill's, when a note with Distill on is
+    /// opened), only when it isn't loaded or loading, nothing else is loading, and it fits beside the models in memory now
+    /// without freeing any (the dictation model stays). Whether it loaded. Cancelling the task stops waiting for it.
+    func warm(_ directory: URL) async -> Bool {
+        guard !slots.contains(where: { $0.directory == directory }), loading == nil else { return false }
+        let bytes = MLXModels.size(of: directory)
+        guard bytes > 0, Self.fits(bytes, beside: slots.map(\.bytes)) else { return false }
+        guard !Task.isCancelled else { return false }
+        return (try? await container(for: directory)) != nil
+    }
+
+    /// Whether the model in `directory` is in memory now.
+    func isLoaded(_ directory: URL) -> Bool { slots.contains { $0.directory == directory } }
 
     /// Whether a model of `bytes` may stay in memory beside models of `resident` bytes, on a Mac with `memory` bytes.
     static func fits(_ bytes: Int64, beside resident: [Int64], memory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Bool {
@@ -136,6 +151,8 @@ struct MLXClient: LLMClient {
     /// Minutes unused before the model's memory is freed; 0 keeps it loaded.
     let idleMinutes: Int
 
+    var place: ModelPlace { .inApp }
+
     private var directory: URL {
         get throws {
             guard let directory = MLXModels.directory(for: model) else { throw MLXError.notInstalled(model) }
@@ -198,13 +215,25 @@ struct MLXClient: LLMClient {
         let idle = idleMinutes
         let model = model
         let limit = max(1, min(maxTokens, schema.answerTokens))
+        let prefix = MLXPrefixCache.isOn ? schema.userPrefix : nil
+        let itemTokens = schema.itemTokens
         let work: @Sendable () async throws -> MLXGuides.Outcome = {
             let container = try await MLXRuntime.shared.container(for: directory)
             let input = UserInput(chat: [.system(system), .user(user)], additionalContext: ["enable_thinking": false])
             let prepared = try await container.prepare(input: input)
-            let outcome = try await container.perform(nonSendable: prepared) { context, input in
-                try MLXGuides.shared.run(input: input, context: context, directory: directory, schema: schema.bounded, maxTokens: limit,
-                                         stopWhen: stopWhen, onText: onText)
+            // Lane DS8: where the question's start is shared with the asks before (Distill's parts), how many of its tokens
+            // that is: the tokens the same in this question and in one with something else after the start.
+            var probe: LMInput?
+            if let prefix {
+                probe = try await container.prepare(input: UserInput(chat: [.system(system), .user(prefix + "#")],
+                                                                     additionalContext: ["enable_thinking": false]))
+            }
+            let outcome = try await container.perform(nonSendable: (prepared, probe)) { context, inputs in
+                let (input, probe) = inputs
+                // Read inside the container, as everything on its arrays is.
+                let shared = probe.map { MLXPrefixCache.sharedCount(input.text.tokens.asArray(Int.self), $0.text.tokens.asArray(Int.self)) }
+                return try MLXGuides.shared.run(input: input, context: context, directory: directory, schema: schema.bounded, maxTokens: limit,
+                                                shared: shared, itemTokens: itemTokens, stopWhen: stopWhen, onText: onText)
             }
             await MLXRuntime.shared.used(directory, keepFor: idle)
             return outcome
@@ -220,11 +249,12 @@ struct MLXClient: LLMClient {
             return first
         }
         switch outcome {
-        case .held(let text, let note):
+        case .held(let text, let note, let tokens):
             if let note { Log.llm.notice("\(model, privacy: .public), held to the schema: \(note, privacy: .public)") }
+            Log.llm.info("\(model, privacy: .public): \(tokens.line, privacy: .public)")
             let reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !reply.isEmpty else { throw LLMError.emptyResponse }
-            return SchemaReply(text: reply, held: true, why: note)
+            return SchemaReply(text: reply, held: true, why: note, tokens: tokens)
         case .notSetUp(let why):
             Log.llm.notice("\(model, privacy: .public) couldn't be held to the schema, so it answers without it: \(why, privacy: .public)")
             let text = try await stream(system: system, user: user, maxTokens: maxTokens, temperature: temperature, timeout: timeout,
@@ -245,6 +275,16 @@ struct MLXClient: LLMClient {
 
     func unload() async {
         await MLXRuntime.shared.release()
+    }
+
+    /// Lane DS8: loads the model if it fits beside the ones in memory without freeing any (`MLXRuntime.warm`); keeps it for
+    /// the usual idle time. Whether it's loaded now.
+    func warmBeside() async -> Bool {
+        guard let directory = try? directory else { return false }
+        if await MLXRuntime.shared.isLoaded(directory) { return true }
+        guard await MLXRuntime.shared.warm(directory) else { return false }
+        await MLXRuntime.shared.used(directory, keepFor: idleMinutes)
+        return true
     }
 
     func residency() async -> ModelResidency? {
@@ -280,8 +320,8 @@ final class MLXGuides: @unchecked Sendable {
     static let shared = MLXGuides()
 
     enum Outcome: Sendable {
-        /// The reply as it was held; `note` says why it stopped short, when it did.
-        case held(String, note: String?)
+        /// The reply as it was held; `note` says why it stopped short, when it did; its tokens (lane DS8).
+        case held(String, note: String?, tokens: ReplyTokens)
         /// Holding it couldn't be set up: why.
         case notSetUp(String)
     }
@@ -307,6 +347,8 @@ final class MLXGuides: @unchecked Sendable {
         lock.withLock {
             if let directory { guides[directory] = nil } else { guides = [:] }
         }
+        // What it read of a shared start goes with it (lane DS8).
+        MLXPrefixCache.shared.forget(directory)
     }
 
     /// What one reply held to a schema starts from.
@@ -373,7 +415,10 @@ final class MLXGuides: @unchecked Sendable {
     /// last tokens are pushed to close the JSON (`completionReserve`), and the very last forced to (`hardReserve`), so
     /// the reply ends a whole object before `maxTokens`; one that still runs out is returned as it is, and the reader
     /// keeps the items before the cut. `stopWhen` is asked as each item or line ends.
-    func run(input: LMInput, context: ModelContext, directory: URL, schema: String, maxTokens: Int,
+    /// Lane DS8: `shared`, the tokens of the question's start that the asks of one reading share: read once and kept
+    /// (`MLXPrefixCache`), each ask reading only what comes after it (`MLXHeldLoop`). `itemTokens`: about how long an item
+    /// of the reply is (Distill v2's 30), which sizes the zones that close the reply in place of its last third.
+    func run(input: LMInput, context: ModelContext, directory: URL, schema: String, maxTokens: Int, shared: Int? = nil, itemTokens: Int? = nil,
              stopWhen: @Sendable (String) -> Bool, onText: @Sendable (String) -> Void) throws -> Outcome {
         let set: Prepared
         do {
@@ -381,23 +426,68 @@ final class MLXGuides: @unchecked Sendable {
         } catch {
             return .notSetUp(Self.words(error))
         }
-        // The soft zone nudges each string and the item to their ends; the hard one leaves only what closes them. An item
-        // left open there needs a few tokens a field.
-        let hard = min(maxTokens / 4, max(set.reserve * 8, 80))
-        let soft = min(maxTokens / 3, max(set.reserve * 3, hard + 160))
+        let (soft, hard) = Self.zones(maxTokens: maxTokens, reserve: set.reserve, itemTokens: itemTokens)
         var text = ""
         var note: String?
-        do {
+        let started = Date()
+        var prefillSeconds: Double?
+        var written = 0
+        let tokens = input.text.tokens.asArray(Int.self)
+        var reused = 0
+        func emit(_ delta: String) -> Bool {
+            if prefillSeconds == nil { prefillSeconds = Date().timeIntervalSince(started) }
+            text += delta
+            onText(text)
+            // Stopped (a Distill reading at a pace, or you, lane DS7): what came is kept, and the GPU is freed for the next.
+            if Task.isCancelled {
+                note = "stopped part way"
+                return false
+            }
+            if delta.contains("}") || delta.contains("\n"), stopWhen(text) {
+                note = "stopped early: the reply was repeating itself"
+                return false
+            }
+            return true
+        }
+        /// The package's own loop, which reads the whole question.
+        func whole() throws -> Int {
             try GuidedGenerationLoop.run(input: input, context: context, constraint: set.constraint, maxTokens: maxTokens,
                                          vocabSize: set.vocabSize, completionReserve: soft, hardReserve: hard,
-                                         closingBias: set.closing, whitespaceBias: set.whitespace, whitespaceTokenIDs: set.whitespaceIDs) { delta in
-                text += delta
-                onText(text)
-                if delta.contains("}") || delta.contains("\n"), stopWhen(text) {
-                    note = "stopped early: the reply was repeating itself"
-                    return false
+                                         closingBias: set.closing, whitespaceBias: set.whitespace, whitespaceTokenIDs: set.whitespaceIDs,
+                                         emit: emit)
+        }
+        do {
+            if let shared, shared >= MLXPrefixCache.leastTokens, shared < tokens.count, MLXPrefixCache.shared.allows(directory) {
+                do {
+                let cache: [KVCache]
+                let feed: [Int]
+                if let kept = MLXPrefixCache.shared.take(directory, prompt: tokens) {
+                    cache = kept.cache
+                    feed = Array(tokens[kept.count...])
+                    reused = kept.count
+                } else {
+                    // The start read once, kept, then the rest.
+                    cache = try context.model.newCache(parameters: GenerateParameters(kvCache: nil, kvBits: nil, kvGroupSize: 64, quantizedKVStart: 0))
+                    try Self.prefill(Array(tokens[..<shared]), into: cache, context: context)
+                    MLXPrefixCache.shared.keep(directory, tokens: Array(tokens[..<shared]), cache: cache.map { $0.copy() })
+                    feed = Array(tokens[shared...])
                 }
-                return true
+                written = try MLXHeldLoop.run(tokens: feed, cache: cache, context: context, constraint: set.constraint, maxTokens: maxTokens,
+                                              vocabSize: set.vocabSize, completionReserve: soft, hardReserve: hard, closingBias: set.closing,
+                                              whitespaceBias: set.whitespace, whitespaceTokenIDs: set.whitespaceIDs,
+                                              prefilled: { _ in prefillSeconds = Date().timeIntervalSince(started) }, emit: emit)
+                } catch let error where text.isEmpty && !(error is GuidedGenerationError) && !(error is GrammarError) && !(error is CancellationError) {
+                // Reading on from a kept start failed for this model before it wrote anything: the whole question is read,
+                // and this model isn't asked that way again until it's loaded again.
+                Log.llm.notice("Couldn't read on from the kept start of the question, so it's read whole: \(String(describing: error), privacy: .public)")
+                MLXPrefixCache.shared.refuse(directory)
+                Self.rewind(set.constraint)
+                reused = 0
+                prefillSeconds = nil
+                written = try whole()
+                }
+            } else {
+                written = try whole()
             }
         } catch GuidedGenerationError.incompleteOutput {
             note = "the reply ran out of tokens before its JSON closed"
@@ -406,10 +496,42 @@ final class MLXGuides: @unchecked Sendable {
         } catch let error as GrammarError {
             // The grammar failed part way: what came is kept, or the reply is written without it. Its matcher isn't kept.
             guard !text.isEmpty else { return .notSetUp(Self.words(error)) }
-            return .held(text, note: "the grammar stopped part way: \(Self.words(error))")
+            let total = Date().timeIntervalSince(started)
+            return .held(text, note: "the grammar stopped part way: \(Self.words(error))",
+                         tokens: ReplyTokens(prefill: tokens.count, reused: reused, decode: written, prefillSeconds: prefillSeconds ?? total,
+                                             decodeSeconds: max(0, total - (prefillSeconds ?? total))))
         }
         keep(set.constraint, schema: schema, directory: directory)
-        return .held(text, note: note)
+        let total = Date().timeIntervalSince(started)
+        let reading = prefillSeconds ?? total
+        if written == 0 { written = max(0, (context.tokenizer.encode(text: text, addSpecialTokens: false)).count) }
+        return .held(text, note: note, tokens: ReplyTokens(prefill: tokens.count, reused: reused, decode: written, prefillSeconds: reading,
+                                                           decodeSeconds: max(0, total - reading)))
+    }
+
+    /// The zones that bring a reply to a close (`GuidedGenerationLoop`'s `completionReserve` and `hardReserve`): the soft
+    /// one nudges each string and the item to their ends; the hard one leaves only what closes them. With items of about
+    /// `itemTokens` (lane DS8: v2's are short), a few items' worth, at most a quarter of the reply; else as lane DS3 set
+    /// them, up to its last third, as an item left open there needs a few tokens a field.
+    static func zones(maxTokens: Int, reserve: Int, itemTokens: Int?) -> (soft: Int, hard: Int) {
+        if let item = itemTokens, item > 0 {
+            let hard = min(maxTokens / 6, max(reserve * 4, item * 2))
+            return (min(maxTokens / 4, max(reserve * 3, hard + item * 3)), hard)
+        }
+        let hard = min(maxTokens / 4, max(reserve * 8, 80))
+        return (min(maxTokens / 3, max(reserve * 3, hard + 160)), hard)
+    }
+
+    /// Reads `tokens` into `cache`, as a question's start is read, without writing anything.
+    static func prefill(_ tokens: [Int], into cache: [KVCache], context: ModelContext) throws {
+        let input = LMInput(tokens: MLXArray(tokens.map(Int32.init)))
+        switch try context.model.prepare(input, cache: cache, state: nil, prefill: .init(stepSize: PrefillParameters.defaultStepSize)) {
+        case .tokens(let rest):
+            eval(context.model(rest[text: .newAxis], cache: cache, state: nil).logits)
+        case .logits(let result):
+            eval(result.logits)
+        }
+        eval(cache.flatMap { $0.innerState() })
     }
 
     static func words(_ error: Error) -> String {

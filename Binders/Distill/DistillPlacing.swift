@@ -28,13 +28,25 @@ extension DistillService {
         var made: [(item: DistillItem, card: TaskCard)] = []
         let team = controller?.teamBoard
         let shared = team?.covers(note.binderID) == true
+        // Lane DS8: an item read with v2 has the note's lines for a brief: its card carries them, and its brief and done
+        // when are written once it's on the board (`writeBriefs`). One for an agent in Ready goes to it after its brief.
+        var briefs: [DistillBriefJob] = []
+        func pending(_ item: DistillItem) -> Bool { item.briefPending == true && !agentPlaced }
+        func waitsForBrief(_ item: DistillItem) -> String? {
+            guard pending(item), column == .ready, let who = item.meantFor?.trimmingCharacters(in: .whitespaces),
+                  AgentRegistry.shared.agent(named: who) != nil || team?.teammatesAgent(named: who) != nil else { return nil }
+            return who
+        }
         let work = {
             for item in placing {
-                let card = board.create(title: DistillCards.title(item),
-                                        details: DistillCards.details(item, note: note.id, noteTitle: note.title, placedByAgent: agentPlaced ? actor.name : nil),
+                let details = pending(item) ? DistillCards.pendingDetails(item, note: note.id, noteTitle: note.title)
+                    : DistillCards.details(item, note: note.id, noteTitle: note.title, placedByAgent: agentPlaced ? actor.name : nil)
+                let card = board.create(title: DistillCards.title(item), details: details,
                                         binderID: note.binderID, column: column, source: ("note", note.id.uuidString, note.title), by: actor)
                 card.distilledFrom = DistilledFrom(note: note.id, distill: record.id, item: item.id, section: item.section,
-                                                   sectionHash: item.sectionHash, version: record.version, quote: item.quote)
+                                                   sectionHash: item.sectionHash, version: record.version, quote: item.quote,
+                                                   briefFor: pending(item) ? DistillSections.hash(details) : nil, briefAgent: waitsForBrief(item))
+                if pending(item) { briefs.append(self.briefJob(item, card: card, noteTitle: note.title, agent: waitsForBrief(item))) }
                 made.append((item, card))
                 cardOf[item.id] = card.id
             }
@@ -50,6 +62,8 @@ extension DistillService {
             }
             for (item, card) in made {
                 guard let who = item.meantFor?.trimmingCharacters(in: .whitespaces), !who.isEmpty else { continue }
+                // Its agent gets it once its brief is written.
+                if waitsForBrief(item) != nil { continue }
                 // Yours: an assignment Binders acts on. An agent's own placing, where the binder lets it: an assignment too,
                 // by Binders, saying which agent placed it.
                 if agentPlaced {
@@ -74,6 +88,7 @@ extension DistillService {
             work()
         }
         board.wakeCause = .yours
+        writeBriefs(briefs)
         for index in record.items.indices {
             if let card = made.first(where: { $0.item.id == record.items[index].id })?.card { record.items[index].card = card.id }
         }

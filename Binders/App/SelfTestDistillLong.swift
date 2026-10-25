@@ -20,6 +20,8 @@ extension SelfTest {
         let run = DistillTestRun(controller: controller)
         let store = Store.shared
         let service = controller.distill
+        // v1's prompts and sizes, as this test was written for (lane DS8 made v2 the default; `--selftest-distill-fast` has it).
+        service.format = .v1
         let registry = AgentRegistry.shared
         if registry.paused { registry.setPaused(false) }
         service.start()
@@ -61,13 +63,16 @@ extension SelfTest {
         run.check(parts.count >= 5 && asks.count == parts.count, "the model read it in \(parts.count) parts, once each: asked \(asks.count) times")
         run.check(asks.map(\.part) == (1...parts.count).map { "\($0) of \(parts.count)" }, "the Work bar said which part it was reading: \(asks.map { $0.part ?? "-" })")
         run.check(service.readingPart[status.id] == nil && !service.reading.contains(status.id), "and stops saying it once done")
-        run.check(asks.allSatisfy { $0.system == DistillPrompt.system }, "each part has the whole instructions")
+        // With who can take work in the binder (Scribe, you), as Distill tells the reader (lane AS1).
+        let instructions = DistillPrompt.system(who: service.takers(for: binder.id))
+        run.check(instructions.contains("\"Scribe\", an AI agent") && asks.allSatisfy { $0.system == instructions }, "each part has the whole instructions")
         let everyHeading = DistillPrompt.headingsLine(DistillSections.sections(of: long.text).compactMap(\.heading))
         run.check(asks.allSatisfy { $0.user.contains(everyHeading) }, "and the whole list of headings")
         run.check(asks.allSatisfy { $0.user.count <= DistillBudget.unknown + 4_000 }, "no part's question is longer than a part and its framing: \(asks.map(\.user.count).max() ?? 0)")
         run.check(asks.allSatisfy { $0.maxTokens == DistillPrompt.maxTokens + DistillBudget.thinkingRoom }, "each may write a whole list, with room to think first")
         run.check(asks.last?.user.contains("## Checkout: Rollout") == true, "the note's end is read: before, it was cut at 36,000 characters")
-        run.check(asks.last?.user.contains("Work items from the parts before: \"One Page Form\"") == true, "a later part hears the items found before it")
+        // Lane DS8: no part hears the items found before it, so parts can be asked at once.
+        run.check(!asks.contains { $0.user.contains("Work items from the parts before") }, "no part hears the items found before it")
         run.check(record.parts == parts.count, "the distill says it read the note in \(parts.count) parts: \(record.parts ?? 0)")
         run.check(DistillReviewSheet.partsLine(record) == ", in \(parts.count) parts, as the note is long", "the review sheet says so: \(DistillReviewSheet.partsLine(record))")
         run.check(record.items.map(\.title) == long.gold.map(title), "its 23 items, in the note's order: \(record.items.count)")
@@ -187,6 +192,8 @@ extension SelfTest {
         run.check(DistillBudget.forContext(MLXClient.contextTokens(in: model)).partCharacters == DistillBudget.readsWell,
                   "and a part is then what reads well, not the whole context")
 
+        // Lane DS8: a long note with v2's stand-in.
+        await distillFastLongChecks(run, binder: binder)
         print("DONE: \(run.failures == 0 ? "all passed" : "\(run.failures) failed")")
         return run.failures == 0 ? 0 : 1
     }

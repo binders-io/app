@@ -45,11 +45,13 @@ public struct CLIAgentRun: Sendable {
     /// The repository's top folder as a realpath, as Binders' record of the worktree has it: where Claude Code keeps its
     /// own cards' worktrees (.claude/worktrees), which Codex's commands are denied. Nil for the agent's folder as given.
     public var repository: String?
+    /// Antigravity: the conversation the card's last run left, which this one carries on. Nil starts a new one.
+    public var conversation: String?
 
     public init(card: UUID, run: UUID, reason: AgentWake.Reason, boardName: String, wake: CLIAgentWake, binders: String, worktree: String,
                 temporary: String, places: String, bindersTemp: String, dataFolder: String, home: String, alsoPrivate: [String] = [],
                 runStem: String, session: UUID, draftsFirst: Bool = true, path: String = "", base: [String: String] = [:],
-                throwawayData: String? = nil, copilotHome: String, agentsFile: Bool = false, repository: String? = nil) {
+                throwawayData: String? = nil, copilotHome: String, agentsFile: Bool = false, repository: String? = nil, conversation: String? = nil) {
         self.card = card
         self.run = run
         self.reason = reason
@@ -72,6 +74,7 @@ public struct CLIAgentRun: Sendable {
         self.copilotHome = copilotHome
         self.agentsFile = agentsFile
         self.repository = repository
+        self.conversation = conversation
     }
 }
 
@@ -85,7 +88,8 @@ public struct CLIAgentLaunch: Equatable, Sendable {
     public var stdin: String
     /// The whole environment: never merged with Binders' own.
     public var environment: [String: String]
-    /// Files to write before it starts, by absolute path (always in the run's folder), with their contents.
+    /// Files to write before it starts, by absolute path, with their contents: in the run's folder, except Antigravity's
+    /// workspace MCP file, which goes in the worktree (`AntigravityLaunch.mcpConfig`) and is taken out when the run ends.
     public var files: [String: String]
     /// The session, when it's known up front (Copilot's).
     public var session: String?
@@ -108,6 +112,7 @@ public enum CLIAgentLaunches {
         case .codex: CodexLaunch.make(run)
         case .opencode: try OpenCodeLaunch.make(run)
         case .copilot: try CopilotLaunch.make(run)
+        case .antigravity: try AntigravityLaunch.make(run)
         }
     }
 
@@ -130,7 +135,7 @@ public enum CLIAgentLaunches {
                                          (".config/gh", true)]
 
     /// The coding tools' own sign-ins, sessions and histories: the whole of each tool's folder (Codex's, OpenCode's
-    /// three, Copilot's, Grok's, Gemini's, Cursor's), and of Claude Code's the sign-in and what its sessions leave behind
+    /// three, Copilot's, Grok's, Gemini's and Antigravity's (~/.gemini), Cursor's), and of Claude Code's the sign-in and what its sessions leave behind
     /// (transcripts, prompt history, file history, to-do lists, pastes, pasted images, backups of ~/.claude.json). Not the
     /// rest of ~/.claude: a Claude Code run's own skills and plans are there. Codex's profile reopens its packaged tools in
     /// ~/.codex/packages (`CodexLaunch.reopened`) and denies all of ~/.claude.

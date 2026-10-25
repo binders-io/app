@@ -272,7 +272,7 @@ extension MarkdownTextView {
             color = NoteWork.color(cards[0])
         }
         let chip = WorkChip(text: text, symbol: symbol, color: color, faint: finished, cards: cards.map(\.id),
-                            fontSize: max(10, (styler.fontSize * 0.78).rounded()))
+                            fontSize: max(11, (styler.fontSize * 0.8).rounded()))
         storage.addAttributes([.workChip: chip, .kern: chip.room, .toolTip: NoteWork.help(cards), .cursor: NSCursor.pointingHand], range: anchor)
     }
 
@@ -418,8 +418,13 @@ extension MarkdownLayoutManager {
         storage.enumerateAttribute(.workChip, in: characters) { value, run, _ in
             guard let chip = value as? WorkChip, let frame = workChipRect(for: run, chip: chip) else { return }
             let rect = frame.offsetBy(dx: origin.x, dy: origin.y)
-            chip.color.withAlpha(chip.faint ? 0.08 : 0.16).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+            let capsule = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+            chip.color.withAlpha(chip.faint ? 0.06 : 0.13).setFill()
+            capsule.fill()
+            // A hairline in the card's colour: the mark reads as a chip, not a smudge, in both appearances.
+            chip.color.withAlpha(chip.faint ? 0.16 : 0.38).setStroke()
+            capsule.lineWidth = 1
+            capsule.stroke()
             let side = chip.fontSize
             let symbolBox = NSRect(x: rect.minX + WorkChip.padding, y: rect.midY - side / 2, width: side, height: side)
             let configuration = NSImage.SymbolConfiguration(pointSize: side * 0.85, weight: .medium)

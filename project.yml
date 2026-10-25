@@ -40,13 +40,15 @@ settings:
     DEVELOPMENT_TEAM: 87LFD98HJU
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
-    MARKETING_VERSION: "0.10.0"
-    CURRENT_PROJECT_VERSION: "40"
+    MARKETING_VERSION: "0.11.0"
+    CURRENT_PROJECT_VERSION: "41"
 targets:
   Binders:
     type: application
     platform: macOS
     sources:
+      # Binders/ includes Binders/Resources/Mermaid/mermaid.min.js (lane MM1), copied in as a resource: the note editor
+      # draws Mermaid diagrams with it, offline. The Mac only; the iPhone shows the diagrams' Markdown.
       - path: Binders
       # All-day capture's listening and cutting, the same on the Mac and the iPhone.
       - path: CaptureShared

@@ -4,7 +4,7 @@ import Foundation
 /// the turn ended normally and why not, whether it ever used Binders' tools, what it cost, and what it's doing. It's the
 /// agent's text: data, never instructions.
 public struct CLIAgentResult: Equatable, Sendable {
-    /// Codex's thread id, OpenCode's ses_… or Copilot's UUID.
+    /// Codex's thread id, OpenCode's ses_…, Copilot's UUID or Antigravity's conversation id.
     public var session: String?
     /// The last thing it said.
     public var lastText: String?
@@ -22,6 +22,8 @@ public struct CLIAgentResult: Equatable, Sendable {
     public var premiumRequests: Double?
     /// What it says it's doing, for the card's line.
     public var plan: String?
+    /// Antigravity: the steps it says it refused (its denied_actions), as it says them.
+    public var denied: [String] = []
 
     public init() {}
 }
@@ -37,6 +39,10 @@ public struct CLIAgentOutputReader: Sendable {
     private var stepsCapped = false
     /// Copilot: an organization's policy turned other MCP servers off.
     private var policyBlocked = false
+    /// Antigravity: what each response step has said so far, by its index, and the latest of them.
+    private var responses: [Int: String] = [:]
+    private var latestResponse: Int?
+    private var finalResponse = false
 
     public init(tool: CLIAgent) {
         self.tool = tool
@@ -50,6 +56,7 @@ public struct CLIAgentOutputReader: Sendable {
         case .codex: codex(object)
         case .opencode: opencode(object)
         case .copilot: copilot(object)
+        case .antigravity: antigravity(object)
         }
     }
 
@@ -130,6 +137,55 @@ public struct CLIAgentOutputReader: Sendable {
             let error = object["error"] as? [String: Any] ?? [:]
             let message = ((error["data"] as? [String: Any])?["message"] as? String) ?? (error["name"] as? String)
             if let message, !message.isEmpty { reading.failure = message }
+        default:
+            break
+        }
+    }
+
+    // MARK: Antigravity (`agy --output-format stream-json`)
+
+    /// {"event":"init"|"step_update"|"result", "<event>":{…}}: the event's fields under its own name, or at the top as a
+    /// fallback. Any other event is skipped.
+    private mutating func antigravity(_ object: [String: Any]) {
+        let event = (object["event"] ?? object["type"]) as? String ?? ""
+        let body = object[event] as? [String: Any] ?? object
+        if let id = (body["conversation_id"] ?? object["conversation_id"]) as? String, !id.isEmpty { reading.session = id }
+        switch event {
+        case "step_update":
+            let index = (body["step_index"] as? NSNumber)?.intValue ?? -1
+            switch body["step_type"] as? String {
+            case "agent_response":
+                if let delta = body["text_delta"] as? String, !delta.isEmpty, !finalResponse {
+                    // A step that's done may carry its whole text again: it replaces the deltas when it does.
+                    let sofar = responses[index] ?? ""
+                    let done = body["state"] as? String == "DONE"
+                    responses[index] = done && delta.hasPrefix(sofar) && !sofar.isEmpty ? delta : sofar + delta
+                    latestResponse = index
+                    let text = responses[index] ?? ""
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { reading.lastText = text }
+                }
+            case "tool":
+                let info = body["tool_info"] as? [String: Any] ?? [:]
+                let name = ((body["tool_name"] ?? info["name"] ?? info["tool_name"]) as? String) ?? ""
+                let server = (info["server"] ?? info["server_name"] ?? info["mcp_server"]) as? String
+                if AntigravityOutput.isBoardTool(name: name, server: server) { reading.usedBoard = true }
+                let arguments = (info["parameters"] ?? info["args"] ?? info["arguments"] ?? info["input"]) as? [String: Any] ?? [:]
+                if body["state"] as? String != "DONE", let plan = AntigravityOutput.plan(tool: name, arguments: arguments) { reading.plan = plan }
+            default:
+                break
+            }
+        case "result":
+            let status = body["status"] as? String ?? ""
+            reading.completed = status.uppercased() == "SUCCESS"
+            reading.failure = AntigravityOutput.failure(status: status, error: body["error"] as? String)
+            if let response = body["response"] as? String, !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                reading.lastText = response
+                finalResponse = true
+            }
+            for entry in body["denied_actions"] as? [Any] ?? [] {
+                if let said = AntigravityDenials.read(entry), !reading.denied.contains(said) { reading.denied.append(said) }
+            }
+            reading.plan = nil
         default:
             break
         }
@@ -229,6 +285,10 @@ public enum CLIAgentOutput {
         case .copilot:
             guard text.contains("no authentication information found") else { return nil }
             return "GitHub Copilot CLI isn't signed in for Binders' runs. Sign in with copilot login in Terminal, then Wake Now."
+        case .antigravity:
+            guard ["authentication required", "authentication expired", "not authenticated", "not signed in", "please log back in",
+                   "please log in", "sign in to continue", "locked-keyring", "keyring is locked", "/login"].contains(where: text.contains) else { return nil }
+            return "Sign in to Antigravity: open Terminal and run agy once, then Wake Now. Binders' runs use the sign-in agy keeps on this Mac; Binders never sees it."
         case .opencode:
             guard text.contains("providerinit") || text.contains("provider") && (text.contains("not found") || text.contains("auth") || text.contains("api key"))
                     || text.contains("api key") || text.contains("unauthorized") else { return nil }

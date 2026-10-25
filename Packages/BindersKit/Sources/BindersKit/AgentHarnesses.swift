@@ -137,14 +137,20 @@ public struct AgentHarness: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// What a harness's hook sends `Binders --capture-prompt` on stdin: the prompt, as JSON or as plain words.
+/// What a harness's hook sends `Binders --capture-prompt` on stdin: the prompt, as JSON or as plain words. Antigravity's
+/// hooks send the last thing you sent as lastUserInput, and its folders as workspacePaths.
 public enum HookPayload {
-    private static let textKeys = ["prompt", "user_prompt", "text", "message", "display", "input", "query"]
-    private static let projectKeys = ["cwd", "project", "workspace", "workspace_roots", "directory"]
+    private static let textKeys = ["prompt", "user_prompt", "text", "message", "display", "input", "query", "lastUserInput"]
+    private static let projectKeys = ["cwd", "project", "workspace", "workspace_roots", "directory", "workspacePaths"]
 
     public static func read(_ data: Data) -> (text: String, project: String?)? {
         if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            let text = textKeys.lazy.compactMap { object[$0] as? String }.first
+            let text = textKeys.lazy.compactMap { key -> String? in
+                if let words = object[key] as? String { return words }
+                // A message as an object: its text or content.
+                guard key == "lastUserInput", let message = object[key] as? [String: Any] else { return nil }
+                return (message["text"] ?? message["content"]) as? String
+            }.first
             let project = projectKeys.lazy.compactMap { key -> String? in
                 (object[key] as? String) ?? ((object[key] as? [Any])?.first as? String)
             }.first

@@ -24,7 +24,11 @@ final class DictationController {
 
     private(set) var phase: Phase = .idle {
         // Esc cancels formatting; the tap thread decides on its own, so it is told rather than asked.
-        didSet { hotkeys.interceptsEscape = { if case .processing = phase { true } else { false } }() }
+        didSet {
+            hotkeys.interceptsEscape = { if case .processing = phase { true } else { false } }()
+            // Lane DS8: dictating stops the Distill model's warm-up.
+            if case .recording = phase { distill.cancelWarm() }
+        }
     }
     private(set) var lastError: String?
 

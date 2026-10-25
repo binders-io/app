@@ -112,7 +112,7 @@ Binders changes them. Cards and to-dos made from a capture, or from something yo
 count as captures: a host that may not read captures doesn't see them, unless you meant the card for it. The board tools work
 the same otherwise.
 
-A run Binders starts for a card (Claude Code, Codex, OpenCode or GitHub Copilot CLI) gets the board tools only, for
+A run Binders starts for a card (Claude Code, Codex, OpenCode, GitHub Copilot CLI or Antigravity) gets the board tools only, for
 that card only, and acts as exactly the agent it woke: it lists only its card, can't read or take another, and makes no
 new cards. Every such run's server has `BINDERS_TOOLS=board`, `BINDERS_RUN=1`, `BINDERS_CARD` and `BINDERS_AGENT` as
 literal values in that run's own server entry. `BINDERS_RUN` says Binders started it, so a server that didn't get a
@@ -121,14 +121,16 @@ put back in its place while a run goes on, say) reads any other value as your ow
 keeps a run to its card's board tools.
 Claude Code gets the server through `--strict-mcp-config --mcp-config`; Codex through `-c mcp_servers.binders.*`
 overrides, with `--ignore-user-config`; OpenCode through `OPENCODE_CONFIG_CONTENT`; GitHub Copilot CLI through
-`--additional-mcp-config` with a file in the run's folder, and a Copilot settings folder of Binders' own. None of your own
-config files for these tools is changed. Claude Code's settings carry Stop and SessionEnd hooks that run Binders' own
+`--additional-mcp-config` with a file in the run's folder, and a Copilot settings folder of Binders' own; Antigravity
+through a `.agents/mcp_config.json` Binders writes in the run's worktree, whose `binders` entry stands in for any of
+yours, and takes out again when the run ends, before anything is committed. None of your own config files for these
+tools is changed. Claude Code's settings carry Stop and SessionEnd hooks that run Binders' own
 `--agent-hook stop` and `--agent-hook session-end`, with the card and agent taken from the run's environment, so what the
 run said last goes on the card once. On a Mac whose organization manages Claude Code's MCP servers (a `managed-mcp.json`),
 or once Claude Code has refused `--strict-mcp-config` there, a run starts without it, and a `--agent-hook pre-tool` hook
 lets it use Binders' board tools and nothing else. When those settings keep Binders' server out of a run altogether, the
 card says so and what you can do instead: ask whoever manages the Mac to allow Binders' server, post the card to a Claude
-Code session you have open, or wake the agent with a command. The other three have no such hooks: Binders reads the run's own JSON output when it
+Code session you have open, or wake the agent with a command. The others have no such hooks: Binders reads the run's own JSON output when it
 ends, and puts what it said last on the card once. Each of their runs leaves a record beside its log, so a run that
 outlives Binders (a quit, a crash, an update) is taken up again when Binders opens, and its end still happens once. A run
 that fails or is stopped leaves its card in Blocked with why, and your answer sends it back to work. While the card is in
@@ -144,7 +146,7 @@ tools' own sign-ins and sessions, Binders' data or your team folder) and the san
 you list) still hold. A run in auto mode that stops before it takes the card says so on the card, in case your Claude
 Code doesn't offer auto mode.
 
-**Codex, OpenCode and GitHub Copilot CLI.** Binders starts each one for a card in a git worktree it makes for that card
+**Codex, OpenCode, GitHub Copilot CLI and Antigravity.** Binders starts each one for a card in a git worktree it makes for that card
 and tool, `~/.binders/worktrees/<repository>-<hash>/binders-<card>-<tool>` on the branch `binders-card-<card>-<tool>`,
 from the commit you have checked out; a card that moves to another tool gets a worktree of its own, so no tool starts in
 a folder another tool wrote. Binders never touches your checkout (no checkout, reset, stash, add or commit there) and
@@ -153,7 +155,8 @@ with hooks, fsmonitor and submodule recursion off and the worktree's git folder 
 refuses the commit, and says why on the card, when the run made a git repository inside the worktree, added a link to
 another repository, changed more than 2,000 files or 100 MB, deleted more than half the branch's files, or rewrote the
 worktree's `.git` file. Worktrees and their branches stay until you remove them (`git worktree remove <path>`). Each
-agent runs in one of two modes: **Edits files in its worktree** (the default) or **Plans only**.
+agent runs in one of two modes: **Edits files in its worktree** (the default) or **Plans only**, which Antigravity
+doesn't have.
 - **Codex** runs in its own sandbox, set for the run by a permission profile: it writes only to its worktree, its own
   temp folder and `/tmp` (Codex's own default), and its commands reach nothing on the network. They can't read Codex's
   own folder (`~/.codex`, but for its packaged tools in `~/.codex/packages`), `~/.claude`, or the worktrees Claude Code
@@ -168,7 +171,29 @@ agent runs in one of two modes: **Edits files in its worktree** (the default) or
   `--deny-tool=shell`, its own path checks and a settings folder of Binders' own (`~/.binders/copilot`), set back to
   safe values before every run. Its `task` and `lsp` tools are off (`--excluded-tools`), since a custom agent's own MCP
   servers and a language server set up in the repository would start outside every permission rule.
-- No run can read Binders' data, logs or team folder, `~/.ssh` or your other keys and sign-ins (`~/.gnupg`, `~/.netrc`,
+- **Antigravity** (`agy`, which took over from Gemini CLI) starts as `agy --input-format stream-json --output-format
+  stream-json --sandbox --mode accept-edits --disable-slash-commands`, with `--model` when you set one and
+  `--conversation` to carry on the card's last conversation; the prompt goes on standard input as one stream-json
+  message, never in its arguments. It edits files in the worktree without asking and can't be held to reading only, so
+  an Antigravity agent can't be saved as Plans only. Its commands run in its terminal sandbox, and only those your own
+  allow rules allow: with no one there to approve, any other is refused, and the card names it ("Antigravity wasn't
+  allowed to run `npm test`."). Binders can't set Antigravity's permissions for a run, so before each one, and before
+  making a worktree, it reads `toolPermission` and `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` and
+  doesn't start the run, saying why on the card, when the file is missing or isn't plain JSON; when it doesn't allow
+  `"mcp(binders/*)"` (a headless run refuses any MCP tool no rule allows, so it couldn't reach the board); when
+  `toolPermission` is `always-proceed` or a preset Binders doesn't know; or when a rule writes outside the worktree,
+  reads one of the private folders below (or a folder that holds one), or allows `read_url`, `execute_url`,
+  `unsandboxed`, `mcp(*)` or another server's tools. So its runs reach nothing on the network and use no other MCP
+  server's tools. Your own Antigravity hooks, plugins and MCP servers still load (Binders can't turn them off), but
+  Binders won't start a run in a worktree whose `.agents` folder holds hooks, servers or plugins, or commit one that
+  left them there, and refuses a repository that tracks its own `.agents/mcp_config.json`. Binders' rules keep a run's
+  commands and allow rules away from the private folders below; whether Antigravity's own file tools ask before reading
+  outside the worktree is Antigravity's to decide. A run uses the sign-in agy keeps in your keychain (run `agy` once in
+  Terminal to sign in), and no API key reaches it. Binders never starts it with `--mode auto`, Antigravity's own mode
+  in which another model approves its commands, or `--dangerously-skip-permissions`, and refuses a command agent
+  ("A Command…") that runs `agy --mode auto`. The card's end line has the command to look in on the run
+  (`cd <worktree> && agy --conversation <id>`).
+- No run but Antigravity's (above) can read Binders' data, logs or team folder, `~/.ssh` or your other keys and sign-ins (`~/.gnupg`, `~/.netrc`,
   `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`,
   `~/.config/gh`), or the coding tools' own sign-ins, sessions and histories: all of `~/.codex`, OpenCode's
   `~/.local/share/opencode`, `~/.local/state/opencode` and `~/.config/opencode`, `~/.copilot`, `~/.grok`, `~/.gemini`,
@@ -176,8 +201,9 @@ agent runs in one of two modes: **Edits files in its worktree** (the default) or
   history, file history, to-do lists, pastes, pasted images, backups). So a run can't use your sign-ins for gh, npm,
   cloud tools or Docker; Claude Code's runs included.
 - Each starts with only a small set of your environment (PATH, HOME, USER, LOGNAME, SHELL, LANG, its own TMPDIR): no
-  API keys or tokens from your shell. Each starts only at the version Binders checked its options with (Codex 0.162 and
-  OpenCode 1.18 by major and minor, Copilot 1.0.10 exactly); a newer one needs **Check** once, in its agent's settings.
+  API keys or tokens from your shell. Each starts only at the version Binders checked its options with (Codex 0.162,
+  OpenCode 1.18 and Antigravity 1.4 by major and minor, Copilot 1.0.10 exactly); a newer one needs **Check** once, in
+  its agent's settings.
 
 **Your open session instead of a run.** A Claude Code agent's **Post to the Claude Code session open in this
 repository** (off) sends one line into the inbox socket of a Claude Code session you have open in that repository
@@ -207,9 +233,13 @@ claude mcp add -s user binders -e BINDERS_AGENT="Claude Code" -- /Applications/B
 ```
 
 **Or let Binders do it.** Settings → MCP lists Claude Code, Claude Desktop, Cursor, Windsurf, VS Code,
-Gemini CLI and Codex CLI, shows which are on your Mac and which already have Binders, and adds it with one click. Each
+Antigravity and Codex CLI, shows which are on your Mac and which already have Binders, and adds it with one click. Each
 tool keeps its servers in its own file; Binders makes a dated backup beside that file first and changes only the
-`binders` entry. The ⓘ button shows how to do it by hand, for the tool's own configuration:
+`binders` entry. Antigravity's row also has Remove, which takes out only that entry, and a file of Antigravity's with
+comments in it is left alone. Older versions of the Antigravity app read `~/.gemini/antigravity/mcp_config.json`
+instead, which Binders doesn't change. Google retired Gemini CLI for personal accounts: its row says so, and shows only
+when Binders is already in it or `~/.gemini/settings.json` is there. The ⓘ button shows how to do it by hand, for the
+tool's own configuration:
 
 | Tool | Where |
 |---|---|
@@ -218,7 +248,8 @@ tool keeps its servers in its own file; Binders makes a dated backup beside that
 | Cursor | `~/.cursor/mcp.json`, `mcpServers` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json`, `mcpServers` |
 | VS Code | `~/Library/Application Support/Code/User/mcp.json`, `servers` (with `"type": "stdio"`) |
-| Gemini CLI | `~/.gemini/settings.json`, `mcpServers` |
+| Antigravity | `~/.gemini/config/mcp_config.json`, `mcpServers` (or `agy mcp add`) |
+| Gemini CLI (retired for personal accounts) | `~/.gemini/settings.json`, `mcpServers` |
 | Codex CLI | `~/.codex/config.toml`, a `[mcp_servers.binders]` table |
 
 Any other host that takes a stdio server wants the same two things: the command (the path to the Binders executable) and
@@ -239,10 +270,10 @@ the argument `--mcp`. The "Anything else" row has that as JSON to copy.
 | `add_note` (text, binder, folder) · `append_to_note` (id, text) | A new note, with its first line as title, in the binder and folder named (a folder's path is made if it's missing; its id decides the binder, and an id that's gone puts the note at the top of the binder, and the reply says so); or more text at the end of one. A note an agent didn't write is then marked as edited by that agent |
 | `update_note` (id, find, replace, or text) | Change a note: one passage, given exactly as it is, or the whole text. Its earlier version stays in its history |
 | `correct_knowledge` (wrong, right, source_id, reason, binder) | Fix something the knowledge base has wrong. A note that says it is fixed; a meeting, dictation or message stays as it was said. The correction is kept as a note tagged #correction: search marks passages that still say the wrong thing (`corrected`), and answers follow the correction |
-| `distill_note` (id, agent) | Binders' own model (the Model for Distill in Settings → AI) reads a note with Distill on and proposes work items (title, brief, `done_when`, section, waits, size, who it's for). It's a proposal for you to review and place; it makes no cards. Returns the items when the model finishes within about 25 seconds, else says the proposal waits in Binders |
-| `propose_work_items` (id, items, agent) | An agent's own work items for a note with Distill on, by the note's id or by the id of the card that asked it to distill the note. A proposal for you to review, never cards, unless the binder's Agents may place work items is on: then they go to Ready, meant for whoever it picked (`for`), waiting for each other as it proposed (`waits_for`), so agents take them in order, each as its own start switch allows. A run Binders started for one card may call it with that card's id |
-| `note_progress` (id or binder, since) | How the work distilled from a note is going, from the board alone: its `counts` (done, in progress, waits on you, held up, not started), every card (`items`: column, who has it, what its agent says it's doing, its last update and `last_update_at`, `waits_on`, what it waits for, its section) and its `report` (finished since you last looked, in progress, waiting on whom, held up and by what, not started and for whom, sections changed since their cards were made, a `summary` and `markdown`). With `binder`: each Distill note there with its counts |
-| `get_note_history` (id) | A note's versions, newest first, the note as it is now on top: when, who (`by`, `by_kind`: person, teammate or agent, and an agent's `owner`), a `name` if given, lines added and removed, the sections touched, and the distills that read it. The id may be a card distilled from the note |
+| `distill_note` (id, agent) | Binders' own model (the Model for Distill in Settings → AI) reads a note with Distill on and proposes work items (title, brief, `done_when`, section, `quote`, waits, size, who it's for). It's a proposal for you to review and place; it makes no cards. Returns the items when the model finishes within about 25 seconds, else says the proposal waits in Binders |
+| `propose_work_items` (id, items, agent) | An agent's own work items for a note with Distill on, by the note's id or by the id of the card that asked it to distill the note. Each item has a title, brief, `done_when`, section, `quote` (the note's own words it came from, copied exactly: a phrase or one line, at most 25 words, where the note marks its card), `waits_for`, size and `for`: one of the user's agents or teammates by name, as the asking card lists them, or `agent`, `person` or `either`. A proposal for you to review, never cards, unless the binder's Agents may place work items is on: then they go to Ready, meant for whoever it picked (`for`), waiting for each other as it proposed (`waits_for`), so agents take them in order, each as its own start switch allows. A run Binders started for one card may call it with that card's id |
+| `note_progress` (id or binder, since) | How the work from a note is going (the cards distilled from it, put in its group, or put on the board from it), from the board alone: its `counts` (done, in progress, waits on you, held up, not started), every card (`items`: column, who has it, what its agent says it's doing, its last update and `last_update_at`, `waits_on`, what it waits for, its section) and its `report` (finished since you last looked, in progress, waiting on whom, held up and by what, not started and for whom, sections changed since their cards were made, a `summary` and `markdown`). With `binder`: each note there with Distill on or with cards on the board, with its counts |
+| `get_note_history` (id) | A note's versions, newest first, the note as it is now on top: when, who (`by`, `by_kind`: person, teammate or agent, and an agent's `owner`), a `name` if given, lines added and removed, the sections touched, and the distills that read it. The id may be a card distilled from the note, never one put on the board from it or put in its group |
 | `get_note_version` (id, version, compare_to) | One version's text (`now` for the note as it is), and with `compare_to` what changed from it, line by line |
 | `create_binder` (name) | A new binder, or the existing one's id if the name is taken |
 | `list_folders` (binder, parent) | The folders in a binder, or in all of them: each one's `id`, `name`, `path`, `binder`, `binder_id`, `parent_id` (`""` at the top) and how many `notes`, `meetings` and `folders` it holds; with `parent` (a path or an id; `/` for the top), only those directly in it. A teammate's binder's folders only for a tool that may read teammates' items, and `captures` only for one that may read captures |
@@ -266,7 +297,7 @@ finished work over for review unless the binder lets them finish.
 |---|---|
 | `list_tasks` (binder, column, mine, for, since, agent) · `get_task` (id) | Cards (everything but Done unless you ask), only those meant for someone with `for`, or changed since a time with `since`; and one card with its links and timeline. Each card says who it's `meant_for`, and whether you confirmed it, and its `state` in the words A2A and MCP Tasks share: Ready is `submitted`, In progress `working`, Blocked `input_required` while a question or an approval waits on you and `failed` otherwise, Review and Done `completed`, Backlog `canceled`. A card waiting on your approval has `approval` |
 | `list_agents` | The agents you hand cards to (Settings → Agents), but not one Binders holds (its command or model turns checks off, or another agent goes by its name), each one's name on the boards and how Binders wakes it. Asked by your iPhone, also where its cards go (`sends_to`), who it sends them to (`vendor`, when known), whether Binders adds what the binder knows (`adds_context`), whether it may act for you (`may_act`) and a `fingerprint` of those; and, for an iPhone that sends its yes with what you say (it lists `momentAgreed`), whether Binders may start it on cards Binders sends it (`auto_start`), which that iPhone's fingerprint covers too, so a yes given before is asked again; and, for an iPhone that hands what you say over in Auto mode (it lists `momentAuto`), what Auto mode can do now (`auto`: `hands_over`, with `level`, or `why` and `model` when it can't) and, for each agent, whether it may take it (`auto`: `takes`, or why not), whether the Mac's yes covers Auto mode (`auto_mode_start`, which puts `auto` in its fingerprint), and the agents Binders can't weigh that take its binders (`auto_left_out`) |
-| `work_streams` (binder) | What's happening: who is working on what, questions waiting on you, work waiting for your review, cards meant for someone and not started, what was finished today, and a few plain sentences; and, for a run Binders started on this Mac (Claude Code, Codex, OpenCode or GitHub Copilot CLI), what it says it's doing (`doing`: each card and its line, in the agent's own words) |
+| `work_streams` (binder) | What's happening: who is working on what, questions waiting on you, work waiting for your review, cards meant for someone and not started, what was finished today, and a few plain sentences; and, for a run Binders started on this Mac (Claude Code, Codex, OpenCode, GitHub Copilot CLI or Antigravity), what it says it's doing (`doing`: each card and its line, in the agent's own words) |
 | `create_task` (title, todo, details, binder, column, for) | A new card in Backlog or Ready. With `todo` (an id from `list_todos`), the card is made from that to-do, in its binder, and the to-do is ticked off when the card is done; a to-do that already has a card returns that card. With no `binder`, an agent's or a tool's card goes in the binder it fits best, by the decision model chosen in Settings → AI (Tev1 0.8B, another MLX model, or a decision server on this Mac) when one is on and sure enough, else your current binder. Each model has its own level for sure enough: its measure's, or 0.35 for one not measured yet. Without `for`, Binders may suggest the agent whose work it is; a card from MCP never starts one |
 | `claim_task` (id, agent) | Takes a card; one owner at a time. A Ready or Backlog card moves to In progress. An agent can't claim, or move to In progress, a card made from what the iPhone heard that you or Binders meant for another agent: "This card is meant for Claude Code · app. Leave it for them." |
 | `update_task` (id, progress, links, column, for, agent) | A progress report and links (it keeps the claim), a move, or who it's for. Who it's for, from an agent, is a suggestion until you confirm it |
@@ -278,7 +309,11 @@ finished work over for review unless the binder lets them finish.
 other, and an agent can't claim one (or take it by moving it, or finish it without holding it) until every card it waits
 for is Done: "This card waits for “…”, which isn't done yet". `list_tasks` and `get_task` say what a card waits for
 (`waits_for`: id, title, column) and what it was distilled from (`distilled_from`: note, title, section, version, link,
-and `section_changed` once you've passed a change on). When a section changes after its cards were made, `get_task`'s timeline says who changed it and how many lines, and gives an agent the changed lines only when the user made the change, or a teammate did and the tool may read teammates' items; another agent's change is never given to a different agent, which is told to read the section with `get_note_version`. `get_note` and `list_notes` say `distill: true` for such a note. A
+`quote` when the item had one, and `section_changed` once you've passed a change on). A card in a note's group, whether
+Distill made it, you put it there with Part of, or it was put on the board from the note, has `note_id` and
+`note_title`; `distilled_from` stays only on cards Distill made. A card put on the board from a note, or put in its group
+by hand, gives an agent no way into the note: `get_note_history` and `get_note_version` refuse its id. When the section
+a Put on Board card came from changes, its agent hears only who changed which section and by how much. When a section changes after its cards were made, `get_task`'s timeline says who changed it and how many lines, and gives an agent the changed lines only when the user made the change, or a teammate did and the tool may read teammates' items; another agent's change is never given to a different agent, which is told to read the section with `get_note_version`. `get_note` and `list_notes` say `distill: true` for such a note. A
 run Binders started for one card also has `propose_work_items`, `get_note_history` and `get_note_version`, with its own
 card's id only: they reach the note its card came from, so it can see what changed since its card was made. An agent's
 own board-only server reaches a note only through a card it holds or is meant for.
@@ -289,20 +324,20 @@ lines in `answer`; an agent's change waits until you choose Looked at It on the 
 an agent places through Agents may place work items start an agent only when it may start on cards Binders sends it.
 
 **Agents you hand cards to.** Settings → Agents sets up agents that take cards: Claude Code in a repository; Codex,
-OpenCode or GitHub Copilot CLI in a repository, when they're on this Mac (kept in agents-cli.json beside
+OpenCode, GitHub Copilot CLI or Antigravity in a repository, when they're on this Mac (kept in agents-cli.json beside
 agents.json); a command, a web hook or a Shortcut. Under **Its work**, **Sends cards to** says who the
 agent hands a card to so its model can work on it (OpenAI, Anthropic, a server of yours): Binders can't see where a
 program, a Shortcut or a web hook sends things, so your iPhone names this before it gives the agent its first card, and
 asks again when it changes. Left empty, Claude Code is Anthropic, and a command that runs `claude`, `codex`, `gemini`,
-`grok` or `copilot` is Anthropic, OpenAI, Google, xAI or GitHub (Microsoft). A Codex agent is OpenAI and a Copilot agent
-GitHub (Microsoft) whatever that field says, as Binders fixes where they send cards. An OpenCode agent needs its model as
+`agy`, `grok` or `copilot` is Anthropic, OpenAI, Google, Google, xAI or GitHub (Microsoft). A Codex agent is OpenAI, a
+Copilot agent GitHub (Microsoft) and an Antigravity agent Google whatever that field says, as Binders fixes where they send cards. An OpenCode agent needs its model as
 `provider/model`, and names that provider ("the anthropic provider, as set up in your OpenCode"). **What it's for** is a
 few words, such as "personal errands", that Binders goes by to pick the agent for a card or a to-do and to name it on
-Give to (a Claude Code, Codex, OpenCode or Copilot agent is "code in the <folder> repository" until you say). **Kinds of
+Give to (a Claude Code, Codex, OpenCode, Copilot or Antigravity agent is "code in the <folder> repository" until you say). **Kinds of
 work** (Coding, Writing, Research, Outreach, Scheduling, Errands, Bookkeeping, Design, and your own words) say what it
 takes on at a glance, in agents.json as `kinds`; Claude Code and the command-line coding tools take coding unless you
 change it. Binders goes by them only when What it's for is empty ("Kinds of work: coding, research."), which a Claude
-Code, Codex, OpenCode or Copilot agent's never is: its repository speaks for it then. Nothing goes to it
+Code, Codex, OpenCode, Copilot or Antigravity agent's never is: its repository speaks for it then. Nothing goes to it
 until you tap Give to, unless you turn on **Start on cards Binders sends it** (off for every agent; `autoStart` in the
 file counts only with the turn-on alert's own yes in the Keychain). Then a card you type into Ready, a to-do you add in
 Command Mode, or a "Binders, …" you say on your own near your iPhone, in your voice past the start bar Calibrate sets,

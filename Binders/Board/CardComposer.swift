@@ -25,18 +25,23 @@ struct CardComposer: View {
             let reach = controller.agents.commentReach(for: card, events: events, now: context.date)
             let buttons = reach.buttons(answering: answering)
             let line = reach.line(answering: answering)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 9) {
                 ComposerField(text: $draft, placeholder: placeholder(reach), maxLines: trayUp ? CardLayout.composerLinesWithTray.upperBound : CardLayout.composerLines.upperBound,
                               focusOnAppear: focusesOnAppear, hint: [line, "Command Return sends."].compactMap { $0 }.joined(separator: " "),
                               height: $fieldHeight, focused: $focused,
                               onSend: { if let first = buttons.first { send(first) } }, onSendBack: sendBackWithWords, onClose: close)
                     .frame(height: fieldHeight)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.surface))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BindersTheme.surface))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(focused ? Color(nsColor: .keyboardFocusIndicatorColor) : BindersTheme.lineStrong, lineWidth: focused ? 2 : 1))
+                    .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
                 footer(line: line, glyph: reach.glyph, buttons: buttons)
             }
-            .padding(14)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .overlay(alignment: .top) {
+                Rectangle().fill(BindersTheme.line).frame(height: 1)
+            }
         }
     }
 
@@ -46,6 +51,7 @@ struct CardComposer: View {
             ForEach(buttons.reversed(), id: \.title) { button in
                 Button(button.title) { send(button) }
                     .modifier(Prominent(on: button.prominent))
+                    .controlSize(.regular)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .help(button.help)
             }
@@ -67,11 +73,15 @@ struct CardComposer: View {
 
     private func lineView(_ line: String, glyph: String) -> some View {
         Label {
-            Text(line).foregroundStyle(BindersTheme.muted).fixedSize(horizontal: false, vertical: true)
+            Text(line)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(BindersTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: glyph).foregroundStyle(BindersTheme.muted)
+            Image(systemName: glyph)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(BindersTheme.muted)
         }
-        .font(.caption)
         .accessibilityElement(children: .combine)
     }
 
@@ -166,11 +176,11 @@ struct ComposerField: NSViewRepresentable {
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.isContinuousSpellCheckingEnabled = true
-        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.font = .systemFont(ofSize: 14)
         textView.textColor = BindersTheme.NS.ink
         textView.insertionPointColor = BindersTheme.NS.ink
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.textContainerInset = NSSize(width: 9, height: 10)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]

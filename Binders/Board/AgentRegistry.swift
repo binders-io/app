@@ -3,7 +3,7 @@ import Foundation
 import BindersKit
 
 /// The agents Binders hands cards to (Settings → Agents), kept in agents.json in the data folder with no secrets in it: a
-/// web hook's token is in the Keychain. The command-line coding tools (Codex, OpenCode, GitHub Copilot CLI) are kept in
+/// web hook's token is in the Keychain. The command-line coding tools (Codex, OpenCode, GitHub Copilot CLI, Antigravity) are kept in
 /// agents-cli.json beside it, which no Mac 0.8.0 opens, so going back to 0.8.0 never sees them or saves over them. Each
 /// agent is fingerprinted in the Keychain when it's saved here, so one changed by anything else (an agent rewriting its
 /// own command, say) doesn't run until you look at it and save it again. Saving keeps any entry this build can't read as
@@ -364,6 +364,9 @@ final class AgentRegistry {
                 return "Give OpenCode its model as provider/model, such as anthropic/claude-sonnet-4-5: Binders starts it with that model only, so cards go only to the provider you chose."
             }
             if tool == .copilot, name.contains("$") { return "A GitHub Copilot CLI agent's name can't have $ in it: Copilot would read it as a variable." }
+            if !tool.readsOnly, !wake.editsFiles {
+                return "\(tool.name) can't be held to reading only, so Binders starts it only to edit files in the card's worktree. Set its Permissions to Edits Files."
+            }
         case .board:
             break
         }

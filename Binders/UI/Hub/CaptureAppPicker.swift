@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import BindersKit
 
 /// Picks apps to capture writing in: the ones running now, or any app in Applications. Password managers and terminals
 /// are shown but can't be picked.
@@ -107,16 +108,26 @@ struct CaptureAppPicker: View {
 struct AgentHookRow: View {
     @Binding var off: Bool
     @State private var copied = false
+    @State private var copiedAntigravity = false
+
+    private static var binary: String { Bundle.main.executableURL?.path ?? "/Applications/Binders.app/Contents/MacOS/Binders" }
 
     private var command: String {
-        let binary = Bundle.main.executableURL?.path ?? "/Applications/Binders.app/Contents/MacOS/Binders"
-        return "\"\(binary)\" --capture-prompt --tool \"Name of the tool\""
+        "\"\(Self.binary)\" --capture-prompt --tool \"Name of the tool\""
+    }
+
+    /// A hook for Antigravity's ~/.gemini/config/hooks.json: before each model call, with the last thing you sent, once
+    /// per prompt (Binders skips the repeats), answering with the empty JSON object Antigravity expects.
+    static var antigravityHook: String {
+        let command = "\"\(binary)\" --capture-prompt --tool Antigravity --reply-json"
+        let hook = OrderedJSON.object([("binders-capture", .object([("PreInvocation", .array([.object([("type", .string("command")), ("command", .string(command))])]))]))])
+        return hook.text()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Prompts from other tools' hooks", isOn: Binding(get: { !off }, set: { off = !$0 }))
-            Text("A tool that runs a command when you send a prompt (Cursor's beforeSubmitPrompt, Gemini CLI's and Copilot CLI's hooks, your own scripts) can hand it to Binders with:")
+            Text("A tool that runs a command when you send a prompt (Cursor's beforeSubmitPrompt, Gemini CLI's, Copilot CLI's and Antigravity's hooks, your own scripts) can hand it to Binders with:")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -127,6 +138,19 @@ struct AgentHookRow: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(command, forType: .string)
                     copied = true
+                }
+                .controlSize(.small)
+            }
+            HStack {
+                Text("For Antigravity, add this hook to ~/.gemini/config/hooks.json yourself; Binders doesn't change that file.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(copiedAntigravity ? "Copied" : "Copy Hook") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(Self.antigravityHook, forType: .string)
+                    copiedAntigravity = true
                 }
                 .controlSize(.small)
             }

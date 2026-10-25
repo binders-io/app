@@ -16,32 +16,93 @@ struct WorkPanel: View {
         let _ = (controller.distill.boardRevision, AgentDoingFeed.shared.lines.count)
         let progress = DistillBoard.progress(of: note, doing: AgentDoingFeed.shared.lines)
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Work").font(BindersTheme.cardTitle).foregroundStyle(.sectionInk)
-                Spacer()
-                Text(progress.counts.total == 0 ? "" : "\(progress.counts.done) of \(progress.counts.total) done").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            HStack(spacing: 7) {
+                Text("Work").font(BoardDesign.panelTitle).foregroundStyle(.sectionInk)
+                if progress.counts.total > 0 {
+                    Text("\(progress.counts.total)")
+                        .font(BoardDesign.columnCount)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(BindersTheme.ink.opacity(0.07)))
+                        .foregroundStyle(.secondary)
+                        .rollingCount(progress.counts.total)
+                }
+                Spacer(minLength: 4)
+                // Lane DS5: the note's cards chosen on the board, to act on them all at once.
+                if progress.counts.total > 0 {
+                    Button { Self.selectOnBoard(note) } label: {
+                        Image(systemName: "square.on.square")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .quietControl()
+                    .help("Open the board with every card from this note selected, to move, assign or delete them at once")
+                    .accessibilityLabel("Select on Board")
+                }
+                Button { Self.openBoard(note) } label: {
+                    Image(systemName: "rectangle.split.3x1")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.borderless)
+                .quietControl()
+                .help("Open the board")
+                .accessibilityLabel("Open the board")
             }
             .fitProbe("workpanel")
-            // Lane DS5: the note's cards chosen on the board, to act on them all at once.
             if progress.counts.total > 0 {
-                Button { Self.selectOnBoard(note) } label: { Label("Select on Board", systemImage: "square.on.square") }
-                    .buttonStyle(.borderless)
-                    .themedLink()
-                    .font(.caption)
-                    .help("Open the board with every card from this note selected, to move, assign or delete them at once")
+                HStack(spacing: 8) {
+                    WorkProgressBar(counts: progress.counts).frame(width: 90)
+                    Text("\(progress.counts.done) of \(progress.counts.total) done")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
             }
             if progress.items.isEmpty {
-                Text(note.distill ? "Distill the note, review the items and place them on the board: each card shows here as it goes."
-                     : "Put the note, or words in it, on the board: each card shows here as it goes.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(note.distill ? "Distill the note, review the items and place them on the board: each card shows here as it goes."
+                         : "Put the note, or words in it, on the board: each card shows here as it goes.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        if let made = NotePutOnBoard.put(note, controller: controller) {
+                            controller.flowBar.toast(made.line, symbol: "rectangle.split.3x1", duration: 4)
+                        }
+                    } label: {
+                        Label("Put on Board", systemImage: "rectangle.split.3x1")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("A card on this binder's board with the note's words")
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BindersTheme.surface))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(BindersTheme.line, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                }
             }
             ForEach(progress.items, id: \.card) { item in
                 WorkItemRow(item: item, note: note)
+                    .transition(.filed)
             }
         }
+        .filing(progress.items.map(\.card))
+        .animation(BoardDesign.settle, value: progress.counts)
+        .settlesAfterAppearing()
         .followingAgentDoing()
+    }
+
+    /// The board of the note's binder, opened from the Work panel.
+    static func openBoard(_ note: NoteItem) {
+        let navigation = HubWindowController.shared.navigation
+        navigation.binderID = note.binderID
+        navigation.pendingBinderTab = .board
+        navigation.selection = .binder
+        HubWindowController.shared.show()
     }
 
     /// Select on Board (lane DS5): the board of the note's binder, or of its cards when none is there, with the note's
@@ -64,62 +125,108 @@ struct WorkItemRow: View {
     @Environment(DictationController.self) private var controller
     let item: DistillProgress.Item
     let note: NoteItem
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                if let id = UUID(uuidString: item.card), let card = controller.board.card(id) { CardWindows.shared.open(card) }
-            } label: {
-                Text(item.title).font(.callout.weight(.medium)).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+        let accent = Self.color(item.state)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
+                Button {
+                    if let id = UUID(uuidString: item.card), let card = controller.board.card(id) { CardWindows.shared.open(card) }
+                } label: {
+                    Text(item.title)
+                        .font(BoardDesign.panelRowTitle)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help("Open the card")
+                if hovering {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(BindersTheme.faint)
+                        .padding(.top, 1)
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                }
             }
-            .buttonStyle(.plain)
-            .help("Open the card")
-            HStack(spacing: 6) {
-                Badge(text: Self.stateWord(item), symbol: Self.symbol(item.state), color: Self.color(item.state))
+            Wrapping(spacing: 4, lineSpacing: 4) {
+                BoardPill(text: Self.stateWord(item), symbol: Self.symbol(item.state), color: accent,
+                          strong: item.state == .waitsOnYou)
                 // Its column on the board, where its state doesn't already say it.
                 if item.columnTitle != Self.stateWord(item) {
-                    Text(item.columnTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    BoardPill(text: item.columnTitle, symbol: "rectangle.split.3x1", color: BindersTheme.muted)
                         .help("In \(item.columnTitle) on the board")
                 }
                 if let who = item.who {
                     if item.whoIsAgent {
-                        Label(who.shortAgentName, systemImage: BindersTheme.agentSymbol).font(.caption).foregroundStyle(BindersTheme.agent).lineLimit(1)
+                        BoardPill(text: who.shortAgentName, symbol: BindersTheme.agentSymbol, color: BindersTheme.agent)
                     } else {
-                        Text(item.meant ? "For \(who == BoardActor.you.name ? "you" : who)" : who).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        BoardPill(text: item.meant ? "For \(who == BoardActor.you.name ? "you" : who)" : who, symbol: "person.fill")
                     }
                 }
-                Spacer(minLength: 0)
             }
             if let doing = item.doing {
                 // The agent's own words: information, quoted.
-                Text("Says: \(doing)").font(.caption).foregroundStyle(BindersTheme.agent).lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Image(systemName: BindersTheme.agentSymbol)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(BindersTheme.agent)
+                    Text(doing)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(BindersTheme.agent)
+                        .lineLimit(2)
+                }
             }
             if let last = Self.lastUpdateLine(item) {
-                Text(last).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(last).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(2)
             }
             if !item.waitsFor.isEmpty {
                 Label("Waits for " + item.waitsFor.prefix(3).map { "“\($0)”" }.joined(separator: ", "), systemImage: "hourglass")
-                    .font(.caption)
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            HStack(spacing: 6) {
-                if let section = item.section {
-                    Button { Self.open(section: section, of: note) } label: {
-                        Label(section, systemImage: "text.alignleft").font(.caption).lineLimit(1)
+            if item.section != nil || item.sectionChanged {
+                HStack(spacing: 5) {
+                    if let section = item.section {
+                        Button { Self.open(section: section, of: note) } label: {
+                            Label(section, systemImage: "text.alignleft")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.borderless)
+                        .themedLink()
+                        .help("Show this section in the note")
                     }
-                    .buttonStyle(.borderless)
-                    .themedLink()
-                    .help("Show this section in the note")
-                }
-                if item.sectionChanged {
-                    Badge(text: "Section changed", symbol: "arrow.triangle.2.circlepath", color: BindersTheme.needsYou)
+                    if item.sectionChanged {
+                        BoardPill(text: "Section changed", symbol: "arrow.triangle.2.circlepath",
+                                  color: BindersTheme.needsYou, strong: true)
+                    }
                 }
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(BindersTheme.line))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(hovering ? BindersTheme.surface2 : BindersTheme.surface))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(hovering ? BindersTheme.lineStrong : BindersTheme.line)
+        }
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(accent.opacity(item.state == .done ? 0.55 : 0.85))
+                .frame(width: 2.5)
+                .padding(.vertical, 9)
+                .padding(.leading, 1)
+        }
+        .shadow(color: .black.opacity(hovering ? 0.10 : 0), radius: 7, y: 2)
+        .onHover { inside in
+            withAnimation(BoardDesign.settle) { hovering = inside }
+            if inside { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+        .animation(BoardDesign.settle, value: hovering)
         .accessibilityElement(children: .contain)
     }
 
@@ -350,9 +457,17 @@ struct DistilledFromPanel: View {
         // One you put in the note's group by hand (lane DS5) says so in its Part of line alone.
         if let from = card.distilledFrom, from.byHand != true {
             let note = Store.shared.note(from.note)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.turn.down.right").foregroundStyle(BindersTheme.muted)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(TintFill().opacity(0.12))
+                        .overlay {
+                            Image(systemName: from.put == true ? "rectangle.split.3x1" : "arrow.turn.down.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tintText)
+                        }
+                        .frame(width: 18, height: 18)
+                        .accessibilityHidden(true)
                     Button(from.request == true ? "Asks to distill “\(card.sourceTitle ?? "a note")”"
                            : from.put == true ? "Put on the board from “\(note?.title ?? card.sourceTitle ?? "a note")”"
                            : "Distilled from “\(card.sourceTitle ?? "a note")”") {
@@ -367,30 +482,33 @@ struct DistilledFromPanel: View {
                     }
                     .buttonStyle(.borderless)
                     .themedLink()
+                    .font(.system(size: 11.5, weight: .semibold))
                     .disabled(note == nil)
                     .help(from.quote != nil ? "Open the note at the words this card came from"
                           : from.section.map { "Open the note at its “\($0)” section" } ?? "Open the note")
                 }
-                .font(.caption)
                 if let quote = from.quote {
                     // The note's words, as Distill read them, or as you selected them (Put on Board, lane DS6).
                     Text("“\(quote)”")
-                        .font(.caption.italic())
+                        .font(.system(size: 12, weight: .regular, design: .serif).italic())
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.surface2))
                         .accessibilityLabel("From the note: \(quote)")
                 }
                 if let section = from.section {
-                    Text("Section “\(section)”").font(.caption).foregroundStyle(BindersTheme.muted)
+                    BoardPill(text: "Section “\(section)”", symbol: "text.alignleft", color: BindersTheme.muted)
                 }
                 if let change = from.change {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Label(change.gone ? "Its section is gone from the note since this card was made, by \(change.by)."
                               : "Its section changed after this card was made, by \(change.by): \(NoteVersions.counts(added: change.added, removed: change.removed).lowercased()).",
                               systemImage: "arrow.triangle.2.circlepath")
-                            .font(.caption)
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(BindersTheme.needsYou)
                             .fixedSize(horizontal: false, vertical: true)
                         if from.held == true {
@@ -402,6 +520,9 @@ struct DistilledFromPanel: View {
                     }
                 }
             }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BindersTheme.surface2.opacity(0.55)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(BindersTheme.line))
         }
     }
 }

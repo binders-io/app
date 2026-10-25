@@ -1,7 +1,7 @@
 import Foundation
 
-// The coding agents' command-line tools Binders starts for a card, as Claude Code is started: Codex, OpenCode and GitHub
-// Copilot CLI. Each runs on its own in a git worktree Binders makes for the card, with Binders' board tools for that card
+// The coding agents' command-line tools Binders starts for a card, as Claude Code is started: Codex, OpenCode, GitHub
+// Copilot CLI and Antigravity CLI (agy). Each runs on its own in a git worktree Binders makes for the card, with Binders' board tools for that card
 // only and the tool's own checks on. These agents live in agents-cli.json, beside agents.json, which no Mac 0.8.0 opens.
 // The parts here can be worked out and tested away from the app: the tools, how an agent is set up, what a run is given,
 // and the record a run leaves while it goes. The app runs the wakes.
@@ -9,7 +9,7 @@ import Foundation
 /// A coding agent's command-line tool Binders can start for a card. An unknown raw value fails to decode, so an entry naming
 /// a tool a later Binders added is kept as it is and never run as something else.
 public enum CLIAgent: String, Codable, CaseIterable, Sendable {
-    case codex, opencode, copilot
+    case codex, opencode, copilot, antigravity
 
     /// Its name, as Settings and the cards say it.
     public var name: String {
@@ -17,6 +17,7 @@ public enum CLIAgent: String, Codable, CaseIterable, Sendable {
         case .codex: "Codex"
         case .opencode: "OpenCode"
         case .copilot: "GitHub Copilot CLI"
+        case .antigravity: "Antigravity"
         }
     }
 
@@ -26,24 +27,32 @@ public enum CLIAgent: String, Codable, CaseIterable, Sendable {
         case .codex: "Codex"
         case .opencode: "OpenCode"
         case .copilot: "Copilot"
+        case .antigravity: "Antigravity"
         }
     }
 
-    /// The program's name: on the login shell's PATH, and the name an override must have.
-    public var program: String { rawValue }
+    /// The program's name: on the login shell's PATH, and the name an override must have. Antigravity's is agy.
+    public var program: String { self == .antigravity ? "agy" : rawValue }
 
-    /// Who it sends cards to, when how Binders starts it fixes that: OpenAI for Codex, GitHub for Copilot. OpenCode sends
-    /// them to the provider of the model you choose, so it's nil here.
+    /// Who it sends cards to, when how Binders starts it fixes that: OpenAI for Codex, GitHub for Copilot, Google for
+    /// Antigravity. OpenCode sends them to the provider of the model you choose, so it's nil here.
     public var company: String? {
         switch self {
         case .codex: "OpenAI"
         case .opencode: nil
         case .copilot: "GitHub (Microsoft)"
+        case .antigravity: "Google"
         }
     }
 
-    /// Whether a run may use commands. Only Codex has a sandbox for them; the others get no shell at all.
-    public var runsCommands: Bool { self == .codex }
+    /// Whether a run may use commands: Codex in its sandbox, and Antigravity in its terminal sandbox, where only the
+    /// commands your Antigravity settings allow run (it refuses the rest, with no one there to approve them). The others
+    /// get no shell at all.
+    public var runsCommands: Bool { self == .codex || self == .antigravity }
+
+    /// Whether a run can be held to reading only. Antigravity can't: its plan mode is a way of working, not a limit, and
+    /// it writes in its workspace without asking.
+    public var readsOnly: Bool { self != .antigravity }
 
     /// Whether "Sites its commands may reach" applies. None of them in this build: Codex's sites wait on a supervised
     /// check of its network proxy, and the others run no commands.
@@ -59,28 +68,32 @@ public enum CLIAgent: String, Codable, CaseIterable, Sendable {
         case .codex: "0.162.0"
         case .opencode: "1.18.27"
         case .copilot: "1.0.10"
+        // Taken from Antigravity's documentation and changelog at this build, not from a run of it.
+        case .antigravity: "1.4.7"
         }
     }
 
     /// What prints its version, and nothing else. Copilot's keeps the launcher on the build that's installed.
     public var versionArguments: [String] {
         switch self {
-        case .codex, .opencode: ["--version"]
+        case .codex, .opencode, .antigravity: ["--version"]
         case .copilot: ["--no-auto-update", "--version"]
         }
     }
 
-    /// How much of a version must match the checked one: major and minor for Codex and OpenCode, all of it for Copilot,
-    /// whose 1.0.x releases carry new features.
+    /// How much of a version must match the checked one: major and minor for Codex, OpenCode and Antigravity, all of it
+    /// for Copilot, whose 1.0.x releases carry new features.
     public var pinnedParts: Int {
         switch self {
-        case .codex, .opencode: 2
+        case .codex, .opencode, .antigravity: 2
         case .copilot: 3
         }
     }
 
     /// The version in what its version arguments printed, when it's in this tool's shape ("codex-cli 0.162.0", a bare
-    /// "1.18.27", "GitHub Copilot CLI 1.0.10."). Nil when it isn't: then it isn't the tool.
+    /// "1.18.27", "GitHub Copilot CLI 1.0.10."; for agy, whose shape its documentation doesn't show, a bare version or
+    /// one after "agy", "Antigravity" or "Antigravity CLI", with or without "version" and "v"). Nil when it isn't: then
+    /// it isn't the tool.
     public func version(in output: String) -> String? {
         let line = output.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         let number = #"(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)"#
@@ -88,6 +101,7 @@ public enum CLIAgent: String, Codable, CaseIterable, Sendable {
         case .codex: #"^codex-cli "# + number + "$"
         case .opencode: "^" + number + "$"
         case .copilot: #"^GitHub Copilot CLI "# + number + #"\.?$"#
+        case .antigravity: #"^(?i:(?:agy|antigravity(?: cli)?)(?: version)? )?v?"# + number + #"(?: .*)?$"#
         }
         guard let expression = try? NSRegularExpression(pattern: pattern),
               let match = expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
@@ -128,7 +142,8 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
     /// "acceptEdits" (edits files in its worktree, for a new agent) or "plan" (reads only). Anything else, or none, runs as
     /// "plan" (`safeMode`).
     public var permissionMode: String
-    /// The model's name; for OpenCode "provider/model", which it needs. Nil leaves it to the tool (Codex, Copilot).
+    /// The model's name; for OpenCode "provider/model", which it needs. Nil leaves it to the tool (Codex, Copilot,
+    /// Antigravity).
     public var model: String?
     /// The sites its commands may reach. Kept, but used only by a tool whose `honoursSites` is true: none in this build.
     public var allowedDomains: [String]?
@@ -137,6 +152,9 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
 
     /// The modes Binders starts these tools in. Neither turns their checks off.
     public static let modes = ["acceptEdits", "plan"]
+
+    /// The modes a tool can be set to: Antigravity edits files or doesn't run, as it can't be held to reading only.
+    public static func modes(for tool: CLIAgent) -> [String] { tool.readsOnly ? modes : ["acceptEdits"] }
 
     /// The mode a new agent starts with.
     public static let newAgentMode = "acceptEdits"

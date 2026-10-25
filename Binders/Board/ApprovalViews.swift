@@ -15,36 +15,48 @@ struct ApprovalBox: View {
     var compact = false
     /// For the drawings: Decline's reason field open from the start.
     var startsDeclining = false
+    /// In the card's needs-you tray, which already draws the callout: its own frame and fill are left off.
+    var boxed = true
     @State private var declining = false
     @State private var reason = ""
     @State private var problem: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             // It waits on you: the shield is amber, and the words stay ink.
             Label {
-                Text(approval.headline(by: event.author)).foregroundStyle(BindersTheme.ink)
+                Text(approval.headline(by: event.author))
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(BindersTheme.ink)
             } icon: {
-                Image(systemName: "checkmark.shield").foregroundStyle(BindersTheme.needsYou)
+                Image(systemName: "checkmark.shield")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(BindersTheme.needsYou)
             }
-            .font(.subheadline.weight(.semibold))
             if !approval.recipients.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(Array(approval.recipients.enumerated()), id: \.offset) { _, recipient in
-                        Text("To: \(recipient)").font(.callout).textSelection(.enabled).lineLimit(2)
+                        Text("To: \(recipient)")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
                     }
                 }
             }
-            ScrollView {
-                Text(approval.text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
+            VStack(alignment: .leading, spacing: 0) {
+                ScrollView {
+                    Text(approval.text)
+                        .font(.system(size: 13.5))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: textHeight)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(BindersTheme.surface))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(BindersTheme.line))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BindersTheme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(BindersTheme.line))
             if !approval.link.isEmpty {
                 if let web = Self.web(approval.link) {
                     Button { NSWorkspace.shared.open(web) } label: { Label(approval.link, systemImage: "link").lineLimit(1).truncationMode(.middle) }
@@ -75,8 +87,11 @@ struct ApprovalBox: View {
                 HStack(spacing: 8) {
                     Button("Approve") { decide(true) }
                         .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
                         .help(others ?? "\(event.author) goes ahead with exactly this")
                     Button("Decline…") { declining = true }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
                         .help(others ?? "")
                     if let problem { StatusLabel(problem, .problem).font(.caption).lineLimit(2) }
                     Spacer(minLength: 0)
@@ -87,13 +102,23 @@ struct ApprovalBox: View {
                 }
             }
             Text("Approving tells \(event.author) to go ahead with exactly this. Binders can't stop an agent from using its own tools.")
-                .font(.caption)
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(boxed ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(BindersTheme.needsYou.opacity(0.08)))
+        .background {
+            if boxed {
+                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BindersTheme.needsYou.opacity(0.08))
+            }
+        }
+        .overlay {
+            if boxed {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(BindersTheme.needsYou.opacity(0.30))
+            }
+        }
         .onAppear { if startsDeclining { declining = true } }
     }
 

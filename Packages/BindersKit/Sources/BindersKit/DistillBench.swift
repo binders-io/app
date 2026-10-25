@@ -394,3 +394,44 @@ extension DistillBench {
         return "## Week \(week) update\n\n" + picked.prefix(4).joined(separator: " ") + "\n\n" + picked.dropFirst(4).joined(separator: " ")
     }
 }
+
+extension DistillBench {
+    /// Lane DS8: a careful reader's reply to one of Distill's questions about `spec`, in the question's format: the gold
+    /// items of the sections the question holds, each from the line with most of its words. v2 names that line; v1 writes
+    /// the brief, done when, section and quote out, as v1's prompt asks. For the kit's tests and the self-tests' stand-ins,
+    /// and for comparing how much each format writes (`estimatedTokens`).
+    public static func standInReply(_ ask: DistillRun.Ask, spec: Spec) -> String {
+        let lines = ask.lines ?? DistillLines(ask.user)
+        let here = Set(lines.lines.compactMap(\.section))
+        func title(_ gold: Gold) -> String { gold.words.joined(separator: " ").capitalized }
+        func best(_ gold: Gold) -> DistillLines.Line? {
+            let candidates = lines.numbered.filter { $0.section == gold.section }
+            return candidates.max { a, b in hits(gold, a.text) < hits(gold, b.text) }
+        }
+        func hits(_ gold: Gold, _ text: String) -> Int { gold.words.filter { text.lowercased().contains($0.lowercased()) }.count }
+        func quoted(_ text: String) -> String { DistillSchema.quoted(text) }
+        let golds = spec.gold.enumerated().filter { $0.element.section.map(here.contains) ?? false }
+        let position = Dictionary(golds.enumerated().map { ($1.offset, $0 + 1) }, uniquingKeysWith: { a, _ in a })
+        let items: [String] = golds.map { index, gold in
+            let line = best(gold)
+            let waits = gold.waits.compactMap { position[$0] }
+            let who = quoted(gold.person ? "person" : "agent")
+            switch ask.format {
+            case .v2:
+                let after = waits.first.map { #","after":\#($0)"# } ?? ""
+                return #"{"title":\#(quoted(title(gold))),"lines":[\#(line?.id ?? 0)],"for":\#(who),"size":"small"\#(after)}"#
+            case .v1:
+                let source = line.map { DistillLines.plain($0.text) } ?? title(gold)
+                let quote = source.split(separator: " ").prefix(DistillQuote.maxWords).joined(separator: " ")
+                return #"{"title":\#(quoted(title(gold))),"brief":\#(quoted(source)),"done_when":\#(quoted(title(gold) + " is done and checked.")),"#
+                    + #""section":\#(quoted(gold.section ?? "")),"quote":\#(quoted(quote)),"waits_for":[\#(waits.map(String.init).joined(separator: ","))],"#
+                    + #""size":"small","for":\#(who)}"#
+            }
+        }
+        return #"{"items":[\#(items.joined(separator: ","))]}"#
+    }
+
+    /// About how many tokens a reply takes: four characters to a token, as English JSON runs (the bench counts a model's
+    /// own tokens where it can).
+    public static func estimatedTokens(_ text: String) -> Int { (text.count + 3) / 4 }
+}

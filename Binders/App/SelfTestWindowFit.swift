@@ -143,7 +143,7 @@ extension SelfTest {
         let notePage: (NoteItem) -> (HubNavigation) -> Void = { item in
             { $0.selection = .binder; $0.pendingBinderTab = .notes; $0.pendingNoteID = item.id }
         }
-        let noteProbes = ["note.bottom.first", "note.bottom.last", "toolbar.first", "toolbar.last"]
+        let noteProbes = ["note.bottom.first", "note.bottom.last", "toolbar.first", "toolbar.last", "distill.button"]
         let pages = [
             Page(name: "note", probes: noteProbes, configure: notePage(note)),
             Page(name: "note-markdown", probes: noteProbes, configure: notePage(note), markdown: true),

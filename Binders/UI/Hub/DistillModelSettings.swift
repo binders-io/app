@@ -10,6 +10,8 @@ struct DistillModelSection: View {
     @State private var askingName = false
     @State private var typedName = ""
     @State private var typedSource = DistillModelSource.mlx
+    /// Lane DS9: Distill in the background while you write.
+    @AppStorage(DistillBackgroundReader.enabledKey, store: AppDefaults.store) private var inBackground = true
 
     private var models: MLXModels { .shared }
 
@@ -19,6 +21,11 @@ struct DistillModelSection: View {
             if settings.distillModelSource == .mlx, settings.distillHasOwnModel {
                 mlxState(settings.distillModel.trimmingCharacters(in: .whitespaces))
             }
+            Toggle(isOn: $inBackground) {
+                Text("Distill in the background while I write")
+                Text("For notes with Distill on, it reads what you changed with the Distill model a little after you stop typing, so new items wait in the list. It pauses while you dictate or record.")
+            }
+            .fitProbe("settings.distill.background")
         } header: {
             Text("Distill")
         } footer: {

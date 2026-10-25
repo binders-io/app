@@ -431,6 +431,11 @@ enum SelfTest {
             return await codeBlockSpeedSelfTest()
         }
 
+        if let directory = value("--selftest-mermaid") {
+            // Lane MM1: Mermaid diagrams drawn in the note editor, offline, in light and dark, with their mistakes.
+            return await mermaidSelfTest(directory: URL(fileURLWithPath: directory))
+        }
+
         if args.contains("--selftest-code-blocks") {
             return await codeBlockSelfTest()
         }
@@ -846,7 +851,7 @@ enum SelfTest {
             return await claudeManagedSelfTest()
         }
         if args.contains("--selftest-cli-agents") {
-            // Codex, OpenCode and GitHub Copilot CLI as agents, with stand-ins for the tools, in a throwaway BINDERS_DATA_DIR.
+            // Codex, OpenCode, GitHub Copilot CLI and Antigravity as agents, with stand-ins for the tools, in a throwaway BINDERS_DATA_DIR.
             // A folder after the flag gets a drawing of each one's settings.
             return await cliAgentsSelfTest(drawingTo: value("--selftest-cli-agents").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
@@ -856,6 +861,14 @@ enum SelfTest {
         if args.contains("--selftest-distill") {
             // Distill (lane DS1), with a stand-in model, the router's stand-in decision model and stand-in agents.
             return await distillSelfTest()
+        }
+        if args.contains("--selftest-distill-background") {
+            // Distill in the background while you write (lane DS9), with the v2 stand-in.
+            return await distillBackgroundSelfTest()
+        }
+        if let directory = value("--selftest-distill-list") {
+            // The Distill list, the Distill button and the distilling motion (lane DS9), with frames to look at.
+            return await distillListSelfTest(to: URL(fileURLWithPath: directory, isDirectory: true))
         }
         if args.contains("--selftest-distill-marks") {
             // Work in the note (lane DS4): cards marked at the words they came from, with stand-in items. A folder after the
@@ -870,9 +883,17 @@ enum SelfTest {
             // Distill on a long note (lane DS2): read in parts, asked again for a list, thinking left out, with stand-ins.
             return await distillLongSelfTest()
         }
+        if args.contains("--selftest-distill-slow") {
+            // Distill with a slow model (lane DS7): a stall, not a stopwatch, ends a reply; what was written is kept; parts sized by speed.
+            return await distillSlowSelfTest()
+        }
         if args.contains("--selftest-distill-schema") {
             // Distill's reply held to its JSON schema (lane DS3): Ollama's format, response_format, xgrammar, with stand-ins.
             return await distillSchemaSelfTest()
+        }
+        if args.contains("--selftest-distill-who") {
+            // Who Distill's items are meant for (lane AS1): the reader told who can take work, with stand-ins.
+            return await distillWhoSelfTest()
         }
         if let directory = value("--selftest-distill-draw") {
             // Drawings of Distill's Work bar, panel, review sheet, report, Work list, history and a distilled card.

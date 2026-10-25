@@ -53,10 +53,13 @@ extension SelfTest {
         note.binderID = web.id
         store.insert(note)
         service.setDistill(true, for: note)
-        guard case .success(let proposal) = await service.distill(note) else {
+        guard case .success(var proposal) = await service.distill(note) else {
             run.check(false, "Binders' model reads the note")
             return 1
         }
+        // Lane DS8: who each is for comes after the proposal.
+        await service.suggestionsDone(proposal.id)
+        proposal = DistillStore.shared.distill(proposal.id, of: note.id) ?? proposal
         let placed = service.place(proposal, items: Set(proposal.items.map(\.id)), column: .ready)
         run.check(placed.count == 8, "its 8 items are on the board: \(placed.count)")
         guard placed.count == 8 else { return 1 }

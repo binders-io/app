@@ -985,6 +985,12 @@ final class AgentDispatcher {
         outcomes[card] = AutomationService.Outcome(at: Date(), ok: ok, message: message)
     }
 
+    /// What the card's hand-off waits for, said where its last wake is (lane DS8: "Writing the brief for Echo…"); nil
+    /// takes it away.
+    func say(_ card: UUID, _ message: String?) {
+        outcomes[card] = message.map { AutomationService.Outcome(at: Date(), ok: true, message: $0) }
+    }
+
     /// Your words for the agent woken now (`AgentWakePayload.answer`), as `CardConversation.wakeWords` says: your newest
     /// answer or comment, as every wake has always carried; or, while comments of yours a comment's wake is for haven't
     /// reached the agent, every word of yours it hasn't had, oldest first, never a note by Binders. Read from the timeline
@@ -1115,10 +1121,11 @@ private struct CLIReady: Sendable {
 }
 
 extension AgentDispatcher {
-    /// Codex, OpenCode or GitHub Copilot CLI, started on its own for the card in a git worktree Binders makes for the card
-    /// and tool, with Binders' board tools for that card only and the tool's own checks on. The card's id is all it's
-    /// given. First, off the main thread: its program and version, Codex's settings from an administrator, Copilot's
-    /// settings folder, the worktree and the run's temp folder. Any of those that fails says why on the card and starts
+    /// Codex, OpenCode, GitHub Copilot CLI or Antigravity, started on its own for the card in a git worktree Binders makes
+    /// for the card and tool, with Binders' board tools for that card only and the tool's own checks on. The card's id is
+    /// all it's given. First, off the main thread: its program and version, Codex's settings from an administrator,
+    /// Copilot's settings folder, Antigravity's settings and its worktree's .agents folder, the worktree and the run's temp
+    /// folder. Any of those that fails says why on the card and starts
     /// nothing. The run outlives Binders if it must: its record beside its log carries its end across a quit.
     fileprivate func wakeCLI(_ agent: AgentProfile, _ wake: CLIAgentWake, card: TaskCard, reason: AgentWake.Reason) {
         let id = card.id
@@ -1133,13 +1140,13 @@ extension AgentDispatcher {
         let temporary = CLIRuns.temporary(stem)
         let team = AppSettings.shared.teamFolderPath
         Task { [weak self] in
-            let prepared = await Self.prepareCLI(wake, card: id, temporary: temporary)
+            let prepared = await Self.prepareCLI(wake, card: id, temporary: temporary, team: team)
             self?.startCLI(agent, wake, card: id, reason: reason, stem: stem, temporary: temporary, team: team, prepared: prepared)
         }
     }
 
     /// Everything a CLI run needs before it starts, in order, stopping at the first that fails.
-    nonisolated private static func prepareCLI(_ wake: CLIAgentWake, card: UUID, temporary: URL) async -> Result<CLIReady, AgentWorktrees.Failure> {
+    nonisolated private static func prepareCLI(_ wake: CLIAgentWake, card: UUID, temporary: URL, team: String?) async -> Result<CLIReady, AgentWorktrees.Failure> {
         let tool = wake.tool
         let program: CLIProgram.Found
         switch await CLIProgram.find(tool, executable: wake.executable) {
@@ -1155,6 +1162,11 @@ extension AgentDispatcher {
             if let problem = CodexManaged.problem(existing: managed.existing, forced: managed.forced) { return .failure(AgentWorktrees.Failure(problem)) }
         }
         if tool == .copilot, let problem = CLIProgram.prepareCopilotHome() { return .failure(AgentWorktrees.Failure(problem)) }
+        // Your Antigravity settings, which Binders can't set for a run: checked before any worktree is made for it.
+        if tool == .antigravity {
+            let path = AgentWorktree.path(root: AgentPlaces.root.path, repository: AgentPlaces.real(wake.repository), card: card, tool: tool)
+            if let problem = AntigravityFiles.settingsProblem(worktree: path, team: team) { return .failure(AgentWorktrees.Failure(problem)) }
+        }
         // The run's own temp folder, for git too.
         AgentPlaces.ensure(temporary)
         if tool == .codex { AgentPlaces.ensure(temporary.appendingPathComponent("zsh", isDirectory: true)) }
@@ -1165,6 +1177,11 @@ extension AgentDispatcher {
             if tool == .opencode, let link = AgentWorktrees.outwardLink(in: worktree.path) {
                 try? FileManager.default.removeItem(at: temporary)
                 return .failure(AgentWorktrees.Failure(AgentWorktree.outwardLinkProblem(link, tool: tool)))
+            }
+            // Antigravity loads hooks, servers and plugins from the worktree's .agents folder, outside its sandbox.
+            if tool == .antigravity, let problem = AntigravityFiles.workspaceProblem(worktree: worktree.path) {
+                try? FileManager.default.removeItem(at: temporary)
+                return .failure(AgentWorktrees.Failure(problem))
             }
             let agentsFile = tool == .opencode && FileManager.default.fileExists(atPath: (worktree.path as NSString).appendingPathComponent("AGENTS.md"))
             return .success(CLIReady(program: program, version: version, worktree: worktree, agentsFile: agentsFile))
@@ -1177,13 +1194,14 @@ extension AgentDispatcher {
     /// What a run is given, from the card, the agent, its worktree (and the repository's top folder, as its record has it)
     /// and its stem. The self-test builds the same.
     nonisolated static func cliRun(card: UUID, run: UUID, session: UUID, reason: AgentWake.Reason, agent: AgentProfile, wake: CLIAgentWake,
-                                   worktree: String, repository: String?, stem: String, path: String, agentsFile: Bool, team: String?) -> CLIAgentRun {
+                                   worktree: String, repository: String?, stem: String, path: String, agentsFile: Bool, team: String?,
+                                   conversation: String? = nil) -> CLIAgentRun {
         CLIAgentRun(card: card, run: run, reason: reason, boardName: agent.name, wake: wake, binders: MCPHost.executable, worktree: worktree,
                     temporary: CLIRuns.temporary(stem).path, places: AgentPlaces.root.path, bindersTemp: AgentPlaces.real(NSTemporaryDirectory()),
                     dataFolder: AppPaths.support.path, home: NSHomeDirectory(), alsoPrivate: [AgentPlaces.logs.path] + [team].compactMap { $0 },
                     runStem: stem, session: session, draftsFirst: agent.draftsFirst, path: path, base: ProcessInfo.processInfo.environment,
                     throwawayData: AppPaths.isDemo ? AppPaths.support.path : nil, copilotHome: AgentPlaces.copilotHome.path, agentsFile: agentsFile,
-                    repository: repository)
+                    repository: repository, conversation: conversation)
     }
 
     /// Back on the main actor: starts the run, writes its record and posts its receipt; or says why it didn't start.
@@ -1203,7 +1221,8 @@ extension AgentDispatcher {
         }
         let runID = UUID()
         let inputs = Self.cliRun(card: id, run: runID, session: UUID(), reason: reason, agent: agent, wake: wake, worktree: ready.worktree.path,
-                                 repository: ready.worktree.repository, stem: stem, path: ready.program.searchPath, agentsFile: ready.agentsFile, team: team)
+                                 repository: ready.worktree.repository, stem: stem, path: ready.program.searchPath, agentsFile: ready.agentsFile, team: team,
+                                 conversation: wake.tool == .antigravity ? AntigravityFiles.conversation(for: id) : nil)
         let launch: CLIAgentLaunch
         do {
             launch = try CLIAgentLaunches.make(inputs)
@@ -1215,7 +1234,12 @@ extension AgentDispatcher {
         let process: Process
         do {
             try FileManager.default.createDirectory(at: Self.logs, withIntermediateDirectories: true)
-            for (path, contents) in launch.files { try AgentPlaces.write(Data(contents.utf8), to: URL(fileURLWithPath: path)) }
+            for (path, contents) in launch.files {
+                // Antigravity's server for the run goes in the worktree's .agents folder, which may not be there yet.
+                let url = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try AgentPlaces.write(Data(contents.utf8), to: url)
+            }
             // Started directly, not through a shell, so no profile touches its environment.
             process = try AutomationService.launch(ready.program.path, launch.arguments, stdin: launch.stdin, environment: launch.environment,
                                                    directory: URL(fileURLWithPath: launch.directory), log: log, errors: errors, limit: Self.runLimit,
@@ -1223,6 +1247,7 @@ extension AgentDispatcher {
                 Task { @MainActor [weak self] in self?.cliExited(id, run: runID, status: status) }
             }
         } catch {
+            if wake.tool == .antigravity { AntigravityFiles.takeOut(worktree: ready.worktree.path) }
             return cliFailed(id, "Couldn't start \(wake.tool.name): \(error.localizedDescription)", temporary: temporary)
         }
         let pid = process.processIdentifier
@@ -1264,6 +1289,8 @@ extension AgentDispatcher {
             return start + " Your own OpenCode MCP servers start with it, but it can't use their tools. When it stops, Binders commits its changes on \(worktree.branch) and adds the command that resumes its session."
         case .copilot:
             return start + " When it stops, Binders commits its changes on \(worktree.branch). To look in, with your own answers to Copilot's prompts rather than the run's limits (Binders sets its run settings back before the next run): \(lookIn ?? "")"
+        case .antigravity:
+            return start + " Your own Antigravity hooks, plugins and MCP servers load with it, but it can use only Binders' tools for this card. When it stops, Binders commits its changes on \(worktree.branch) and adds the command that carries on its conversation."
         }
     }
 
@@ -1316,12 +1343,19 @@ extension AgentDispatcher {
                 wordsSaid = self.reported(card, session: key, text: words, by: actor)
             }
             // How it went.
-            let finished = status == 0 && (tool != .copilot || out.completed)
+            // Copilot and Antigravity say how the turn ended: without that, it didn't end normally.
+            let finished = status == 0 && (tool != .copilot && tool != .antigravity || out.completed)
             let head = status.map { finished ? "Finished" : $0 == 0 ? "Stopped before its result" : "Stopped (exit \($0))" } ?? "Ended while Binders was closed"
             let summary = ([head, out.cost.map { String(format: "$%.2f", $0) }, tool == .opencode ? out.turns.map { "\($0) turns" } : nil,
                             out.premiumRequests.map(CLIAgentOutput.premiumRequests)]
                 .compactMap { $0 }).joined(separator: ", ")
             self.record(id, ok: finished, summary)
+            if tool == .antigravity {
+                AntigravityFiles.remember(out.session, for: id)
+                // What it wasn't allowed to do, with no one there to approve it, from its stderr and its result.
+                let refused = out.denied + AntigravityDenials.inErrors(errors).map(\.text).filter { !out.denied.contains($0) }
+                if let line = AntigravityDenials.line(refused), let card = self.board?.card(id) { self.board?.note(card, text: line) }
+            }
             // Commit what it changed, before anything is decided.
             self.beforeCommit?(id)
             let recorded = AgentWorktrees.records().first { $0.path == runRecord.worktree && $0.card == id && $0.tool == tool }
@@ -1333,9 +1367,16 @@ extension AgentDispatcher {
             let path = AppPaths.isDemo ? "" : await CLIProgram.loginPath() ?? ""
             let committed: AgentWorktrees.Committed
             if let worktree {
-                committed = await Task.detached(priority: .utility) {
-                    await AgentWorktrees.commit(worktree, agentName: runRecord.agentName, path: path, temporary: nil)
-                }.value
+                // Antigravity's server for the run comes out first; something there it would run outside its sandbox stays
+                // uncommitted.
+                let refused = tool == .antigravity ? AntigravityFiles.commitProblem(worktree: worktree.path) : nil
+                if let refused {
+                    committed = .refused(refused)
+                } else {
+                    committed = await Task.detached(priority: .utility) {
+                        await AgentWorktrees.commit(worktree, agentName: runRecord.agentName, path: path, temporary: nil)
+                    }.value
+                }
             } else {
                 committed = .nothing
             }
@@ -1388,8 +1429,10 @@ extension AgentDispatcher {
     /// Why a run stopped before it took the card, for the card, or nil when nothing says it didn't work. `errors` is the
     /// end of its stderr, where Copilot says over several lines that it isn't signed in.
     private static func notTaken(_ tool: CLIAgent, status: Int32?, out: CLIAgentResult, said: String?, errors: String, model: String?) -> String? {
+        // Antigravity's own way of saying why: its error: line, or its AGY_ERROR line's message.
+        let said = tool == .antigravity ? AntigravityOutput.reason(inErrors: errors) ?? said : said
         let reason = out.failure ?? said
-        let words = [out.failure, said] + (tool == .copilot ? [errors] : [])
+        let words = [out.failure, said] + (tool == .copilot || tool == .antigravity ? [errors] : [])
         if let signIn = CLIAgentOutput.signIn(tool, said: words.compactMap { $0 }.joined(separator: "\n"), model: model) { return signIn }
         if tool == .codex, status == 2 {
             return "Codex didn't take Binders' options (exit 2)" + (said.map { ": " + sentence($0) } ?? ".")
@@ -1428,6 +1471,10 @@ extension AgentDispatcher {
             }
         case .copilot:
             break
+        case .antigravity:
+            if let look = AntigravityLaunch.lookIn(conversation: out.session, worktree: runRecord.worktree, home: home) {
+                line += " To look in, with your own Antigravity settings: \(look)"
+            }
         }
         return line
     }

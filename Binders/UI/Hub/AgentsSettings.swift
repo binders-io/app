@@ -48,7 +48,7 @@ struct AgentsSections: View {
         }
         Section {
             if registry.agents.isEmpty {
-                Text("No agents yet. An agent takes cards from your boards: Claude Code, Codex, OpenCode or GitHub Copilot CLI in a repository, a script, a web hook or an agent that checks the board itself. Binders hands one over when you give it a card, and it reports back on the card.")
+                Text("No agents yet. An agent takes cards from your boards: Claude Code, Codex, OpenCode, GitHub Copilot CLI or Antigravity in a repository, a script, a web hook or an agent that checks the board itself. Binders hands one over when you give it a card, and it reports back on the card.")
                     .foregroundStyle(.secondary)
             }
             ForEach(registry.agents) { agent in row(agent) }
@@ -71,7 +71,7 @@ struct AgentsSections: View {
             Text("Agents")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Kept in agents.json in the data folder, and Codex, OpenCode and GitHub Copilot CLI in agents-cli.json beside it, with no secrets in either: a web hook's token stays in your Keychain. One changed outside Binders doesn't run until you save it here. Binders wakes an agent only when you make a card meant for it ready, answer its question, comment on a card it's working on or send its work back, at most \(AgentProfile.defaultWakesPerHour) times an hour unless you change it, or when you let it start on cards Binders sends it. \(AgentStartText.agentsFooterLast)")
+                Text("Kept in agents.json in the data folder, and Codex, OpenCode, GitHub Copilot CLI and Antigravity in agents-cli.json beside it, with no secrets in either: a web hook's token stays in your Keychain. One changed outside Binders doesn't run until you save it here. Binders wakes an agent only when you make a card meant for it ready, answer its question, comment on a card it's working on or send its work back, at most \(AgentProfile.defaultWakesPerHour) times an hour unless you change it, or when you let it start on cards Binders sends it. \(AgentStartText.agentsFooterLast)")
                 if tools.hasGrok {
                     Text("Grok Build is on this Mac, but Binders doesn't start it yet: it can't give it the board tools for one run without trusting the repository's own hooks and rules. A Command… can still wake it.")
                 }
@@ -326,7 +326,7 @@ struct AgentEditor: View {
                 }
                 Section {
                     if let company = cliTool?.company {
-                        // Binders fixes where Codex and Copilot send cards, so there's nothing to say here.
+                        // Binders fixes where Codex, Copilot and Antigravity send cards, so there's nothing to say here.
                         LabeledContent("Sends cards to", value: company)
                     } else {
                         // Nil when empty: an agents.json from before reads and saves as it was.
@@ -743,12 +743,21 @@ struct AgentEditor: View {
                 }
             }
         }
+        // Antigravity can't be held to reading only: it edits files or doesn't run. One saved as Reads Only shows it, so
+        // changing it is a choice you can see.
         Picker("Permissions", selection: $cli.permissionMode) {
-            ForEach(CLIAgentWake.modes, id: \.self) { Text(Self.modeTitle($0)).tag($0) }
+            ForEach(Self.modes(for: tool, current: cli.permissionMode), id: \.self) { Text(Self.modeTitle($0)).tag($0) }
         }
         StackedField(label: "Model", text: Binding(get: { cli.model ?? "" }, set: { cli.model = $0.trimmed.isEmpty ? nil : $0.trimmed }),
-                     prompt: tool.needsModel ? "provider/model, such as anthropic/claude-sonnet-4-5" : "Its default", probe: "field.agent.cliModel")
+                     prompt: tool.needsModel ? "provider/model, such as anthropic/claude-sonnet-4-5" : tool == .antigravity ? "Its default; agy models lists the others" : "Its default",
+                     probe: "field.agent.cliModel")
         Text(Self.footer(tool)).font(.caption).foregroundStyle(.secondary)
+    }
+
+    /// The modes the picker offers a tool, with the one it has when that's another.
+    static func modes(for tool: CLIAgent, current: String) -> [String] {
+        let modes = CLIAgentWake.modes(for: tool)
+        return modes.contains(current) || !CLIAgentWake.modes.contains(current) ? modes : modes + [current]
     }
 
     /// What Binders lets each tool do, in plain words.
@@ -761,6 +770,8 @@ struct AgentEditor: View {
             return "OpenCode has no sandbox, so Binders lets it do less. It reads and edits files in a git worktree Binders makes for the card and uses Binders' tools for that card. It runs no commands and reaches nothing on the web. Binders won't start it in a worktree with a link to somewhere outside it, since its file tools would follow the link. It doesn't load the repository's own OpenCode settings, agents or plugins, or your own plugins; it reads the repository's AGENTS.md. It uses your own OpenCode sign-ins and sends cards to the provider of the model you choose here. Your own OpenCode MCP servers still start with it, but it can't use their tools. " + end
         case .copilot:
             return "GitHub Copilot CLI \(tool.checkedVersion) has no sandbox, so Binders lets it do less. It reads and edits files in a git worktree Binders makes for the card and uses Binders' tools for that card. It runs no commands, reaches nothing on the web, and can't hand the card to another Copilot agent or start a language server. It runs with a Copilot settings folder of Binders' own, ~/.binders/copilot, so your own Copilot MCP servers, plugins and hooks stay out. Binders sets that folder back to safe settings before each run. It uses your Copilot sign-in from the Keychain or gh. " + end
+        case .antigravity:
+            return "Started by Binders, Antigravity runs on its own in a git worktree Binders makes for the card, with its terminal sandbox on. It reads and edits files there without asking. Its commands run in the sandbox, and only the ones your Antigravity settings allow: no one is there to approve any other, so it doesn't run, and the card says what was refused. It reaches nothing on the network, and it uses Binders' tools for that card only. Your own Antigravity hooks, plugins and MCP servers load with it, as Binders can't turn them off for a run. Binders can't change your Antigravity settings either, so it reads two of them before each run and won't start Antigravity when they'd let it act outside its worktree without asking: toolPermission set to always-proceed, or allow rules for files outside the worktree, the web or other MCP servers. A run needs mcp(binders/*) in permissions.allow, as it refuses any MCP tool no rule allows. It can't be held to reading only, so it always edits files, and Binders won't start it in a worktree whose .agents folder has hooks, MCP servers or plugins. It runs under your Antigravity sign-in; sign in by running agy once in Terminal. " + end
         }
     }
 
@@ -807,7 +818,7 @@ struct AgentEditor: View {
             if !wake.tool.honoursSites { wake.allowedDomains = nil }
             agent.wake = .cliAgent(wake)
             agent.preset = wake.tool.rawValue
-            // Binders fixes where Codex and Copilot send cards: a name typed while it was another kind doesn't linger.
+            // Binders fixes where Codex, Copilot and Antigravity send cards: a name typed while it was another kind doesn't linger.
             if wake.tool.company != nil { agent.vendor = nil }
         default: agent.wake = .board
         }
@@ -960,6 +971,10 @@ struct AgentEditor: View {
             if let found = CodexManaged.found(existing: managed.existing, forced: managed.forced) { said.append(found) }
         }
         if tool == .copilot, let problem = CLIProgram.copilotHomeProblem() { said.append(problem) }
+        if tool == .antigravity {
+            said.append(AntigravityFiles.settingsFound(team: AppSettings.shared.teamFolderPath)
+                        ?? "Your Antigravity settings let a run reach the board and keep it in its worktree.")
+        }
         let repository = (wake.repository as NSString).expandingTildeInPath
         said.append(FileManager.default.fileExists(atPath: (repository as NSString).appendingPathComponent(".git"))
                     ? "The folder is a git repository." : "The folder isn't a git repository.")

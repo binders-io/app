@@ -1,21 +1,31 @@
 # The Binders website
 
 `site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
-`styles.css`, `main.js`, `assets/`. No build step and no dependencies. Open `site/index.html` in a browser, or serve it with
-`python3 -m http.server --directory site`.
+`landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
+`site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
 ## The design
 
-The page is a binder. The hero is its cover, in the app icon's indigo, with the icon's white page and two rings; the page's
-lavender lines fill with things Binders keeps (`#entries` in `index.html`, the pool in `main.js`). Below it, each feature is a
-divider sheet with a coloured tab: Say it, Hear it, Write it, Find it, Share it, Connect it, in the app's binder colours.
-Each tab sits at the same place across the page as it does in the index under the screenshot (`--slot` on the section).
+The landing page is a dark, Mac-native editorial surface: an ivory-and-lavender palette, a CSS-built Mac app composition in
+the hero, a live spec-to-swarm workflow, a bento of the product's core surfaces, an interface showcase with the app's current
+light screenshots, a privacy ledger, and a closing download. It is deliberately not a generic SaaS template: the type pairs
+SF Pro with a New York italic, the app window carries traffic lights and a board/card conversation, and the app's binder
+colours are small accents.
 
-- Tokens are at the top of `styles.css`: dark by default, light under `prefers-color-scheme`, and a `data-theme` stamp
-  wins over either. The cover, the page and the tabs' paper labels keep their colours in both themes.
-- Every demo is readable with scripts off and with reduced motion: the HTML holds the finished state, and `main.js` only
-  animates while the demo is on screen and the tab is visible.
-- Product pictures come in a light and a dark set, picked by `<picture>` to match the visitor's appearance.
+The workflow section is a replayable demo of Speak → Note → Distill → Understand → Assign → Wake: a dictated product idea
+becomes a Markdown spec, the spec becomes cards, dependencies and agents attach, and the approval ships a product. Its
+six-step rail can be clicked to inspect any state, the replay button restarts it, and reduced motion shows the finished
+state instead of auto-playing.
+
+- Tokens are at the top of `landing.css`. The landing is dark by design; `styles.css` keeps the older light/dark treatment
+  for help, privacy, terms, licenses and 404.
+- `landing.js` handles the nav surface, reveals, interface tabs, mobile menu, the workflow's steps and approval, and the tour
+  dialog. Without JavaScript the content and the details menu still work, and a note under the workflow explains that its
+  demo needs scripting; reduced motion removes the app preview's float, the waveforms, the workflow transitions and the
+  reveal transitions.
+- The interface showcase uses the light product pictures. The dark set remains in `assets/` for other surfaces.
+- The hero app preview is drawn in HTML and CSS, not a screenshot, so it stays crisp and can change with the product.
+- The page uses system fonts and makes no third-party requests.
 
 ## Screenshots never contain real data
 
@@ -31,9 +41,9 @@ python3 scripts/make-site-shots.py /tmp/binders-shots site/assets
 python3 scripts/make-site-shots.py /tmp/binders-shots-dark site/assets
 ```
 
-The demo data is dated relative to the day it is rendered, so the dates in the Ask sources (`index.html` and `main.js`) move
-with the pictures: update them together. Never use the Settings pages from these runs on the site: they show the path the
-app is running from on the Mac that rendered them.
+The demo data is dated relative to the day it is rendered, so the dates in the pictures move with it. The landing page no
+longer carries the old Ask demo; `main.js` still has its code for any page that uses it. Never use the Settings pages from
+these runs on the site: they show the path the app is running from on the Mac that rendered them.
 
 The demo content lives in `Binders/App/DemoData.swift`. With `--ask` the run also puts the questions in `DemoData.questions` to the real knowledge pipeline (index, search, local model) and prints the answers and their sources. The answers in the site's Ask section are copied from that output, so re-run it and update `site/main.js` if the demo data changes. `scripts/make-site-shots.py` needs Pillow.
 

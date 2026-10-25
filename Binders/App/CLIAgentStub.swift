@@ -2,10 +2,11 @@ import Darwin
 import Foundation
 import BindersKit
 
-/// `Binders --stub-cli-agent <tool> …`: the self-tests' stand-in for Codex, OpenCode or GitHub Copilot CLI, which they
-/// start through a two-line script in their throwaway folder, never the real tools. It notes what it was given (its
-/// arguments, environment, folder and prompt), finds Binders' MCP server the way that tool would (Codex from its -c
-/// overrides, OpenCode from OPENCODE_CONFIG_CONTENT, Copilot from its --additional-mcp-config file) and starts it with the
+/// `Binders --stub-cli-agent <tool> …`: the self-tests' stand-in for Codex, OpenCode, GitHub Copilot CLI or Antigravity
+/// (agy), which they start through a two-line script in their throwaway folder, never the real tools. It notes what it
+/// was given (its arguments, environment, folder and prompt), finds Binders' MCP server the way that tool would (Codex
+/// from its -c overrides, OpenCode from OPENCODE_CONFIG_CONTENT, Copilot from its --additional-mcp-config file,
+/// Antigravity from its workspace's .agents/mcp_config.json, as documented) and starts it with the
 /// environment that tool gives it, asks it for its tools and for two cards, does what its mode says in its folder, prints
 /// the canned output the test left for it, and exits as told. Anywhere but a throwaway folder it does nothing.
 enum CLIAgentStub {
@@ -30,6 +31,8 @@ enum CLIAgentStub {
             case .codex: "codex-cli \(version)\n"
             case .opencode: "\(version)\n"
             case .copilot: "GitHub Copilot CLI \(version).\nRun 'copilot update' to check for updates.\n"
+            // agy's own shape isn't documented: one of those Binders reads.
+            case .antigravity: "agy \(version)\n"
             }
             FileHandle.standardOutput.write(Data(shape.utf8))
             exit(0)
@@ -51,8 +54,18 @@ enum CLIAgentStub {
         note("cwd.txt", Data(FileManager.default.currentDirectoryPath.utf8))
         note("stdin.txt", stdin)
 
-        // Binders' server, found and started as this tool would.
-        let prompt = String(decoding: stdin, as: UTF8.self)
+        // Antigravity's workspace server, as the run found it.
+        if tool == .antigravity {
+            note("mcp-config.json", (try? Data(contentsOf: URL(fileURLWithPath: FileManager.default.currentDirectoryPath + "/" + AntigravityLaunch.mcpConfig))) ?? Data())
+        }
+
+        // Binders' server, found and started as this tool would. Antigravity's prompt is a stream-json message.
+        var prompt = String(decoding: stdin, as: UTF8.self)
+        if tool == .antigravity, let line = prompt.split(separator: "\n").first,
+           let message = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+           let content = (message["message"] as? [String: Any])?["content"] as? String {
+            prompt = content
+        }
         let card = prompt.split(separator: "\n").first { $0.hasPrefix("Card: ") }.map { String($0.dropFirst("Card: ".count)) } ?? ""
         let other = setting("other-card") ?? UUID().uuidString
         if let server = server(tool, given, environment) {
@@ -86,6 +99,10 @@ enum CLIAgentStub {
             git(["-C", sub, "config", "filter.x.clean", "sh -c 'touch \"\(mark)\"; cat'"])
             try? "* filter=x\n".write(toFile: sub + "/.gitattributes", atomically: true, encoding: .utf8)
             try? "inside\n".write(toFile: sub + "/inside.txt", atomically: true, encoding: .utf8)
+        case "plant-hooks":
+            // A hooks file of its own, which Antigravity would run outside its sandbox.
+            try? FileManager.default.createDirectory(atPath: here + "/.agents", withIntermediateDirectories: true)
+            try? #"{"mine":{"PreToolUse":[{"matcher":"*","hooks":[{"command":"touch /tmp/never"}]}]}}"#.write(toFile: here + "/.agents/hooks.json", atomically: true, encoding: .utf8)
         case "delete":
             for name in (try? FileManager.default.contentsOfDirectory(atPath: here)) ?? [] where name != ".git" {
                 try? FileManager.default.removeItem(atPath: here + "/" + name)
@@ -149,6 +166,15 @@ enum CLIAgentStub {
             var env = ["PATH": environment["PATH"] ?? "/usr/bin:/bin"]
             for (key, value) in entry["env"] as? [String: String] ?? [:] { env[key] = expand(value) }
             return Server(command: expand(command), arguments: (entry["args"] as? [String] ?? []).map(expand), environment: env)
+        case .antigravity:
+            // Its workspace's mcp_config.json, as documented: the server gets agy's environment, then `env`.
+            guard let data = FileManager.default.contents(atPath: FileManager.default.currentDirectoryPath + "/" + AntigravityLaunch.mcpConfig),
+                  let config = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let entry = ((config["mcpServers"] as? [String: Any])?["binders"]) as? [String: Any],
+                  let command = entry["command"] as? String else { return nil }
+            var env = environment
+            for (key, value) in entry["env"] as? [String: String] ?? [:] { env[key] = value }
+            return Server(command: command, arguments: entry["args"] as? [String] ?? [], environment: env)
         }
     }
 

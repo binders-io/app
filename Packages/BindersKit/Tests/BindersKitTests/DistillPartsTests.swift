@@ -343,8 +343,8 @@ final class DistillPartsTests: XCTestCase {
             XCTAssertTrue(ask.user.hasSuffix(parts[index].text))
             XCTAssertLessThanOrEqual(parts[index].text.count, DistillBudget.unknown)
         }
-        XCTAssertTrue(model.asked.last!.user.contains("Work items from the parts before: \"One Page Form\""), "later parts hear the items before")
-        XCTAssertFalse(model.asked[0].user.contains("Work items from the parts before"))
+        // Lane DS8: no part hears the items found before it, so parts can be read at once; repeats go in the merge.
+        XCTAssertFalse(model.asked.contains { $0.user.contains("Work items from the parts before") }, "no part hears the items before")
         let score = DistillBench.score(outcome.result, spec: spec)
         XCTAssertEqual(score.found, spec.gold.count, DistillBench.summary([score]).joined(separator: "\n"))
         XCTAssertEqual(score.rightSection, spec.gold.count)
@@ -395,16 +395,17 @@ final class DistillPartsTests: XCTestCase {
         XCTAssertEqual(DistillBench.score(outcome.result, spec: spec).found, spec.gold.count)
     }
 
-    func testAnErrorOnTheFirstPartEndsItAndOnALaterPartIsNoted() async throws {
+    func testAnErrorOnEveryPartEndsItAndOnOnePartIsNoted() async throws {
         struct Down: Error {}
         let first = Model { _ in throw Down() }
         do {
             _ = try await run(DistillBench.longStatus.text, first)
-            XCTFail("the reading can't start")
+            XCTFail("the reading can't be done")
         } catch {
             XCTAssertTrue(error is Down)
         }
-        XCTAssertEqual(first.asked.count, 1)
+        // Lane DS7: the first part's error no longer ends it; two parts in a row with nothing do.
+        XCTAssertEqual(first.asked.count, 2)
         let later = Model { ask in if ask.part == 2 { throw Down() }; return self.longReply(ask) }
         let outcome = try await run(DistillBench.longStatus.text, later)
         XCTAssertNotNil(outcome.parts[1].error)

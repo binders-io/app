@@ -1805,7 +1805,10 @@ final class RouterStandIn: DecisionBackend, @unchecked Sendable {
         let probs = lock.withLock {
             questions.map { question in
                 if let answered = answerer?(question) { return answered }
-                let given = table[question.state]?[question.question == RouterQuestions.binderQuestion ? "binder" : "agent"] ?? [:]
+                // A state that's a title and the start of a brief (DistillWhoState) is answered as its title is, unless the
+                // test set it whole.
+                let row = table[question.state] ?? question.state.components(separatedBy: "\n").first.flatMap { table[$0] }
+                let given = row?[question.question == RouterQuestions.binderQuestion ? "binder" : "agent"] ?? [:]
                 let keys = question.options.map(\.key)
                 let listed = keys.filter { given[$0] != nil }
                 let rest = max(0, 1 - listed.reduce(0) { $0 + (given[$1] ?? 0) })

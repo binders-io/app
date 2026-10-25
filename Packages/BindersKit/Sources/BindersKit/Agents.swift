@@ -809,6 +809,9 @@ public enum AgentCommands {
             }
         case "gemini":
             if has("-y") { return "-y" }
+        case "agy":
+            // Antigravity's Auto mode, whose approvals another model gives; it isn't Binders' Auto.
+            if pair("--mode", "auto") { return "--mode auto" }
         case "grok":
             if let flag = ["--trust", "--trust-folder"].first(where: has) { return flag }
             for (name, value) in [("--permission-mode", "auto"), ("--permission-mode", "acceptedits"), ("--sandbox", "off"), ("--sandbox", "devbox"),
@@ -1027,9 +1030,12 @@ public enum AgentRunPrompt {
     }
 
     /// What a CLI run can do, for its prompt: nothing to add for Codex editing in its sandbox, where it can read, edit and
-    /// run commands. The others never run commands.
+    /// run commands. Antigravity runs only the commands its settings allow, in its sandbox. The others never run commands.
     public static func reach(_ tool: CLIAgent, editsFiles: Bool) -> String? {
-        switch (tool.runsCommands, editsFiles) {
+        if tool == .antigravity {
+            return "This run can read and edit its files. Its commands run in Antigravity's terminal sandbox, and only the ones its settings allow: no one is there to approve any other, so it is refused."
+        }
+        return switch (tool.runsCommands, editsFiles) {
         case (true, true): nil
         case (true, false): "This run can read its files and run commands, but not change anything."
         case (false, true): "This run can read and edit its files, but not run commands."

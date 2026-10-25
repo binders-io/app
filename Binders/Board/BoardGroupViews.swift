@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import BindersKit
 
@@ -11,69 +12,115 @@ struct BoardGroupHeader: View {
     let folded: Bool
     let toggle: () -> Void
     let selectAll: () -> Void
+    /// The way back to the note this group belongs to, on its header.
+    var openNote: (() -> Void)? = nil
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
+            // The note's name has the top row to itself, so a narrow column wraps it instead of squeezing it to nothing.
             Button(action: toggle) {
-                HStack(spacing: 5) {
-                    Image(systemName: folded ? "chevron.right" : "chevron.down")
-                        .font(.caption2.weight(.semibold))
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(folded ? 0 : 90))
                         .foregroundStyle(.secondary)
-                        .frame(width: 10)
-                    Image(systemName: group.note == nil ? "tray" : "square.stack.3d.down.right")
-                        .font(.caption2)
-                        .foregroundStyle(BindersTheme.muted)
+                        .frame(width: 11)
+                        .padding(.top, 3)
                     Text(group.title)
-                        .font(.caption.weight(.semibold))
+                        .font(BoardDesign.groupTitle)
                         .foregroundStyle(.sectionInk)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text("\(group.cards.count)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(folded ? "Show this group's cards in the column" : "Fold this group in the column")
-            // Narrower, the bar goes first, then the words of Select All (its mark stays).
+            // How many are in this column, the way back to the note, and Select All: a row of its own, never beside the name.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) {
-                    if let progress = group.progress {
-                        WorkProgressBar(counts: DistillProgress.Counts(total: progress.total, done: progress.done)).frame(width: 32)
-                        progressLine(progress)
-                    }
-                    Spacer(minLength: 4)
-                    selectAllButton(words: true)
-                }
-                HStack(spacing: 6) {
-                    if let progress = group.progress { progressLine(progress) }
-                    Spacer(minLength: 4)
-                    selectAllButton(words: true)
-                }
-                HStack(spacing: 6) {
-                    if let progress = group.progress { progressLine(progress) }
+                    countLine
                     Spacer(minLength: 2)
+                    openNoteButton
+                    selectAllButton(words: true)
+                }
+                HStack(spacing: 6) {
+                    countLine
+                    Spacer(minLength: 2)
+                    openNoteButton
                     selectAllButton(words: false)
                 }
             }
-            .padding(.leading, 15)
+            if let progress = group.progress {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        WorkProgressBar(counts: DistillProgress.Counts(total: progress.total, done: progress.done)).frame(width: 38)
+                        progressLine(progress)
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 6) {
+                        progressLine(progress)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.leading, 18)
+            }
         }
-        .padding(.top, 4)
-        .padding(.bottom, 1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: BoardDesign.groupRadius, style: .continuous).fill(BindersTheme.surface2))
+        .overlay(RoundedRectangle(cornerRadius: BoardDesign.groupRadius, style: .continuous)
+            .strokeBorder(hovering ? BindersTheme.lineStrong : BindersTheme.line))
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(group.note == nil ? AnyShapeStyle(BindersTheme.ink.opacity(0.18)) : AnyShapeStyle(TintFill().opacity(0.45)))
+                .frame(width: 2)
+                .padding(.vertical, 8)
+                .padding(.leading, 1)
+        }
+        .onHover { inside in
+            hovering = inside
+            if inside, openNote != nil { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+        .animation(BoardDesign.settle, value: hovering)
         .fitProbe(BoardView.probesCards ? "board.group." + (group.note?.uuidString ?? "loose") : "")
         .accessibilityElement(children: .contain)
         .accessibilityLabel(BoardGroups.spoken(group))
     }
+
+    private var countLine: some View {
+        Text("\(group.cards.count) here")
+            .font(.system(size: 10.5, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var openNoteButton: some View {
+        if let openNote {
+            Button(action: openNote) {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .quietControl()
+            .opacity(hovering ? 1 : 0.35)
+            .help("Open “\(group.title)”")
+            .accessibilityLabel("Open the note")
+        }
+    }
+
 }
 
 extension BoardGroupHeader {
     fileprivate func progressLine(_ progress: BoardGroups.Progress) -> some View {
         Text(progress.line)
-            .font(.caption2)
+            .font(.system(size: 11.5, weight: .medium))
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -82,11 +129,16 @@ extension BoardGroupHeader {
 
     fileprivate func selectAllButton(words: Bool) -> some View {
         Button(action: selectAll) {
-            if words { Text("Select All") } else { Image(systemName: "checkmark.circle") }
+            if words {
+                Text("Select All")
+                    .font(.system(size: 11.5, weight: .semibold))
+            } else {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 11, weight: .semibold))
+            }
         }
         .buttonStyle(.borderless)
         .quietControl(words: true)
-        .font(.caption2)
         .help(group.note == nil ? "Select every card on this board that's from no note" : "Select every card from “\(group.title)” on this board, in every column")
         .accessibilityLabel("Select All")
         .fitProbe(BoardView.probesCards ? "board.group.all." + (group.note?.uuidString ?? "loose") : "")
@@ -105,14 +157,14 @@ struct SeveralCardsBar<Actions: View>: View {
     @ViewBuilder let actions: () -> Actions
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             // One row while it fits, with a few of their titles under it; short of room, the buttons go under the heading,
             // wrapping as they must, and the titles give way: the lines under them say what stays as it is.
             ViewThatFits(in: .horizontal) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 10) {
                         glyph
-                        Text(heading).font(BindersTheme.cardTitle).fixedSize()
+                        Text(heading).font(BoardDesign.panelTitle).fixedSize()
                         Spacer(minLength: 8)
                         HStack(spacing: 8) {
                             actions()
@@ -120,12 +172,12 @@ struct SeveralCardsBar<Actions: View>: View {
                         }
                         .fixedSize()
                     }
-                    Text(titleLine).font(.caption).foregroundStyle(.secondary).lineLimit(1).modifier(IdealWidthCap(cap: 200))
+                    Text(titleLine).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).modifier(IdealWidthCap(cap: 200))
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
                         glyph
-                        Text(heading).font(BindersTheme.cardTitle)
+                        Text(heading).font(BoardDesign.panelTitle)
                         Spacer(minLength: 4)
                         clearButton(words: false)
                     }
@@ -134,24 +186,30 @@ struct SeveralCardsBar<Actions: View>: View {
             }
             ForEach(rules, id: \.self) { rule in
                 Text(rule)
-                    .font(.caption)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BindersTheme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(TintFill().opacity(0.5)))
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(BindersTheme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(TintFill().opacity(0.6), lineWidth: 1.2))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .fitProbe("board.several")
         .accessibilityElement(children: .contain)
         .accessibilityLabel(heading)
     }
 
     private var glyph: some View {
-        Image(systemName: "square.on.square")
-            .font(.system(size: 18, weight: .light))
-            .foregroundStyle(.secondary)
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(TintFill().opacity(0.16))
+            .overlay {
+                Image(systemName: "square.on.square")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.tintText)
+            }
+            .frame(width: 26, height: 26)
             .accessibilityHidden(true)
     }
 
@@ -194,20 +252,28 @@ struct SeveralCardsButtons: View {
             }
         } label: { Label(inMenu ? "Move \(cards) to" : "Move to", systemImage: "arrow.right.square") }
             .fixedSize()
+            .controlSize(.small)
+            .font(.system(size: 12, weight: .medium))
             .help("Move the \(count) cards to a column, as dragging each there would. A card someone is working on stays.")
         Menu { AssignItems(binderID: binderID, choose: assign) } label: {
             Label(inMenu ? "Assign \(cards) to" : "Assign to", systemImage: "person.crop.circle.badge.checkmark")
         }
             .fixedSize()
+            .controlSize(.small)
+            .font(.system(size: 12, weight: .medium))
             .help("Who the \(count) cards are for: you, a teammate, one of your agents, or anyone")
         Menu { PartOfItems(binderID: binderID, current: group, canTakeOut: true, put: putIn) } label: {
             Label(inMenu ? "Put \(cards) in a Note's Group" : "Part of", systemImage: "square.stack.3d.down.right")
         }
             .fixedSize()
+            .controlSize(.small)
+            .font(.system(size: 12, weight: .medium))
             .help("Put the \(count) cards in a note's group on the board, or take them out of theirs")
         if inMenu { Divider() }
         Button(role: .destructive, action: delete) { Label(inMenu ? "Delete \(cards)…" : "Delete…", systemImage: "trash") }
             .fixedSize()
+            .controlSize(.small)
+            .font(.system(size: 12, weight: .medium))
             .help("Delete the \(count) cards, after one question")
     }
 }
@@ -308,8 +374,16 @@ struct CardGroupLine: View {
         let from = card.distilledFrom
         let groupNote = card.groupNote
         let note = groupNote.flatMap { Store.shared.note($0) }
-        HStack(spacing: 4) {
-            Image(systemName: "square.stack.3d.down.right").foregroundStyle(BindersTheme.muted)
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(TintFill().opacity(0.12))
+                .overlay {
+                    Image(systemName: "square.stack.3d.down.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tintText)
+                }
+                .frame(width: 18, height: 18)
+                .accessibilityHidden(true)
             if groupNote != nil {
                 Button("Part of “\(note?.title ?? card.sourceTitle ?? "a note")”") {
                     guard let note else { return }
@@ -326,16 +400,16 @@ struct CardGroupLine: View {
             }
             Spacer(minLength: 4)
             if card.noteMembership?.tie == .distilled {
-                Text("Distill made it").foregroundStyle(BindersTheme.muted)
+                BoardPill(text: "Distill made it", symbol: BindersTheme.modelSymbol, color: BindersTheme.muted)
                     .help("Distill made this card from the note, so it stays in that note's group")
             } else if card.noteMembership?.tie == .put {
                 // Lane DS6: made with Put on Board from the note.
-                Text("Put on the board from it").foregroundStyle(BindersTheme.muted)
+                BoardPill(text: "Put on the board from it", symbol: "rectangle.split.3x1", color: BindersTheme.muted)
                     .help("This card was put on the board from the note, so it stays in that note's group")
             } else if from?.request != true {
                 Menu {
                     PartOfItems(binderID: card.binderID, current: groupNote, canTakeOut: groupNote != nil) { put($0) }
-                } label: { Text("Part of…").font(.caption) }
+                } label: { Text("Part of…").font(.system(size: 11, weight: .semibold)) }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
                 .menuIndicator(.hidden)
@@ -344,7 +418,11 @@ struct CardGroupLine: View {
                 .help("Put this card in a note's group on the board, or take it out")
             }
         }
-        .font(.caption)
+        .font(.system(size: 11.5, weight: .medium))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.surface2))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(BindersTheme.line))
     }
 
     private func put(_ note: NoteItem?) {

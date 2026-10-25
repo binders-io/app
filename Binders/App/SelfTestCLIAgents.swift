@@ -6,7 +6,7 @@ import SwiftUI
 import BindersKit
 
 extension SelfTest {
-    /// Codex, OpenCode and GitHub Copilot CLI as agents Binders starts for a card, with stand-ins for the tools (Binders
+    /// Codex, OpenCode, GitHub Copilot CLI and Antigravity as agents Binders starts for a card, with stand-ins for the tools (Binders
     /// itself, `--stub-cli-agent`, behind a two-line script in the throwaway folder), never the real ones: what each is
     /// given, Binders' server as each tool would start it, the worktree Binders makes and commits in without touching your
     /// checkout, what goes on the card when a run finishes, stops or never takes the card, a run that outlives its
@@ -113,7 +113,7 @@ extension SelfTest {
             (try? String(contentsOf: stub.appendingPathComponent("\(tool.rawValue)-\(name)"), encoding: .utf8)) ?? ""
         }
         func clearRecordings(_ tool: CLIAgent) {
-            for name in ["argv.bin", "env.bin", "cwd.txt", "stdin.txt", "mcp.jsonl", "signal.txt"] {
+            for name in ["argv.bin", "env.bin", "cwd.txt", "stdin.txt", "mcp.jsonl", "signal.txt", "mcp-config.json"] {
                 try? manager.removeItem(at: stub.appendingPathComponent("\(tool.rawValue)-\(name)"))
             }
         }
@@ -146,6 +146,24 @@ extension SelfTest {
                                  copilot("assistant.message", #"{"content":"Checked the links.","toolRequests":[]}"#), copilotResult])
         can(.copilot, "unfinished", [copilot("assistant.turn_start", #"{"turnId":"t1"}"#),
                                      copilot("tool.execution_start", #"{"toolCallId":"c1","toolName":"binders-claim_task","arguments":{},"mcpServerName":"binders","mcpToolName":"claim_task"}"#)])
+        // Antigravity's stream-json, in the shape its documentation shows.
+        let conversation = "c3b66b04-872b-4fbe-a3a4-058a026ef20a"
+        func agy(_ event: String, _ body: String) -> String { #"{"event":"\#(event)","conversation_id":"\#(conversation)","\#(event)":\#(body)}"# }
+        let agyDone = [agy("init", #"{"cwd":"/w","tools":["run_command","write_to_file"],"permission_mode":"request-review"}"#),
+                       agy("step_update", #"{"conversation_id":"\#(conversation)","step_index":1,"state":"DONE","step_type":"tool","tool_name":"mcp_binders_get_task","tool_info":{"name":"mcp_binders_get_task","parameters":{}}}"#),
+                       agy("step_update", #"{"conversation_id":"\#(conversation)","step_index":2,"state":"DONE","step_type":"agent_response","text_delta":"Updated the changelog."}"#),
+                       agy("result", #"{"conversation_id":"\#(conversation)","status":"SUCCESS","response":"Updated the changelog.","num_turns":1}"#)]
+        can(.antigravity, "finish", agyDone)
+        can(.antigravity, "plant-hooks", agyDone)
+        can(.antigravity, "signin", [])
+        // Your Antigravity settings, as a run needs them: Binders' tools allowed, and a command, which runs in its sandbox.
+        let agySettings = AntigravityFiles.settings
+        func settle(_ text: String?) {
+            try? manager.createDirectory(at: agySettings.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let text { try? text.write(to: agySettings, atomically: true, encoding: .utf8) } else { try? manager.removeItem(at: agySettings) }
+        }
+        let agyAllowed = #"{"toolPermission":"request-review","permissions":{"allow":["mcp(binders/*)","command(git status)"]}}"#
+        settle(agyAllowed)
 
         // The agents, each with its stand-in as its program.
         let repoPath = repo.path
@@ -155,8 +173,8 @@ extension SelfTest {
                                                       executable: stand(in: tool).path)),
                          preset: tool.rawValue, wakesPerHour: 60)
         }
-        let codex = agent(.codex), opencodeAgent = agent(.opencode), copilotAgent = agent(.copilot)
-        let agentsOf: [CLIAgent: AgentProfile] = [.codex: codex, .opencode: opencodeAgent, .copilot: copilotAgent]
+        let codex = agent(.codex), opencodeAgent = agent(.opencode), copilotAgent = agent(.copilot), antigravityAgent = agent(.antigravity)
+        let agentsOf: [CLIAgent: AgentProfile] = [.codex: codex, .opencode: opencodeAgent, .copilot: copilotAgent, .antigravity: antigravityAgent]
 
         // 1. Saving.
         let echo = AgentProfile(name: "Echo", wake: .command(command: "true", folder: data.path))
@@ -194,12 +212,17 @@ extension SelfTest {
         check(registry.problem(with: notClaude, checkingRepository: false)?.hasPrefix("The program for Claude Code must be the claude program itself") == true
               && registry.problem(with: notClaude)?.hasPrefix("Choose a folder") == true,
               "Check runs no program in claude's place, in a folder that isn't a repository too: \(registry.problem(with: notClaude, checkingRepository: false) ?? "none")")
-        for agent in [codex, opencodeAgent, copilotAgent] {
+        var readsOnly = antigravityAgent
+        readsOnly.id = UUID()
+        readsOnly.name = "Antigravity · reads"
+        readsOnly.wake = .cliAgent(CLIAgentWake(tool: .antigravity, repository: repoPath, permissionMode: "plan", executable: stand(in: .antigravity).path))
+        check(registry.upsert(readsOnly)?.hasPrefix("Antigravity can't be held to reading only") == true, "an Antigravity agent can't be set to read only")
+        for agent in [codex, opencodeAgent, copilotAgent, antigravityAgent] {
             check(registry.upsert(agent) == nil, "\(agent.name) is saved: \(registry.problem(with: agent) ?? "")")
         }
         check((try? Data(contentsOf: agentsJSON)) == mainBefore, "agents.json is as it was, byte for byte")
         let cliFile = (try? Data(contentsOf: agentsCLI)).flatMap { try? AgentFile.decode($0).file }
-        check(Set(cliFile?.agents.map(\.name) ?? []) == Set(["Codex · repo", "OpenCode · repo", "Copilot · repo"]), "and the three are in agents-cli.json")
+        check(Set(cliFile?.agents.map(\.name) ?? []) == Set(["Codex · repo", "OpenCode · repo", "Copilot · repo", "Antigravity · repo"]), "and the four are in agents-cli.json")
 
         // 2. Held at load: a command saved before Binders refused it.
         let oldCommand = AgentProfile(name: "Old Copilot", wake: .command(command: "cd \(AgentMCPEntry.quoted(data.path)) && copilot -p x --allow-all-tools",
@@ -288,7 +311,13 @@ extension SelfTest {
             check(argv == expected?.arguments, "\(tool.rawValue): the stand-in got exactly the arguments Binders worked out, element by element")
             check(AgentPlaces.real(stubbed(tool, "cwd.txt")) == AgentPlaces.real(seen.worktree),
                   "\(tool.rawValue): it started in the card's worktree: \(stubbed(tool, "cwd.txt"))")
-            let stdin = stubbed(tool, "stdin.txt")
+            var stdin = stubbed(tool, "stdin.txt")
+            if tool == .antigravity {
+                // One stream-json message, on one line.
+                let message = (try? JSONSerialization.jsonObject(with: Data(stdin.utf8))) as? [String: Any]
+                check(message?["event"] as? String == "user" && stdin.filter { $0 == "\n" }.count == 1, "Antigravity: its prompt is one stream-json message on standard input")
+                stdin = (message?["message"] as? [String: Any])?["content"] as? String ?? ""
+            }
             let reach = AgentRunPrompt.reach(tool, editsFiles: true)
             check(stdin.hasPrefix(AgentWake.promptMarker) && stdin.contains("Card: \(id.uuidString)") && stdin.contains("Binders commits what you change")
                   && (reach.map(stdin.contains) ?? stdin.contains("made for this card.\n")),
@@ -337,6 +366,17 @@ extension SelfTest {
                 check(server(entry) && argv.contains("--allow-tool=write") && argv.contains("--deny-tool=shell") && !argv.contains { $0.hasPrefix("--deny-tool=write") }
                       && argv.contains("--excluded-tools=task") && argv.contains("--excluded-tools=lsp"),
                       "Copilot: it may write in its worktree (no write deny, which would deny them all), no shell, no hand-offs or language servers, and Binders' server for this card")
+            case .antigravity:
+                let config = (try? JSONSerialization.jsonObject(with: Data(stubbed(tool, "mcp-config.json").utf8))) as? [String: Any]
+                let servers = config?["mcpServers"] as? [String: Any] ?? [:]
+                let entry = (servers["binders"] as? [String: Any])?["env"] as? [String: String] ?? [:]
+                check(server(entry) && servers.count == 1 && argv.contains("--sandbox") && argv.firstIndex(of: "--mode").map({ argv[$0 + 1] }) == "accept-edits"
+                      && !argv.contains { $0.contains("dangerously") || $0 == "-p" || $0 == "--print" || $0.contains(id.uuidString) },
+                      "Antigravity: its sandbox on, edits only, no prompt in its arguments, and Binders' server for this card alone in .agents/mcp_config.json: \(entry)")
+                let tree = await git(["ls-tree", "-r", "--name-only", AgentWorktree.branch(card: id, tool: tool)], in: repo).output
+                check(!manager.fileExists(atPath: AntigravityLaunch.mcpConfigPath(worktree: seen.worktree))
+                      && !manager.fileExists(atPath: seen.worktree + "/" + AntigravityLaunch.workspaceFolder) && !tree.contains(".agents/"),
+                      "Antigravity: the worktree's mcp_config.json is gone after the run, and never committed")
             case .codex:
                 let overrides = TOMLValue.overrides(argv)
                 let profile = overrides["permissions.binders.filesystem"]?.table ?? [:]
@@ -374,11 +414,13 @@ extension SelfTest {
                       "Copilot: the receipt has how to look in, with its session and what looking in changes")
             }
             // 7. Finished: in Review, its last words once, how it went, and the end line.
-            let words = ["codex": "Fixed the footer link.", "opencode": "Wrote the release notes.", "copilot": "Checked the links."][tool.rawValue] ?? ""
+            let words = ["codex": "Fixed the footer link.", "opencode": "Wrote the release notes.", "copilot": "Checked the links.",
+                         "antigravity": "Updated the changelog."][tool.rawValue] ?? ""
             let said = events(id).filter { $0.kind == .progress && $0.author == agent.name && $0.text == words }
             check(card?.column == .review && said.count == 1, "\(tool.rawValue): finished, the card is in Review, with what it said last once: \(said.count)")
             let outcome = dispatcher.outcomes[id]?.message ?? ""
-            let costs = ["codex": "Finished", "opencode": "Finished, $0.04, 2 turns", "copilot": "Finished, 2 premium requests"][tool.rawValue] ?? ""
+            let costs = ["codex": "Finished", "opencode": "Finished, $0.04, 2 turns", "copilot": "Finished, 2 premium requests",
+                         "antigravity": "Finished"][tool.rawValue] ?? ""
             check(outcome == costs, "\(tool.rawValue): how it went: \(outcome)")
             let end = notes(id).last ?? ""
             switch tool {
@@ -390,11 +432,14 @@ extension SelfTest {
                       "OpenCode: the end line has the command that resumes its session: \(end)")
             case .copilot:
                 check(end.hasPrefix("GitHub Copilot CLI changed no files."), "Copilot: the end line: \(end)")
+            case .antigravity:
+                check(end == "Antigravity changed no files. To look in, with your own Antigravity settings: cd \(AgentWorktrees.display(seen.worktree)) && agy --conversation \(conversation)",
+                      "Antigravity: the end line has the command that carries on its conversation: \(end)")
             }
         }
         check(await checkout() == before, "your checkout's HEAD, branch, status, index and files are as they were")
         check(!manager.fileExists(atPath: hookMark.path), "and none of its hooks ran")
-        check(Set(worktrees.values).count == 3, "one worktree per tool")
+        check(Set(worktrees.values).count == CLIAgent.allCases.count, "one worktree per tool")
 
         // 4, the rest: a run's server that didn't get its card or its name offers nothing.
         for environment in [["BINDERS_TOOLS": "board", "BINDERS_RUN": "1", "BINDERS_AGENT": "Codex · repo"],
@@ -478,6 +523,45 @@ extension SelfTest {
             """, title: "Sign in first")
         check(notes(signedOut).contains("GitHub Copilot CLI isn't signed in for Binders' runs. Sign in with copilot login in Terminal, then Wake Now."),
               "Copilot not signed in, said over several lines: the card says how to sign in: \(notes(signedOut).first ?? "")")
+
+        // 9, Antigravity: what it wasn't allowed to do, its sign-in, your settings, its .agents folder, its conversation.
+        let softDenied = await run(antigravityAgent, mode: "finish", stderr: #"notice: run_command was soft-denied: "npm test" needs approval. To allow it, add "command(npm test)" to permissions.allow in settings.json"#,
+                                   title: "Run the tests")
+        check(notes(softDenied).contains { $0.hasPrefix("Antigravity wasn't allowed to run `npm test`. No one is there to approve a step in Binders' runs") },
+              "a command Antigravity soft-denied shows on the card: \(notes(softDenied).first ?? "")")
+        clearRecordings(.antigravity)
+        _ = dispatcher.wakeNow(board.card(softDenied)!)
+        await wait(20) { !stubbed(.antigravity, "cwd.txt").isEmpty }
+        await wait(60) { !dispatcher.isWorking(on: softDenied) }
+        let carried = stubbed(.antigravity, "argv.bin").split(separator: "\0").map(String.init)
+        check(carried.firstIndex(of: "--conversation").map { carried[$0 + 1] } == conversation, "the card's next run carries on its conversation: \(carried)")
+        let agySignedOut = await run(antigravityAgent, mode: "signin", exit: 1, stderr: "error: authentication required. Run agy in a terminal to sign in.", title: "Sign in to it")
+        check(notes(agySignedOut).contains("Sign in to Antigravity: open Terminal and run agy once, then Wake Now. Binders' runs use the sign-in agy keeps on this Mac; Binders never sees it."),
+              "Antigravity not signed in: the card says how to sign in: \(notes(agySignedOut).first ?? "")")
+        for (settings, said) in [(#"{"toolPermission":"always-proceed","permissions":{"allow":["mcp(binders/*)"]}}"#, "sets toolPermission to always-proceed"),
+                                 (#"{"permissions":{"allow":["mcp(binders/*)","read_file(~/.ssh)"]}}"#, "allows read_file(~/.ssh), which lets it read ~/.ssh"),
+                                 (#"{"permissions":{"allow":["command(git status)"]}}"#, #"Add "mcp(binders/*)" to permissions.allow"#),
+                                 ("{ cut short", "isn't JSON Binders can read")] {
+            settle(settings)
+            clearRecordings(.antigravity)
+            let loosened = await run(antigravityAgent, mode: "finish", title: "With looser settings")
+            check(notes(loosened).last?.hasPrefix("Binders didn't start Antigravity: ") == true && notes(loosened).last?.contains(said) == true
+                  && stubbed(.antigravity, "argv.bin").isEmpty && !manager.fileExists(atPath: AgentWorktree.path(root: places.path, repository: AgentPlaces.real(repoPath), card: loosened, tool: .antigravity)),
+                  "settings that \(said) stop it before any worktree is made: \(notes(loosened).last ?? "")")
+        }
+        settle(nil)
+        let noSettings = await run(antigravityAgent, mode: "finish", title: "With no settings file")
+        check(notes(noSettings).last?.contains("it couldn't reach the board") == true, "with no settings file, it couldn't reach the board, so it isn't started")
+        settle(agyAllowed)
+        let agyHooked = await run(antigravityAgent, mode: "plant-hooks", title: "Add a hook")
+        let agyHookedTree = await git(["ls-tree", "-r", "--name-only", AgentWorktree.branch(card: agyHooked, tool: .antigravity)], in: repo).output
+        check(notes(agyHooked).last?.hasPrefix("Didn't commit Antigravity's changes: the worktree has .agents/hooks.json now") == true && !agyHookedTree.contains(".agents/"),
+              "a run that adds .agents/hooks.json isn't committed: \(notes(agyHooked).last ?? "")")
+        clearRecordings(.antigravity)
+        _ = dispatcher.wakeNow(board.card(agyHooked)!)
+        await wait(30) { notes(agyHooked).last?.hasPrefix("Binders didn't start Antigravity") == true }
+        check(notes(agyHooked).last?.hasPrefix("Binders didn't start Antigravity: the card's worktree has .agents/hooks.json") == true && stubbed(.antigravity, "argv.bin").isEmpty,
+              "and the next run doesn't start in a worktree with it: \(notes(agyHooked).last ?? "")")
 
         // 10. The commit.
         let edited = await run(codex, mode: "edit", title: "Add a line to the README")
@@ -773,7 +857,7 @@ extension SelfTest {
         // Drawn: each one's settings.
         if let directory {
             try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
-            for (tool, agent) in [(CLIAgent.codex, codex), (.opencode, opencodeAgent), (.copilot, copilotAgent)] {
+            for (tool, agent) in [(CLIAgent.codex, codex), (.opencode, opencodeAgent), (.copilot, copilotAgent), (.antigravity, antigravityAgent)] {
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 660), styleMask: [.titled, .fullSizeContentView],
                                       backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
@@ -790,7 +874,7 @@ extension SelfTest {
         }
 
         // 19. Tidy up: the agents, Binders' folder for them, and the dispatcher the board had.
-        for agent in [codex, opencodeAgent, copilotAgent, echo] { registry.remove(agent.id) }
+        for agent in [codex, opencodeAgent, copilotAgent, antigravityAgent, echo] { registry.remove(agent.id) }
         board.dispatcher = controller.agents
         controller.agents.board = board
         try? manager.removeItem(at: places)

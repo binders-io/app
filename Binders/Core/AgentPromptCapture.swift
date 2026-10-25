@@ -229,11 +229,22 @@ enum PromptHook {
             return arguments[index + 1]
         }
         let input = FileHandle.standardInput.readDataToEndOfFile()
+        // A tool that reads the hook's answer as JSON (Antigravity's) gets the empty object, whatever happens next.
+        if arguments.contains("--reply-json") { FileHandle.standardOutput.write(Data("{}\n".utf8)) }
         guard FileManager.default.fileExists(atPath: AgentHarnesses.captureFlag.path), let payload = HookPayload.read(input) else { exit(0) }
-        let line: [String: Any] = ["tool": value("--tool") ?? "AI tool", "text": payload.text,
+        let tool = value("--tool") ?? "AI tool"
+        let record = AgentHarnesses.hookRecord
+        // Antigravity's hook runs before each model call with the last thing you sent: the same prompt in the same
+        // conversation is kept once.
+        if let conversation = HookPayload.conversation(input) {
+            let key = HookPayload.repeatKey(tool: tool, conversation: conversation, text: payload.text)
+            let last = record.deletingLastPathComponent().appendingPathComponent("hook-last.txt")
+            if (try? String(contentsOf: last, encoding: .utf8)) == key { exit(0) }
+            try? key.write(to: last, atomically: true, encoding: .utf8)
+        }
+        let line: [String: Any] = ["tool": tool, "text": payload.text,
                                    "time": Int(Date().timeIntervalSince1970 * 1000), "project": value("--project") ?? payload.project ?? ""]
         guard let data = try? JSONSerialization.data(withJSONObject: line) else { exit(0) }
-        let record = AgentHarnesses.hookRecord
         if !FileManager.default.fileExists(atPath: record.path) { FileManager.default.createFile(atPath: record.path, contents: nil) }
         if let handle = try? FileHandle(forWritingTo: record) {
             handle.seekToEndOfFile()

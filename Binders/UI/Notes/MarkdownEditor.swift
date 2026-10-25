@@ -78,6 +78,8 @@ struct MarkdownNoteEditor: View {
     /// Put on Board from the note (lane DS6): the selection, one card or one per line, or the whole note for none; nil
     /// where the editor isn't a note's.
     var putOnBoard: ((_ selection: NSRange, _ eachLine: Bool) -> Void)? = nil
+    /// Its Distill list's items lit in it, and the light while it's read (lane DS9); nil for none.
+    var distill: EditorDistill? = nil
     @State private var model = MarkdownEditorModel()
     /// Every note editor follows the same choice.
     @AppStorage("notesShowMarkdown", store: AppDefaults.store) private var showsMarkup = false
@@ -91,7 +93,7 @@ struct MarkdownNoteEditor: View {
             Divider().opacity(0.5)
             MarkdownEditor(text: $text, model: model, fontSize: (fontSize * (zoom == 0 ? 1 : zoom)).rounded(), placeholder: placeholder, inset: inset,
                            showsMarkup: showsMarkup, links: links, focused: focused, reveal: reveal, paper: paper, headingTip: headingTip,
-                           work: work, putOnBoard: putOnBoard)
+                           work: work, putOnBoard: putOnBoard, distill: distill)
         }
     }
 }
@@ -257,6 +259,7 @@ struct MarkdownEditor: NSViewRepresentable {
     var headingTip: ((String) -> String?)? = nil
     var work: NoteWork? = nil
     var putOnBoard: ((NSRange, Bool) -> Void)? = nil
+    var distill: EditorDistill? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -308,6 +311,7 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.workState.work = work
         textView.putOnBoard = putOnBoard
         textView.restyle()
+        textView.setDistill(distill)
         model.textView = textView
         context.coordinator.textView = textView
         context.coordinator.known = text
@@ -335,6 +339,7 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.showsMarkup = showsMarkup
         textView.setWork(work)
         textView.putOnBoard = putOnBoard
+        textView.setDistill(distill)
         if let reveal, reveal.id != context.coordinator.revealed {
             context.coordinator.revealed = reveal.id
             Self.go(textView, to: reveal)
@@ -462,8 +467,8 @@ struct MarkdownEditor: NSViewRepresentable {
         func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange) -> Int {
             guard value != 0, let storage = textView.textStorage, NSMaxRange(affectedCharRange) <= storage.length else { return value }
             var hidden = false
-            storage.enumerateAttribute(.markdownConceal, in: affectedCharRange) { found, _, stop in
-                if found != nil {
+            storage.enumerateAttributes(in: affectedCharRange) { found, _, stop in
+                if found[.markdownConceal] != nil || found[.markdownDiagramHidden] != nil {
                     hidden = true
                     stop.pointee = true
                 }
@@ -809,7 +814,16 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         super.setFrameSize(newSize)
         guard abs(newSize.width - styledWidth) > 0.5 else { return }
         styledWidth = newSize.width
-        DispatchQueue.main.async { [weak self] in self?.restyleEmbeds() }
+        DispatchQueue.main.async { [weak self] in
+            self?.restyleEmbeds()
+            self?.restyleDiagrams()
+        }
+    }
+
+    /// Diagrams are drawn again in the appearance's theme (lane MM1).
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyleDiagrams()
     }
 
     // A picture, a file or a screenshot comes in as an attachment; an address over a selection makes it a link;
@@ -877,6 +891,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
 
     override func menu(for event: NSEvent) -> NSMenu? {
         if let embed = embedMenu(for: event) { return embed }
+        if let diagram = diagramMenu(for: event) { return diagram }
         // Lane DS6: with words selected, Put on Board first.
         return withPutOnBoard(super.menu(for: event))
     }
@@ -904,6 +919,21 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     var styler = MarkdownStyler(fontSize: 15)
     /// A Distill note's cards, where they show in it (lane DS4, MarkdownEditorWork.swift).
     let workState = EditorWork()
+    /// The note's Mermaid diagrams, drawn in it (lane MM1, MarkdownEditorDiagrams.swift).
+    let diagramState = EditorDiagrams()
+    /// Its Distill list's items lit in it, and the light while it's read (lane DS9, MarkdownEditorDistill.swift).
+    let distillState = EditorDistillState()
+
+    /// Out of its window: the Distill light stops (lane DS9).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            distillState.link?.invalidate()
+            distillState.link = nil
+        } else {
+            updateDistillLink()
+        }
+    }
     /// Put on Board from the note this editor shows (lane DS6, NotePutOnBoard.swift); nil where it isn't a note's.
     var putOnBoard: ((NSRange, Bool) -> Void)?
     var placeholder = ""
@@ -959,6 +989,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         guard let storage = textStorage, storage.editedMask.isEmpty else { return }
         let hasFocus = focused ?? (window?.firstResponder === self)
         let next = hasFocus ? (string as NSString).paragraphRange(for: selectedRange()) : NSRange(location: NSNotFound, length: 0)
+        // A diagram the cursor came into shows its code; one it left, its drawing.
+        diagramSelectionChanged(focused: hasFocus)
         guard next != revealed else { return }
         let previous = revealed
         revealed = next
@@ -1000,7 +1032,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 // A table's pipes and the spaces around its cells are hidden even on the line being edited, so its columns
                 // stay where they are while you type.
                 if storage.attribute(.markdownTableTab, at: index, effectiveRange: nil) != nil
-                    || storage.attribute(.markdownTableHidden, at: index, effectiveRange: nil) != nil {
+                    || storage.attribute(.markdownTableHidden, at: index, effectiveRange: nil) != nil
+                    || storage.attribute(.markdownDiagramHidden, at: index, effectiveRange: nil) != nil {
                     if properties == nil { properties = Array(UnsafeBufferPointer(start: props, count: count)) }
                     properties?[i] = .controlCharacter
                     continue
@@ -1033,6 +1066,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
             guard !showsMarkup, let storage = layoutManager.textStorage, charIndex < storage.length else { return action }
             if storage.attribute(.markdownTableTab, at: charIndex, effectiveRange: nil) != nil { return .horizontalTab }
             if storage.attribute(.markdownTableHidden, at: charIndex, effectiveRange: nil) != nil { return .zeroAdvancement }
+            if storage.attribute(.markdownDiagramHidden, at: charIndex, effectiveRange: nil) != nil { return .zeroAdvancement }
             guard !NSLocationInRange(charIndex, revealed), storage.attribute(.markdownConceal, at: charIndex, effectiveRange: nil) != nil else { return action }
             return .zeroAdvancement
         }
@@ -1052,6 +1086,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         styler.apply(MarkdownSyntax.spans(in: storage.string), to: storage, in: NSRange(location: 0, length: storage.length), concealed: !showsMarkup)
         placeWork(restyling: false)
         applyWork(in: NSRange(location: 0, length: storage.length))
+        applyDiagrams(in: NSRange(location: 0, length: storage.length))
         storage.endEditing()
         needsDisplay = true
     }
@@ -1069,6 +1104,7 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
         }
         styler.apply(MarkdownSyntax.spans(in: text, lines: dirty), to: storage, in: dirty, concealed: !showsMarkup)
         applyWork(in: dirty)
+        applyDiagrams(in: dirty)
     }
 
     // Typing restyles the paragraphs it touched; adding or removing a code fence restyles everything after it too.
@@ -1076,6 +1112,8 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                                  range editedRange: NSRange, changeInLength delta: Int) {
         guard editedMask.contains(.editedCharacters) else { return }
         MainActor.assumeIsolated {
+            diagramsEdited(editedRange, delta: delta)
+            defer { diagramsEditDone() }
             // Typing in a revealed line grows it before the layout manager sees the change, so new markup isn't hidden
             // for a moment; an edit above it moves it along.
             if revealed.location != NSNotFound {
@@ -1100,8 +1138,11 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
                 if let block = MarkdownTables.block(around: probe, in: string) { dirty = NSUnionRange(dirty, block) }
             }
             styler.apply(MarkdownSyntax.spans(in: text, lines: dirty), to: storage, in: dirty, concealed: !showsMarkup)
+            applyDiagrams(in: dirty)
             // A Distill note's marks move with the text; those the edit touched are found again once typing pauses.
             workEdited(editedRange, delta: delta, dirty: dirty)
+            // Lane DS9: the Distill list's lines move with it too.
+            distillEdited(editedRange, delta: delta)
         }
     }
 
@@ -1302,7 +1343,10 @@ final class MarkdownTextView: NSTextView, NSTextStorageDelegate, NSLayoutManager
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if clickedWorkChip(at: point) { return }
+        // Lane DS9: a line the Distill list lights selects its row; the click still places the cursor.
+        distillClicked(at: point)
         if clickedEmbed(event, at: point) { return }
+        if clickedDiagram(event, at: point) { return }
         // A [[link]] opens on a click, unless its line is being edited; ⌘-click opens it anyway. One to a heading in this
         // note ([[#Risks]]) goes there.
         if let (title, index) = wikiLink(at: point),
@@ -1429,12 +1473,16 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
         storage.enumerateAttribute(.markdownCodeBlock, in: characters) { value, run, _ in
             guard value != nil else { return }
-            var union = NSRect.null
-            visibleFragments(of: run) { union = union.union($0) }
-            guard !union.isNull else { return }
-            let box = NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + union.minY, width: width, height: union.height)
-            NSColor.labelColor.withAlphaComponent(0.06).setFill()
-            NSBezierPath(roundedRect: box.insetBy(dx: -6, dy: 0), xRadius: 6, yRadius: 6).fill()
+            // A diagram drawn under its code (lane MM1) is left out of the code's background.
+            for (piece, room) in codeBlockPieces(of: run) {
+                var union = NSRect.null
+                visibleFragments(of: piece) { union = union.union($0) }
+                guard !union.isNull else { continue }
+                let bottom = room > 0 ? min(union.maxY, codeBottom(above: piece, room: room)) : union.maxY
+                let box = NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + union.minY, width: width, height: max(0, bottom - union.minY))
+                NSColor.labelColor.withAlphaComponent(0.06).setFill()
+                NSBezierPath(roundedRect: box.insetBy(dx: -6, dy: 0), xRadius: 6, yRadius: 6).fill()
+            }
         }
         storage.enumerateAttribute(.markdownQuote, in: characters) { value, run, _ in
             guard value != nil else { return }
@@ -1453,9 +1501,11 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 NSRect(x: origin.x + container.lineFragmentPadding, y: origin.y + rect.midY, width: width, height: 1).fill()
             }
         }
+        drawDistill(in: characters, at: origin)
         drawWorkTints(in: characters, at: origin)
         drawTables(in: characters, at: origin)
         drawEmbeds(in: characters, at: origin)
+        drawDiagrams(in: characters, at: origin)
     }
 
     /// The line fragments that show some of `run`. Hidden markup at the start of a line can sit in the fragment above it,

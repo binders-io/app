@@ -928,6 +928,11 @@ struct NoteEditor: View {
     /// For a Distill note: its cards marked at the words they came from (lane DS4), as the Work bar's switch says.
     @AppStorage(DistillNoteMarks.shownKey, store: AppDefaults.store) private var showWork = true
     @State private var noteToStop: NoteItem?
+    /// Lane DS9: where Distill's motion is drawn on this page, and its list over the note when there's no room beside it.
+    @State private var stage = DistillStage()
+    @State private var distillOver = false
+    @Environment(\.binderTint) private var binderTint
+    @ReducedMotion private var reduceMotion
 
     private var digesting: Bool { knowledge.digestingNoteIDs.contains(note.id) }
     private var digestStale: Bool { !note.digest.isEmpty && note.digestHash != KnowledgeService.noteContentHash(note.text) }
@@ -996,10 +1001,9 @@ struct NoteEditor: View {
                                        accessories: AnyView(NoteToolbarButtons(note: note, digestVisible: $digestVisible, room: column != nil)),
                                        paper: true, headingTip: note.distill ? { [controller, note] heading in controller.distill.headingTip(heading, in: note) } : nil,
                                        work: DistillNoteMarks.work(for: note, controller: controller, shown: showWork),
-                                       putOnBoard: { selection, eachLine in putOnBoard(selection: selection, eachLine: eachLine) })
+                                       putOnBoard: { selection, eachLine in putOnBoard(selection: selection, eachLine: eachLine) },
+                                       distill: editorDistill(listShown: distillShown(column: column)))
                         .paperSheet()
-                        .padding([.leading, .vertical], 14)
-                        .padding(.trailing, 4)
                         .onChange(of: note.text) { previous, _ in
                             note.updatedAt = Date()
                             NoteHistory.changed(note.id, previous: previous)
@@ -1016,6 +1020,37 @@ struct NoteEditor: View {
                     }
                 }
                 bottomBar
+            }
+            // Lane DS9: no room beside the note, the Distill list goes over its right side, until it's closed.
+            .overlay(alignment: .topTrailing) {
+                if distillOver, column == nil, note.distill {
+                    DistillListPanel(note: note, onClose: { distillOver = false })
+                        .padding(14)
+                        .frame(width: min(330, max(250, proxy.size.width - 60)))
+                        .frame(maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(BindersTheme.surface))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(BindersTheme.line))
+                        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+                        .padding(.top, 12)
+                        .padding(.bottom, 52)
+                        .padding(.trailing, 14)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .distillStage(stage, note: note, listShown: distillShown(column: column))
+            // Lane DS9: Distill (its button, the Note menu, the Work bar) opens the list beside the note, or over it.
+            .onReceive(NotificationCenter.default.publisher(for: DistillActions.show)) { notification in
+                guard notification.userInfo?["note"] as? UUID == note.id else { return }
+                if column == nil {
+                    withAnimation(BindersTheme.motion(BoardDesign.settle, reduced: reduceMotion)) { distillOver = true }
+                } else {
+                    sidePanel = "distill"
+                    digestVisible = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: DistillActions.fromMenu)) { notification in
+                guard notification.userInfo?["note"] as? UUID == note.id, notification.userInfo?["popout"] as? Bool != true else { return }
+                DistillActions.press(note, controller: controller)
             }
         }
         .sheet(isPresented: $showingHistory) { NoteHistorySheet(note: note, changesFrom: historyFrom) }
@@ -1230,20 +1265,42 @@ struct NoteEditor: View {
         }
     }
 
-    /// Beside the note: for a Distill note, or one with cards (lane DS6), its Work or its digest and properties; for any
-    /// other, the digest and properties.
+    /// Whether the Distill list shows: beside the note, or over it where there's no room.
+    private func distillShown(column: CGFloat?) -> Bool {
+        guard note.distill else { return false }
+        return column == nil ? distillOver : digestVisible && sidePanel == "distill"
+    }
+
+    /// What the editor lights of the Distill list (lane DS9).
+    private func editorDistill(listShown: Bool) -> EditorDistill? {
+        guard note.distill else { return nil }
+        let service = controller.distill
+        let list = service.list(for: note.id)
+        let accent = binderTint.map { BinderPalette.nsColor($0.index) } ?? BindersTheme.NS.accent
+        return list.editorDistill(service: service, rows: list.rows(service, text: note.text), stage: stage, accent: accent,
+                                  reduceMotion: reduceMotion, listShown: listShown) { [note] id in
+            list.selected = id
+            DistillActions.open(note.id)
+        }
+    }
+
+    /// Beside the note: for a Distill note, its Distill list (lane DS9), Work or digest and properties; for one with cards
+    /// (lane DS6), its Work or its digest and properties; for any other, the digest and properties.
     @ViewBuilder
     private var digestColumn: some View {
         if note.distill || DistillBoard.hasCards(note.id) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("Beside the note", selection: $sidePanel) {
+                    if note.distill { Text("Distill").tag("distill") }
                     Text("Work").tag("work")
                     Text("Digest").tag("digest")
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .padding([.horizontal, .top], 16)
-                if sidePanel == "work" {
+                if sidePanel == "distill", note.distill {
+                    DistillListPanel(note: note).padding(.horizontal, 16).padding(.bottom, 16)
+                } else if sidePanel == "work" || sidePanel == "distill" {
                     ScrollView { WorkPanel(note: note).padding(.horizontal, 16).padding(.bottom, 16) }
                 } else {
                     digestAndProperties
@@ -1380,6 +1437,11 @@ private struct NoteToolbarButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            // Lane DS9: Distill, prominent, in the same place in every note; hidden where the library can't be saved.
+            if Store.shared.canSave {
+                DistillButton(note: note, compact: iconsOnly)
+                    .padding(.trailing, 6)
+            }
             Toggle(isOn: Binding(get: { digestVisible && room }, set: { digestVisible = $0 })) {
                 Image(systemName: "sidebar.right").frame(width: 24, height: 20)
                     .foregroundStyle(digestVisible && room ? AnyShapeStyle(.tintText) : AnyShapeStyle(.secondary))

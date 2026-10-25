@@ -1,0 +1,20 @@
+Antigravity CLI (agy) flags as documented on 2026-10-24, not agy --help: Binders' lane couldn't install or run agy.
+Sources: antigravity.google/docs/cli/headless/, antigravity.google/docs/cli/reference/, and the changelog in
+github.com/google-antigravity/antigravity-cli (CHANGELOG.md, up to 1.4.7).
+
+  -p, --print, --prompt        Run a single prompt non-interactively and print the response
+  --output-format              text, json or stream-json (default text)
+  --input-format               text or stream-json (default text); reads prompts on stdin
+  --json-schema                Schema string or file path to enforce structured output
+  --model                      Model slug for this run (agy models)
+  --effort                     low, medium or high
+  --agent                      Agent for this run (agy agents)
+  -c, --continue               Continue the most recent conversation
+  --conversation               Resume a conversation by ID
+  --print-timeout              Maximum time to wait for a response
+  --sandbox                    Run with terminal sandbox restrictions enabled
+  --mode                       accept-edits, auto or plan
+  --add-dir                    Add a workspace directory (repeatable)
+  --disable-slash-commands     Don't expand slash commands and skills in print mode (changelog 1.1.x)
+  --remote-control             Create a Remote Control connection
+  --dangerously-skip-permissions   Auto-approve all tool permission requests (Binders never passes it)

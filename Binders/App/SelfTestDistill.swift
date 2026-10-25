@@ -101,10 +101,15 @@ extension SelfTest {
 
         // MARK: Distill, review, place some
         let first = await service.distill(note)
-        guard case .success(let proposal) = first else {
+        guard case .success(var proposal) = first else {
             run.check(false, "Binders' model reads the note: \(first)")
             return 1
         }
+        // Lane DS8: the proposal is made first; who each item is for comes after, into it.
+        run.check(proposal.items.allSatisfy { $0.meantForHow != "model" } && service.suggesting.contains(proposal.id),
+                  "the proposal is made before the decision model suggests anyone")
+        await service.suggestionsDone(proposal.id)
+        proposal = DistillStore.shared.distill(proposal.id, of: note.id) ?? proposal
         run.check(model.calls == 1, "the model was asked once")
         run.check(proposal.items.count == 8 && proposal.status == .proposed && !proposal.readByAgent, "it proposes 8 items: \(proposal.items.count)")
         run.check(proposal.items[1].waitsFor == [proposal.items[0].id], "the card check waits for the one-page form")
@@ -193,6 +198,8 @@ extension SelfTest {
         run.check((await run.call("claim_task", ["id": cardCheck.id.uuidString], as: echoActor)).ok && cardCheck.column == .inProgress, "Echo can claim it now")
 
         await distillSelfTestPartTwo(run, note: note, web: web, proposal: proposal, placed: placed, model: model)
+        // Lane DS8: the same with v2's stand-in.
+        await distillFastChecks(run, router: standIn)
         return run.failures == 0 ? 0 : 1
     }
 }

@@ -153,7 +153,7 @@ perl -pi -e 's#https://binders\.io/download/Binders-([0-9][0-9.]*)\.zip#https://
 
 echo "→ Site"
 SUM=$(shasum -a 256 "$OUT.dmg" | cut -d' ' -f1)
-perl -pi -e "s#https://github\.com/binders-io/app/releases/download/v[0-9.]+/Binders-[0-9.]+\.dmg#https://github.com/binders-io/app/releases/download/v$VERSION/Binders-$VERSION.dmg#g; s#Download Binders [0-9.]+, free#Download Binders $VERSION, free#; s#Version [0-9.]+, a preview\.#Version $VERSION, a preview.#; s#SHA-256 <code>[0-9a-f]{64}</code>#SHA-256 <code>$SUM</code>#" site/index.html
+perl -pi -e "s#https://github\.com/binders-io/app/releases/download/v[0-9.]+/Binders-[0-9.]+\.dmg#https://github.com/binders-io/app/releases/download/v$VERSION/Binders-$VERSION.dmg#g; s#Download Binders [0-9.]+, free#Download Binders $VERSION, free#; s#Download Binders [0-9.]+ for Mac#Download Binders $VERSION for Mac#; s#Version [0-9.]+, a preview\.#Version $VERSION, a preview.#; s#Version [0-9.]+ · macOS#Version $VERSION · macOS#; s#SHA-256 <code>[0-9a-f]{64}</code>#SHA-256 <code>$SUM</code>#" site/index.html
 perl -pi -e "s#as of version [0-9.]+\.#as of version $VERSION.#" site/privacy.html
 tar -czf "$OUT.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
 (cd dist && shasum -a 256 "Binders-$VERSION.dmg" "Binders-$VERSION.zip" "Binders-$VERSION.tar.gz" > SHA256SUMS.txt)

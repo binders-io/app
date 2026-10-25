@@ -32,7 +32,7 @@ public enum AgentConsent {
     /// Anthropic for Claude Code, else the company behind a program it runs that Binders knows (`knownVendors`). Nil when
     /// nothing says: a program, a Shortcut, a web hook or an agent that checks the board itself can send cards anywhere.
     public static func vendor(_ agent: AgentProfile) -> String? {
-        // Codex and Copilot send cards where Binders starts them to (it fixes their settings), so a typed name can't say
+        // Codex, Copilot and Antigravity send cards where Binders starts them to (it fixes their settings), so a typed name can't say
         // otherwise.
         if case .cliAgent(let wake) = agent.wake, let company = wake.tool.company { return company }
         if let said = agent.vendor?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty { return said }
@@ -57,7 +57,7 @@ public enum AgentConsent {
     }
 
     /// Programs whose company Binders knows, by the program's name: the agents' own command-line tools.
-    static let knownVendors = ["claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "grok": "xAI", "copilot": "GitHub (Microsoft)"]
+    static let knownVendors = ["claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "grok": "xAI", "copilot": "GitHub (Microsoft)", "agy": "Google"]
 
     /// A short fingerprint, 16 hex digits, of where a card handed to `agent` goes and what goes with it: how it's woken
     /// and where to (a web hook's address, a command and its folder, a Shortcut, the sites Claude Code's commands may

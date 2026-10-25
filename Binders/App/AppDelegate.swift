@@ -356,6 +356,7 @@ enum MainMenu {
         note.addItem(MenuShortcuts.item(.foldIntoBubble))
         note.addItem(.separator())
         note.addItem(MenuShortcuts.item(.putOnBoard))
+        note.addItem(MenuShortcuts.item(.distill))
         main.addItem(submenu: note, title: "Note")
 
         let go = NSMenu(title: "Go")

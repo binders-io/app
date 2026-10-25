@@ -50,10 +50,12 @@ public enum DistillPrompt {
         - Keep the note's order. At most 25 items.
         """
 
-    /// What the model reads: the note's title, its sections' headings, and the note.
-    public static func user(title: String, sections: [String], text: String) -> String {
+    /// What the model reads: the note's title, its sections' headings, and the note. `items`: the most items it's asked
+    /// for, when fewer than `maxItems` (a slow model's smaller answer, lane DS7).
+    public static func user(title: String, sections: [String], text: String, items: Int = maxItems) -> String {
         let note = text.count > noteLimit ? String(text.prefix(noteLimit)) + "\n…" : text
-        return "The note “\(title)”. \(headingsLine(sections))\n\n\(note)"
+        let most = items < maxItems ? " List at most \(items) work items." : ""
+        return "The note “\(title)”. \(headingsLine(sections))\(most)\n\n\(note)"
     }
 
     /// "Its sections: \"A\", \"B\"." as the prompts say it.
@@ -64,10 +66,13 @@ public enum DistillPrompt {
     /// What the model reads of a note too long to read well at once (`DistillParts`): the note's title and every heading,
     /// which part this is and what it holds, the titles of the items found in the parts before, so a wait across parts
     /// can name them, and the part's own text.
-    public static func part(title: String, sections: [String], part: DistillParts.Part, earlier: [String]) -> String {
+    /// Lane DS8: `earlier` is no longer given (parts are read at once); a part that is only some of the note, the rest read
+    /// before (Distill Again), says so.
+    public static func part(title: String, sections: [String], part: DistillParts.Part, earlier: [String], items: Int = maxItems) -> String {
         var lines = ["The note “\(title)”. \(headingsLine(sections))", ""]
-        lines.append("The note is long, so you read it in \(part.count) parts. This is part \(part.number) of \(part.count): \(part.holds). "
-                     + "List only the work this part asks for.")
+        let which = part.count > 1 ? "The note is long, so you read it in \(part.count) parts. This is part \(part.number) of \(part.count): \(part.holds). "
+            : "This holds only \(part.holds); the rest of the note was read before. "
+        lines.append(which + (items < maxItems ? "List only the work this part asks for, at most \(items) items." : "List only the work this part asks for."))
         if !earlier.isEmpty {
             let titles = earlier.prefix(maxItems).map { "\"\($0.count > 80 ? String($0.prefix(80)) : $0)\"" }
             lines.append("Work items from the parts before: " + titles.joined(separator: "; ") + ".")
@@ -76,6 +81,83 @@ public enum DistillPrompt {
         lines.append("")
         lines.append(part.text)
         return lines.joined(separator: "\n")
+    }
+
+    /// `system`'s line on `for`, as it reads with no one listed: what `system(who:)` puts the list's in place of.
+    public static let forLine = """
+        - for: "person" when it needs a human: a decision, a conversation, an approval, ordering or booking, money or a \
+        signature. "agent" when an AI agent with code and documents could do it alone. "either" when you can't tell.
+        """
+
+    /// The instructions for a note in a binder where these can take work (lane AS1): `for` is one of their names, and the
+    /// list follows the fields. With no one to list (no agents, no team), `system` exactly as it always was.
+    public static func system(who: DistillTakers?) -> String {
+        guard let who, let block = who.block else { return system }
+        return system.replacingOccurrences(of: forLine, with: who.forLine)
+            .replacingOccurrences(of: "\n\nRules:\n", with: "\n\n\(block)\n\nRules:\n")
+    }
+
+    // MARK: v2 (lane DS8)
+
+    /// The instructions for a v2 reading (`DistillFormat.v2`): the note comes as numbered lines (`DistillLines`), and each
+    /// item names its lines rather than copying them; no brief, done when, section or quote, which the app takes from the
+    /// lines and writes for the cards kept. Short, as it's read again for every part.
+    public static let systemV2 = """
+        You turn a note, such as a spec a team wrote, into work items for the team's board: each one something a person or \
+        an AI agent could pick up, do and finish on its own. The note's lines are numbered ("12| …"); headings aren't. If \
+        the note asks for nothing to be done, because it only explains, records what happened or lists examples, reply [].
+
+        Reply with a JSON list and nothing else. For lines "3| Put a signup form in the footer of every page.", \
+        "4| Once someone signs up, send them a welcome email." and "7| We still need to pick an email provider.":
+        [
+          {"title": "Add the signup form to the footer", "lines": [3], "for": "agent", "size": "small"},
+          {"title": "Send a welcome email after signup", "lines": [4], "for": "agent", "size": "small", "after": 1},
+          {"title": "Choose the email provider", "lines": [7], "for": "person", "size": "small"}
+        ]
+
+        - title: what to do, starting with a verb, at most 10 words, using only what the lines say.
+        - lines: the numbers of the 1 to 4 lines the item comes from.
+        \(forLine)
+        - size: "small" (a day or less), "medium" (a few days) or "large" (more).
+        - after: the number of an earlier item in your list that must be finished first (1 is the first). Leave it out \
+        unless the note says one thing comes before another ("once", "after", "then").
+
+        Rules:
+        - Only work the note asks for. Goals, background, what's out of scope, "not now" lists and open questions with \
+        nothing to do are not items.
+        - One item per piece of work. Never repeat an item, and don't break one task into its steps.
+        - Keep the note's order. At most 25 items.
+        """
+
+    /// The instructions for `format`, with who can take work (`system(who:)`).
+    public static func system(who: DistillTakers?, format: DistillFormat) -> String {
+        guard format == .v2 else { return system(who: who) }
+        guard let who, let block = who.block else { return systemV2 }
+        return systemV2.replacingOccurrences(of: forLine, with: who.forLine)
+            .replacingOccurrences(of: "\n\nRules:\n", with: "\n\n\(block)\n\nRules:\n")
+    }
+
+    /// What every part of a v2 reading starts with, the same for each, so a model in Binders reads it once
+    /// (`ReplySchema.userPrefix`): the note's title and every heading.
+    public static func prefix(title: String, sections: [String]) -> String {
+        "The note “\(title)”. \(headingsLine(sections))\n\n"
+    }
+
+    /// A v2 part's question: the shared start, which part this is when there's more than one or it's only some of the
+    /// note (`partial`: the rest was read before), and its numbered lines.
+    public static func partV2(title: String, sections: [String], part: DistillParts.Part, lines: DistillLines, items: Int = maxItems,
+                              partial: Bool = false) -> String {
+        var said: [String] = []
+        if part.count > 1 {
+            said.append("The note is long, so you read it in \(part.count) parts. This is part \(part.number) of \(part.count): \(part.holds).")
+        } else if partial {
+            said.append("This holds only \(part.holds); the rest of the note was read before.")
+        }
+        if part.count > 1 || partial || items < maxItems {
+            said.append(items < maxItems ? "List only the work in these lines, at most \(items) items." : "List only the work in these lines.")
+        }
+        let framing = said.isEmpty ? "" : said.joined(separator: " ") + "\n\n"
+        return prefix(title: title, sections: sections) + framing + lines.rendered
     }
 
     /// What a second try adds, at the end, when the first reply had no list in it.
@@ -111,6 +193,13 @@ public enum DistillReading {
         /// Waits it named by a title no item of this reply has, kept when the note is read in parts
         /// (`read(_:headings:elsewhere:)`): another part's item, or a section's heading, which the merge looks for.
         public var waitsElsewhere: [String] = []
+        /// The numbers of the lines it comes from (v2, lane DS8): as written, then those that are lines of its part
+        /// (`Result.resolve(lines:headings:)`).
+        public var lines: [Int] = []
+        /// It named its lines (a v2 reply), even none.
+        public var named = false
+        /// Its brief is the note's lines, until one is written for it once it's kept (v2, lane DS8).
+        public var briefPending = false
     }
 
     /// What the reading made of a reply, and what it left out, for the review sheet and the measure.
@@ -134,6 +223,8 @@ public enum DistillReading {
         public var onlyThinking = false
         /// The first lines of the answer, its thinking left out, when it had no list: for showing what the model wrote.
         public var firstLines: String?
+        /// Line numbers a v2 reply gave that weren't lines of its part, left out (lane DS8).
+        public var droppedLines = 0
 
         /// For the review sheet: what was left out, in a sentence, or nil.
         public var note: String? {
@@ -195,8 +286,10 @@ public enum DistillReading {
 
     /// Reads a reply. `headings` are the note's "## " headings, in order. Its thinking is left out first, so a list the
     /// model drafted while thinking is never read. `elsewhere`: a wait by a title no item here has is kept in
-    /// `waitsElsewhere` (the note was read in parts, and the item may be in another), rather than left out.
-    public static func read(_ reply: String, headings: [String], elsewhere: Bool = false) -> Result {
+    /// `waitsElsewhere` (the note was read in parts, and the item may be in another), rather than left out. `names`: the
+    /// agents and people the reader was told can take work (`DistillTakers.others`): a `for` that is one of them, whatever
+    /// its case, is that name, before it's read as one of the loose words ("Bot" for an agent named Bot).
+    public static func read(_ reply: String, headings: [String], elsewhere: Bool = false, names: [String] = []) -> Result {
         let split = ModelThinking.split(reply)
         let thought = !split.thought.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || split.stillThinking
         func none() -> Result {
@@ -232,14 +325,16 @@ public enum DistillReading {
             let section = raw.section.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             let matched = section.flatMap { $0.isEmpty ? nil : DistillSections.match($0, in: headings) }
             let unknown = section.flatMap { $0.isEmpty || matched != nil || isOpening($0) ? nil : $0 }
-            let hint = raw.forWord.flatMap(Self.hint(_:))
-            let name = raw.forWord.flatMap { hint == nil && !$0.trimmingCharacters(in: .whitespaces).isEmpty ? $0.trimmingCharacters(in: .whitespaces) : nil }
+            let said = raw.forWord?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let listed = said.flatMap { said in names.first { $0.localizedCaseInsensitiveCompare(said) == .orderedSame } }
+            let hint = listed == nil ? said.flatMap(Self.hint(_:)) : nil
+            let name = listed ?? said.flatMap { hint == nil && !$0.isEmpty ? $0 : nil }
             byTitle[key] = result.items.count
             kept[rawIndex] = result.items.count
             raws.append(raw)
             result.items.append(Item(title: title, brief: clean(raw.brief ?? "", lines: true), doneWhen: clean(raw.doneWhen ?? "", lines: true),
                                      section: matched, unknownSection: unknown, quote: DistillQuote.clean(raw.quote), waitsFor: [], size: raw.size.flatMap(DistillItem.Size.init(loose:)),
-                                     hint: hint ?? (name == nil ? nil : .either), forName: name))
+                                     hint: hint ?? (name == nil ? nil : .either), forName: name, lines: raw.lines ?? [], named: raw.lines != nil))
         }
         // Waits, by number first (the model's numbering, from 1), then by title.
         var waits: [[Int]] = Array(repeating: [], count: result.items.count)
@@ -288,6 +383,29 @@ public enum DistillReading {
         // A title written as a list item or a heading: "1. Add …", "- Add …", "## Add …".
         if !lines { text = text.replacingOccurrences(of: "^(?:[-*•]|\\d+[.)]|#+)\\s+", with: "", options: .regularExpression) }
         return text
+    }
+
+    /// How many whole items a reply still coming has written so far, its thinking left out: for "9 items so far" while a
+    /// note is read (lane DS7). An item cut off part way isn't counted, as the reading wouldn't keep it.
+    public static func wholeItems(_ partial: String) -> Int {
+        guard let found = list(in: ModelThinking.answer(partial)) else { return 0 }
+        var depth = 0, count = 0
+        var inString = false, escaped = false
+        for c in found.json.unicodeScalars {
+            if inString {
+                if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
+                continue
+            }
+            switch c {
+            case "\"": inString = true
+            case "[", "{": depth += 1
+            case "]", "}":
+                depth -= 1
+                if depth == 1, c == "}" { count += 1 }
+            default: break
+            }
+        }
+        return count
     }
 
     // MARK: Finding the list
@@ -400,6 +518,8 @@ public enum DistillReading {
         var waits: [Wait]
         var size: String?
         var forWord: String?
+        /// The lines it names (v2), nil when it names none.
+        var lines: [Int]?
 
         struct Key: CodingKey {
             var stringValue: String
@@ -452,6 +572,28 @@ public enum DistillReading {
                 }
             }
             self.waits = waits
+            if let key = key(["lines", "line", "ids", "lineids", "fromlines", "linenumbers"]) {
+                lines = Self.numbers(container, key)
+            }
+        }
+
+        /// Line numbers as a reader writes them: [12, 13], 12, "12", "12, 13", "12-14" (a range, at most 10 lines).
+        static func numbers(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> [Int] {
+            func parse(_ text: String) -> [Int] {
+                text.split(whereSeparator: { $0 == "," || $0 == " " || $0 == ";" }).flatMap { piece -> [Int] in
+                    let ends = piece.split(separator: "-").map { Int($0.trimmingCharacters(in: CharacterSet(charactersIn: "# |"))) }
+                    if ends.count == 2, let low = ends[0], let high = ends[1], low <= high, high - low < 10 { return Array(low...high) }
+                    return ends.count == 1 ? ends.compactMap { $0 } : []
+                }
+            }
+            if let list = try? container.decode([Int].self, forKey: key) { return list }
+            if let number = try? container.decode(Int.self, forKey: key) { return [number] }
+            if let strings = try? container.decode([String].self, forKey: key) { return strings.flatMap(parse) }
+            if let string = try? container.decode(String.self, forKey: key) { return parse(string) }
+            if let mixed = try? container.decode([Mixed].self, forKey: key) {
+                return mixed.compactMap { if case .number(let number)? = $0.wait { number } else { nil } }
+            }
+            return []
         }
 
         /// A number or a string in a list that has both.
@@ -472,13 +614,17 @@ public enum DistillReading {
 }
 
 extension DistillReading.Result {
+    /// Nothing read.
+    public static var empty: DistillReading.Result { DistillReading.Result(items: []) }
+
     /// The items as a distill keeps them, each with its section's version as the note read: waits by item id.
     public func items(sections: [DistillSections.Section]) -> [DistillItem] {
         let ids = items.map { _ in UUID() }
         return items.enumerated().map { index, item in
             let hash = sections.first { $0.heading == item.section }?.hash
             return DistillItem(id: ids[index], title: item.title, brief: item.brief, doneWhen: item.doneWhen, section: item.section,
-                               sectionHash: hash, quote: item.quote, waitsFor: item.waitsFor.map { ids[$0] }, size: item.size, hint: item.hint)
+                               sectionHash: hash, quote: item.quote, waitsFor: item.waitsFor.map { ids[$0] }, size: item.size, hint: item.hint,
+                               briefPending: item.briefPending ? true : nil)
         }
     }
 }

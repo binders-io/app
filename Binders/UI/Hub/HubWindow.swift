@@ -223,6 +223,12 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
         NotificationCenter.default.post(name: NotePutOnBoard.wholeNote, object: nil, userInfo: ["note": id, "popout": inPopout])
     }
 
+    /// Distill (lane DS9): the note in front, as its Distill button does: its list opens, and it's read where it changed.
+    @objc func distillNote(_ sender: Any?) {
+        guard let (id, inPopout) = noteInFront else { return }
+        NotificationCenter.default.post(name: DistillActions.fromMenu, object: nil, userInfo: ["note": id, "popout": inPopout])
+    }
+
     @objc func toggleDigest(_ sender: Any?) {
         let defaults = AppDefaults.store
         defaults.set(!(defaults.object(forKey: "notesShowDigest") as? Bool ?? true), forKey: "notesShowDigest")
@@ -245,6 +251,8 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
             }
             item.title = "Put on Board"
             return noteInFront != nil
+        case #selector(distillNote(_:)):
+            return noteInFront != nil && Store.shared.canSave
         case #selector(toggleDigest(_:)):
             item.title = (AppDefaults.store.object(forKey: "notesShowDigest") as? Bool ?? true) ? "Hide Digest" : "Show Digest"
             return true

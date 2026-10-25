@@ -1768,7 +1768,7 @@ private struct MCPSettings: View {
         }
 
         Section {
-            ForEach(MCPHost.allCases) { host in
+            ForEach(MCPHost.allCases.filter(\.isListed)) { host in
                 hostRow(host)
             }
         } header: {
@@ -1820,10 +1820,10 @@ private struct MCPSettings: View {
     private func hostRow(_ host: MCPHost) -> some View {
         let _ = hostRevision
         let status = host.status
-        return LabeledContent(host.name) {
+        return LabeledContent(host.label) {
             HStack(spacing: 8) {
                 if let message = hostMessages[host] {
-                    if message.hasPrefix("Added") {
+                    if message.hasPrefix("Added") || message.hasPrefix("Removed") {
                         Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     } else {
                         StatusLabel(message, .problem).font(.caption).lineLimit(2)
@@ -1844,6 +1844,16 @@ private struct MCPSettings: View {
                     }
                 }
                 .disabled(!status.present)
+                if host.removable, status.configured {
+                    Button("Remove") {
+                        do {
+                            hostMessages[host] = try host.remove()
+                        } catch {
+                            hostMessages[host] = error.localizedDescription
+                        }
+                        hostRevision += 1
+                    }
+                }
                 Button {
                     showingInstructions = host
                 } label: {

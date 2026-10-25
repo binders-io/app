@@ -27,8 +27,9 @@ final class CLIAgentTests: XCTestCase {
             let text = String(decoding: data, as: UTF8.self)
             XCTAssertTrue(text.contains(#""cliAgent" : {"#), text)
         }
-        XCTAssertEqual(CLIAgent.allCases.map(\.rawValue), ["codex", "opencode", "copilot"])
-        XCTAssertEqual(CLIAgent.allCases.map(\.name), ["Codex", "OpenCode", "GitHub Copilot CLI"])
+        XCTAssertEqual(CLIAgent.allCases.map(\.rawValue), ["codex", "opencode", "copilot", "antigravity"])
+        XCTAssertEqual(CLIAgent.allCases.map(\.name), ["Codex", "OpenCode", "GitHub Copilot CLI", "Antigravity"])
+        XCTAssertEqual(CLIAgent.allCases.map(\.program), ["codex", "opencode", "copilot", "agy"])
         // A kind no earlier build knows: one of them, reading it, leaves that agent out and keeps the rest.
         let known: Set = ["board", "command", "webhook", "shortcut", "claudeCode"]
         XCTAssertFalse(known.contains(AgentProfile.Wake.cliAgent(CLIAgentWake(tool: .codex, repository: "/r")).kind))
@@ -100,7 +101,7 @@ final class CLIAgentTests: XCTestCase {
             XCTAssertEqual(said.whatItsFor, "The website")
         }
         XCTAssertEqual(AgentProfile(name: "x", wake: .cliAgent(CLIAgentWake(tool: .codex, repository: ""))).whatItsFor, "code")
-        XCTAssertEqual(CLIAgent.allCases.map(\.shortName), ["Codex", "OpenCode", "Copilot"])
+        XCTAssertEqual(CLIAgent.allCases.map(\.shortName), ["Codex", "OpenCode", "Copilot", "Antigravity"])
     }
 
     func testVersionsArePinnedByTheirParts() {
@@ -139,10 +140,13 @@ final class CLIAgentTests: XCTestCase {
     }
 
     func testWhatEachToolMayDo() {
-        XCTAssertEqual(CLIAgent.allCases.filter(\.runsCommands), [.codex], "only Codex has a sandbox for commands")
+        XCTAssertEqual(CLIAgent.allCases.filter(\.runsCommands), [.codex, .antigravity], "only Codex and Antigravity have a sandbox for commands")
+        XCTAssertEqual(CLIAgent.allCases.filter { !$0.readsOnly }, [.antigravity], "Antigravity can't be held to reading only")
+        XCTAssertEqual(CLIAgentWake.modes(for: .antigravity), ["acceptEdits"])
+        XCTAssertEqual(CLIAgentWake.modes(for: .codex), ["acceptEdits", "plan"])
         XCTAssertTrue(CLIAgent.allCases.allSatisfy { !$0.honoursSites }, "no sites in this build")
         XCTAssertEqual(CLIAgent.allCases.filter(\.needsModel), [.opencode])
-        XCTAssertEqual(CLIAgent.allCases.map(\.company), ["OpenAI", nil, "GitHub (Microsoft)"])
+        XCTAssertEqual(CLIAgent.allCases.map(\.company), ["OpenAI", nil, "GitHub (Microsoft)", "Google"])
         XCTAssertEqual(CLIAgentWake(tool: .opencode, repository: "/r", model: " Anthropic/claude-sonnet-4-5").provider, "anthropic")
         XCTAssertEqual(CLIAgentWake(tool: .opencode, repository: "/r", model: "opencode/big-pickle").provider, "opencode")
         XCTAssertNil(CLIAgentWake(tool: .opencode, repository: "/r", model: "sonnet").provider)

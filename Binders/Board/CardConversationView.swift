@@ -410,7 +410,14 @@ private struct DayHeading: View {
             : date.formatted(.dateTime.weekday(.wide).day().month(.wide))
         HStack(spacing: 10) {
             Rectangle().fill(BindersTheme.line).frame(height: 1)
-            Text(words).font(.caption2).foregroundStyle(BindersTheme.muted).fixedSize()
+            Text(words)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(BindersTheme.muted)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(BindersTheme.surface2))
+                .overlay(Capsule().strokeBorder(BindersTheme.line))
+                .fixedSize()
             Rectangle().fill(BindersTheme.line).frame(height: 1)
         }
         .accessibilityElement(children: .ignore)
@@ -436,50 +443,86 @@ private struct AgentMessage: View {
     var body: some View {
         let approval = event.kind == .approval ? AgentApproval(timeline: event.text) : nil
         let open = opened.contains(event.id)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Image(systemName: BindersTheme.agentSymbol).imageScale(.small).foregroundStyle(BindersTheme.agent).accessibilityHidden(true)
-                Text(event.author).fontWeight(.semibold).foregroundStyle(BindersTheme.ink).lineLimit(1)
-                if let glyph { Image(systemName: glyph.name).imageScale(.small).foregroundStyle(glyph.color).accessibilityHidden(true) }
-                Text(verb).foregroundStyle(BindersTheme.muted).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(event.createdAt.formatted(date: .omitted, time: .shortened)).monospacedDigit().foregroundStyle(BindersTheme.muted).fixedSize()
-            }
-            .font(.caption)
-            if let approval {
-                Text(approval.summary)
-                    .font(.system(size: 13))
-                    .foregroundStyle(BindersTheme.ink)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: wordsWidth, alignment: .leading)
-                if !waiting {
-                    Button(open ? "Show Less" : "Show All") { toggle() }
-                        .buttonStyle(.borderless)
-                        .quietControl(words: true)
-                        .font(.caption)
-                        .help(open ? "Hide what it asked to send" : "Show exactly what it asked to send")
-                    if open {
-                        Text(approval.text)
-                            .font(.system(size: 13))
+        let bubbleWidth = max(140, wordsWidth - CardDesign.avatarSize - 8)
+        let fill = waiting ? BindersTheme.needsYou.opacity(0.08) : BindersTheme.surface2
+        let edge = waiting ? BindersTheme.needsYou.opacity(0.40) : BindersTheme.line
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                CardAvatar(kind: .agent)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(event.author).font(CardDesign.messageHeader).foregroundStyle(BindersTheme.ink).lineLimit(1)
+                        if let glyph {
+                            Image(systemName: glyph.name)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(glyph.color)
+                                .accessibilityHidden(true)
+                        }
+                        Text(verb).font(CardDesign.meta).foregroundStyle(BindersTheme.muted).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(event.createdAt.formatted(date: .omitted, time: .shortened))
+                            .font(CardDesign.meta)
+                            .monospacedDigit()
+                            .foregroundStyle(BindersTheme.muted)
+                            .fixedSize()
+                    }
+                    if let approval {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(approval.summary)
+                                .font(CardDesign.message)
+                                .foregroundStyle(BindersTheme.ink)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !waiting {
+                                Button(open ? "Show Less" : "Show All") { toggle() }
+                                    .buttonStyle(.borderless)
+                                    .quietControl(words: true)
+                                    .font(CardDesign.meta)
+                                    .help(open ? "Hide what it asked to send" : "Show exactly what it asked to send")
+                                if open {
+                                    Text(approval.text)
+                                        .font(CardDesign.message)
+                                        .foregroundStyle(BindersTheme.ink)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: bubbleWidth, alignment: .leading)
+                        .cardBubble(fill: fill, edge: edge)
+                        .overlay(alignment: .leading) {
+                            if waiting {
+                                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                    .fill(BindersTheme.needsYou)
+                                    .frame(width: 3)
+                                    .padding(.vertical, 8)
+                                    .padding(.leading, 1)
+                            }
+                        }
+                    } else if !event.text.isEmpty {
+                        Text(event.text)
+                            .font(CardDesign.message)
                             .foregroundStyle(BindersTheme.ink)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: wordsWidth, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: bubbleWidth, alignment: .leading)
+                            .cardBubble(fill: fill, edge: edge)
+                            .overlay(alignment: .leading) {
+                                if waiting {
+                                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                        .fill(BindersTheme.needsYou)
+                                        .frame(width: 3)
+                                        .padding(.vertical, 8)
+                                        .padding(.leading, 1)
+                                }
+                            }
                     }
                 }
-            } else if !event.text.isEmpty {
-                Text(event.text)
-                    .font(.system(size: 13))
-                    .foregroundStyle(BindersTheme.ink)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: wordsWidth, alignment: .leading)
             }
-        }
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 1, style: .continuous).fill(waiting ? BindersTheme.needsYou : BindersTheme.agent).frame(width: 2)
         }
         .contextMenu { Button("Copy") { copy(event.text) } }
         .accessibilityElement(children: .ignore)
@@ -537,23 +580,25 @@ private struct YourMessage: View {
     @Binding var opened: Set<UUID>
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: 5) {
             HStack(spacing: 5) {
-                Text("You").fontWeight(.semibold).foregroundStyle(BindersTheme.ink)
-                Text(verb).foregroundStyle(BindersTheme.muted)
-                Text(event.createdAt.formatted(date: .omitted, time: .shortened)).monospacedDigit().foregroundStyle(BindersTheme.muted)
+                Text("You").font(CardDesign.messageHeader).foregroundStyle(BindersTheme.ink)
+                Text(verb).font(CardDesign.meta).foregroundStyle(BindersTheme.muted)
+                Text(event.createdAt.formatted(date: .omitted, time: .shortened))
+                    .font(CardDesign.meta)
+                    .monospacedDigit()
+                    .foregroundStyle(BindersTheme.muted)
+                CardAvatar(kind: .you, size: 22)
             }
-            .font(.caption)
             .lineLimit(1)
             Text(event.text)
-                .font(BindersTheme.quote())
+                .font(.system(size: 14.5, weight: .regular, design: .serif).italic())
                 .foregroundStyle(BindersTheme.ink)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                // Ink at 7%, drawn directly, so it's the same on a card whose binder is gone.
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.ink.opacity(0.07)))
+                .padding(.vertical, 10)
+                .cardBubble(fill: BindersTheme.ink.opacity(0.05), edge: BindersTheme.lineStrong)
                 .contextMenu { Button("Copy") { copy(event.text) } }
             if let status { statusLine(status) }
         }
@@ -610,20 +655,30 @@ private struct BindersNote: View {
     let wordsWidth: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Image(systemName: "info.circle").imageScale(.small).foregroundStyle(BindersTheme.muted).accessibilityHidden(true)
-                Text("Binders").fontWeight(.semibold).foregroundStyle(BindersTheme.ink)
-                Spacer(minLength: 8)
-                Text(event.createdAt.formatted(date: .omitted, time: .shortened)).monospacedDigit().foregroundStyle(BindersTheme.muted)
+        let bubbleWidth = max(140, wordsWidth - CardDesign.avatarSize - 8)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                CardAvatar(kind: .binders)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text("Binders").font(CardDesign.messageHeader).foregroundStyle(BindersTheme.ink)
+                        Spacer(minLength: 8)
+                        Text(event.createdAt.formatted(date: .omitted, time: .shortened))
+                            .font(CardDesign.meta)
+                            .monospacedDigit()
+                            .foregroundStyle(BindersTheme.muted)
+                    }
+                    Text(event.text)
+                        .font(CardDesign.message)
+                        .foregroundStyle(BindersTheme.muted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: bubbleWidth, alignment: .leading)
+                        .cardBubble(fill: BindersTheme.ink.opacity(0.04), edge: BindersTheme.line)
+                }
             }
-            .font(.caption)
-            Text(event.text)
-                .font(.callout)
-                .foregroundStyle(BindersTheme.muted)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: wordsWidth, alignment: .leading)
         }
         .contextMenu { Button("Copy") { copy(event.text) } }
         .accessibilityElement(children: .ignore)
@@ -654,7 +709,7 @@ private struct QuietLine: View {
                 }
             }
         }
-        .font(.caption)
+        .font(.system(size: 11.5, weight: .medium))
         .help(words)
         .contextMenu { Button("Copy") { copy(words) } }
         .accessibilityElement(children: .combine)
@@ -665,7 +720,15 @@ private struct QuietLine: View {
     @ViewBuilder
     private func line(open: Bool, cut: Bool) -> some View {
         let row = HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol).imageScale(.small).foregroundStyle(BindersTheme.faint).frame(width: 14).accessibilityHidden(true)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(BindersTheme.ink.opacity(0.06))
+                .overlay {
+                    Image(systemName: symbol)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(BindersTheme.faint)
+                }
+                .frame(width: 18, height: 18)
+                .accessibilityHidden(true)
             if open {
                 said.textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             } else if cut {
@@ -677,13 +740,19 @@ private struct QuietLine: View {
             // Before the time, so every time lines up at the column's edge.
             if cut {
                 Button { toggle() } label: {
-                    Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(BindersTheme.muted)
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(BindersTheme.muted)
                 }
                 .buttonStyle(.plain)
                 .help(open ? "Show Less" : "Show All")
                 .accessibilityLabel(open ? "Show Less" : "Show All")
             }
-            Text(event.createdAt.formatted(date: .omitted, time: .shortened)).monospacedDigit().foregroundStyle(BindersTheme.muted).fixedSize()
+            Text(event.createdAt.formatted(date: .omitted, time: .shortened))
+                .font(.system(size: 10.5, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(BindersTheme.muted)
+                .fixedSize()
         }
         if cut {
             row.contentShape(Rectangle())
@@ -714,23 +783,30 @@ private struct ContextBlock: View {
     let delete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "books.vertical").imageScale(.small).foregroundStyle(BindersTheme.muted).accessibilityHidden(true)
-                Text("From your binders").font(.caption.weight(.semibold)).foregroundStyle(BindersTheme.ink)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(BindersTheme.ink.opacity(0.06))
+                    .overlay {
+                        Image(systemName: "books.vertical")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(BindersTheme.muted)
+                    }
+                    .frame(width: 18, height: 18)
+                    .accessibilityHidden(true)
+                Text("From your binders").font(CardDesign.sectionTitle).foregroundStyle(BindersTheme.ink)
                 Spacer(minLength: 8)
-                Button("Edit…", action: edit).buttonStyle(.borderless).quietControl(words: true).font(.caption)
-                Button("Delete", role: .destructive, action: delete).buttonStyle(.borderless).quietControl(words: true).font(.caption)
+                Button("Edit…", action: edit).buttonStyle(.borderless).quietControl(words: true).font(CardDesign.meta)
+                Button("Delete", role: .destructive, action: delete).buttonStyle(.borderless).quietControl(words: true).font(CardDesign.meta)
             }
             Text(event.text)
-                .font(.footnote)
+                .font(.system(size: 12.5, weight: .regular))
                 .foregroundStyle(BindersTheme.muted)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(10)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(BindersTheme.ground))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(BindersTheme.line))
+                .cardBubble(fill: BindersTheme.surface2, edge: BindersTheme.line)
         }
         .contextMenu {
             Button("Edit…", action: edit)
@@ -750,15 +826,15 @@ private struct NewEntriesPill: View {
     var body: some View {
         Button(action: action) {
             Label { Text("\(count) new").rollingCount(count) } icon: { Image(systemName: "arrow.down") }
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(BindersTheme.surface))
-                .overlay(Capsule().strokeBorder(BindersTheme.lineStrong))
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+                .font(.system(size: 11.5, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(TintFill().opacity(0.14)))
+                .overlay(Capsule().strokeBorder(TintFill().opacity(0.45)))
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(BindersTheme.ink)
+        .foregroundStyle(.tintText)
         .accessibilityLabel("Show the \(count) newest")
     }
 }
@@ -928,7 +1004,7 @@ struct NeedsYouTray: View {
             case .approval:
                 if let waiting = card.waitingApproval(events: events) {
                     ApprovalBox(card: card, event: waiting.event, approval: waiting.approval, compact: compactApproval,
-                                startsDeclining: startsDeclining || Self.drawingDeclines)
+                                startsDeclining: startsDeclining || Self.drawingDeclines, boxed: false)
                         .overlay(alignment: .leading) { amberEdge }
                         .accessibilityElement(children: .contain)
                         .accessibilityLabel("Waiting for your approval")
@@ -939,7 +1015,13 @@ struct NeedsYouTray: View {
                 if card.column == .review { finished }
             }
         }
-        // As the conversation's: its amber rule lines up with the messages' rules, and its time with theirs.
+        // A callout of its own, above the composer, in amber: what waits on you and what to do about it.
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(BindersTheme.needsYou.opacity(0.055)))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(BindersTheme.needsYou.opacity(0.32))
+        }
         .padding(.horizontal, 20)
         .padding(.top, 10)
     }
@@ -957,13 +1039,20 @@ struct NeedsYouTray: View {
 
     private func header(_ glyph: String, _ words: String, at date: Date?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: glyph).foregroundStyle(BindersTheme.needsYou).accessibilityHidden(true)
-            Text(words).fontWeight(.semibold).foregroundStyle(BindersTheme.ink)
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(BindersTheme.needsYou)
+                .accessibilityHidden(true)
+            Text(words).font(.system(size: 13, weight: .semibold)).foregroundStyle(BindersTheme.ink)
             Spacer(minLength: 8)
             // In caption, as every time in the conversation is.
-            if let date { Text(date.formatted(date: .omitted, time: .shortened)).font(BindersTheme.time()).foregroundStyle(BindersTheme.muted).fixedSize() }
+            if let date {
+                Text(date.formatted(date: .omitted, time: .shortened))
+                    .font(CardDesign.meta)
+                    .foregroundStyle(BindersTheme.muted)
+                    .fixedSize()
+            }
         }
-        .font(.callout)
     }
 
     private func question(_ event: TaskEvent) -> some View {
@@ -971,7 +1060,7 @@ struct NeedsYouTray: View {
             header("questionmark.bubble", "\(event.author) asks", at: event.createdAt)
             ScrollView {
                 Text(event.text)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13.5))
                     .foregroundStyle(BindersTheme.ink)
                     .textSelection(.enabled)
                     .frame(maxWidth: wordsWidth, alignment: .leading)
@@ -992,14 +1081,16 @@ struct NeedsYouTray: View {
     private func blocked(_ reason: String) -> some View {
         Label {
             Text(reason.isEmpty ? "Blocked. No reason was given." : "Blocked: \(reason)")
+                .font(.system(size: 13.5))
                 .foregroundStyle(BindersTheme.ink)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: wordsWidth, alignment: .leading)
         } icon: {
-            Image(systemName: BindersTheme.problemSymbol).foregroundStyle(BindersTheme.ink)
+            Image(systemName: BindersTheme.problemSymbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(BindersTheme.ink)
         }
-        .font(.callout)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 6)
         .accessibilityElement(children: .combine)
@@ -1015,7 +1106,7 @@ struct NeedsYouTray: View {
             if agentWork, let summary {
                 header("eye", "\(summary.author) finished it", at: summary.createdAt)
                 Text(summary.text)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13.5))
                     .foregroundStyle(BindersTheme.ink)
                     .lineLimit(2)
                     .frame(maxWidth: wordsWidth, alignment: .leading)
