@@ -137,6 +137,8 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
     /// The window's default size, and the smallest you can make it: every page fits from there up.
     static let defaultSize = NSSize(width: 1020, height: 720)
     static let smallestSize = NSSize(width: 840, height: 560)
+    /// The narrowest a page is ever laid out: the smallest window less the widest sidebar (290 pt), so it always has room.
+    static let narrowestPage: CGFloat = 540
 
     /// The Binders window, with `root` (its pages) as its content. The page fits the window, not the window the page: the
     /// hosting view doesn't size the window to what a page holds, so a long note, a long folder path or a page's row of
@@ -300,6 +302,11 @@ struct HubView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 290)
         } detail: {
             detail
+                // The split view measures the page at next to no width to learn its smallest size. Words that keep every
+                // line (`fixedSize(horizontal: false, vertical: true)`) would wrap there a word to a line, ask for
+                // thousands of points, and push the whole window's content off its top and bottom: the board's line about
+                // a team database out of reach did. Measured no narrower than this, they ask for what they need.
+                .frame(minWidth: HubWindowController.narrowestPage)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if Store.shared.isFallback { LibraryUnavailableBanner() }
                 }

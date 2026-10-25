@@ -9,9 +9,11 @@ struct TeamReachLine: View {
     @Environment(DictationController.self) private var controller
     let binderID: UUID?
     var compact = false
+    /// For the window-fit self-test: every board shows the line as it reads at this reach, with no team database.
+    static var reachOnOpen: TeamReach?
 
     var body: some View {
-        if let reach = controller.teamBoard.reach(binder: binderID), let words = TeamBoardWrites.boardLine(reach) {
+        if let reach = Self.reachOnOpen ?? controller.teamBoard.reach(binder: binderID), let words = TeamBoardWrites.boardLine(reach) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Label(words, systemImage: reach == .off ? "pause.circle" : "wifi.exclamationmark")
                     .font(.caption)
