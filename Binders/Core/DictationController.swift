@@ -82,6 +82,8 @@ final class DictationController {
     @ObservationIgnored private(set) lazy var agents = AgentDispatcher(registry: .shared)
     /// Distill: notes read into work items, placed on the board by you, and their progress (lane DS1).
     @ObservationIgnored private(set) lazy var distill = DistillService(controller: self)
+    /// The Manager (lane MG1): what you ask the agent with the role, and its tidies, one at a time.
+    @ObservationIgnored private(set) lazy var manager = ManagerService(controller: self)
     /// Binders as a server for paired phones; started by the app when the setting is on.
     @ObservationIgnored private(set) lazy var link = LinkServer(controller: self)
 
@@ -123,6 +125,8 @@ final class DictationController {
         knowledge.start()
         team.start()
         teamBoard.start()
+        // The Manager's tidy on a schedule, when you set one (lane MG1).
+        manager.startSchedule()
 
         observeChanges({ AppSettings.shared.hotkeys }) { [weak self] in self?.hotkeys.updateBindings($0) }
         observeChanges({ AppSettings.shared.speechModel }) { [weak self] in self?.speech.activate($0, download: true) }

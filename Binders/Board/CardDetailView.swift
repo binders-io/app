@@ -538,6 +538,7 @@ struct CardHeader: View {
         case .board: return ("It checks the board itself", false)
         case .claudeCode: return ("Binders starts Claude Code when it's in Ready", false)
         case .cliAgent(let wake): return ("Binders starts \(wake.tool.name) when it's in Ready", false)
+        case .localModel: return ("A local model that's only the Manager: it takes no cards", true)
         default: return ("Binders wakes it when it's in Ready", false)
         }
     }

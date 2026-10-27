@@ -478,7 +478,9 @@ final class LinkServer {
         guard !Store.shared.canSave else { return nil }
         switch method {
         case "binders/dictation", ConversationPayload.method, MomentPayload.method: return .close
-        case CaptureOutcome.actMethod, ConversationSuggestion.actMethod: return .error(Store.refusedMessage)
+        // What you asked the Manager waits on the phone and comes again (lane MG1); a tap on Undo or Accept is said no to.
+        case LinkFeatures.managerMethod: return .close
+        case CaptureOutcome.actMethod, ConversationSuggestion.actMethod, LinkFeatures.managerActMethod: return .error(Store.refusedMessage)
         case "tools/call" where tool.map(answerTools.contains) == true: return .close
         default: return nil
         }
@@ -545,7 +547,7 @@ final class LinkServer {
     static let features = [ConversationPayload.feature, ConversationSuggestion.feature, LinkFeatures.warm, CaptureOutcome.feature, MomentPayload.feature,
                            LinkFeatures.dedupe, LinkFeatures.askProgress, LinkFeatures.approvals, MomentPayload.addsFeature, LinkFeatures.giveTo,
                            LinkFeatures.addresses, MomentPayload.agreedFeature, LinkFeatures.commentWakes, MomentPayload.autoFeature,
-                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents]
+                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager]
 
     /// What became of what the phone sent, for the ids it asks after (at most 50); ones this Mac doesn't know are left out.
     fileprivate func outcomes(_ ids: [String]) -> [[String: Any]] {
@@ -652,7 +654,7 @@ final class LinkServer {
         guard let controller else { return MCPCore.failure(id: message["id"], code: -32603, message: "Binders is shutting down") }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         return await MCPCore.handle(message, serverName: "binders", serverVersion: version, instructions: MCPServer.instructions,
-                                    tools: MCPServer.tools, call: { name, arguments in
+                                    tools: MCPServer.hostTools, call: { name, arguments in
             let to = (arguments["to"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             // On the phone, it's you.
             return try await MCPServer.call(name, arguments, knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller, arguments: arguments),
@@ -1277,6 +1279,18 @@ private final class LinkSession {
                     return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
                 }
             }
+            // The Manager (lane MG1): what you ask it, what it said and changed, and your Undo, Stop, Accept and Dismiss.
+            if method == LinkFeatures.managerMethod || method == LinkFeatures.managerActMethod {
+                do {
+                    let result = method == LinkFeatures.managerMethod ? try server.askManager(params) : ["message": try server.actOnManager(params)]
+                    return reply(MCPCore.success(id: id, result: result))
+                } catch {
+                    return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
+                }
+            }
+            if method == LinkFeatures.managerListMethod {
+                return reply(MCPCore.success(id: id, result: server.managerRequests(params)))
+            }
             // Ask as it goes, for a phone that reads it and asked for it: before the reply, what's found and the answer so
             // far. Nothing more is sent once the reply is on its way.
             let progress = AskProgressRelay(message, to: self)
@@ -1387,5 +1401,92 @@ private final class AskProgressRelay {
         seq += 1
         session?.send(["jsonrpc": "2.0", "method": LinkFeatures.askProgressMethod,
                        "params": LinkAskProgress.params(token: token, seq: seq, stage: stage, sources: sources, text: text)])
+    }
+}
+
+// MARK: The Manager (lane MG1)
+
+extension LinkServer {
+    /// Something you typed to the Manager on your iPhone, or a tidy you asked for there: it goes to the Manager at once,
+    /// as a request from you. `id`, the phone's own, makes one sent twice a single request. `thread`: the request whose
+    /// conversation it goes on. `kind` "tidy" with `binder` (an id or a name; none: every binder).
+    fileprivate func askManager(_ params: [String: Any]) throws -> [String: Any] {
+        guard let controller else { throw MCPCore.ToolFailure("Binders is shutting down") }
+        let manager = controller.manager
+        if let given = (params["id"] as? String).flatMap(UUID.init(uuidString:)), let earlier = manager.request(given) {
+            return earlier.jsonObject
+        }
+        let text = (params["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = ManagerRequest.Kind(rawValue: params["kind"] as? String ?? "") ?? .ask
+        let request: ManagerRequest
+        switch kind {
+        case .tidy:
+            var binder: UUID?
+            if let named = (params["binder"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !named.isEmpty {
+                guard let found = Store.shared.binders(includeArchived: false).first(where: { $0.id.uuidString == named || $0.name.localizedCaseInsensitiveCompare(named) == .orderedSame }) else {
+                    throw MCPCore.ToolFailure("No binder named “\(named)”.")
+                }
+                binder = found.id
+            }
+            request = manager.tidy(binder: binder, from: .iphone, id: (params["id"] as? String).flatMap(UUID.init(uuidString:)))
+        case .ask:
+            guard !text.isEmpty else { throw MCPCore.ToolFailure("Say what you'd like the Manager to do.") }
+            request = manager.ask(text, thread: (params["thread"] as? String).flatMap(UUID.init(uuidString:)), from: .iphone,
+                                  id: (params["id"] as? String).flatMap(UUID.init(uuidString:)))
+        }
+        return request.jsonObject
+    }
+
+    /// What you asked the Manager, newest first (`limit`, at most 50; or the `ids` asked after, or one `thread`), the note
+    /// edits it suggested that wait for you, and who has the role.
+    fileprivate func managerRequests(_ params: [String: Any]) -> [String: Any] {
+        guard let controller else { return ["requests": [Any](), "suggestions": [Any]()] }
+        let manager = controller.manager
+        var requests = manager.requests
+        if let ids = params["ids"] as? [String] {
+            let wanted = Set(ids.compactMap(UUID.init(uuidString:)))
+            requests = requests.filter { wanted.contains($0.id) }
+        } else if let thread = (params["thread"] as? String).flatMap(UUID.init(uuidString:)) {
+            requests = manager.thread(thread)
+        }
+        let limit = min(max(1, params["limit"] as? Int ?? 20), 50)
+        var reply: [String: Any] = ["requests": requests.suffix(limit).reversed().map(\.jsonObject),
+                                    "suggestions": manager.waitingSuggestions.map { $0.jsonObject(current: Store.shared.note($0.note)?.text) }]
+        if let agent = manager.agent { reply["agent"] = agent.name }
+        if let problem = manager.problem { reply["problem"] = problem }
+        return reply
+    }
+
+    /// Stop or Undo on a request (`id`), Accept or Dismiss on a suggested note edit (`suggestion`).
+    fileprivate func actOnManager(_ params: [String: Any]) throws -> String {
+        guard let controller else { throw MCPCore.ToolFailure("Binders is shutting down") }
+        let manager = controller.manager
+        let action = params["action"] as? String ?? ""
+        if let suggestion = (params["suggestion"] as? String).flatMap(UUID.init(uuidString:)) {
+            switch action {
+            case "accept":
+                switch manager.accept(suggestion) {
+                case .success(let message): return message
+                case .failure(let failure): throw MCPCore.ToolFailure(failure.why)
+                }
+            case "dismiss":
+                manager.dismiss(suggestion)
+                return "Dismissed."
+            default:
+                throw MCPCore.ToolFailure("A suggestion takes accept or dismiss")
+            }
+        }
+        guard let id = (params["id"] as? String).flatMap(UUID.init(uuidString:)), manager.request(id) != nil else {
+            throw MCPCore.ToolFailure("Binders on this Mac doesn't know that one")
+        }
+        switch action {
+        case "stop":
+            manager.stop(id)
+            return "Stopped."
+        case "undo":
+            return manager.undo(id)
+        default:
+            throw MCPCore.ToolFailure("A request takes stop or undo")
+        }
     }
 }

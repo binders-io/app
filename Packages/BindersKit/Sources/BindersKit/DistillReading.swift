@@ -226,13 +226,18 @@ public enum DistillReading {
         /// Line numbers a v2 reply gave that weren't lines of its part, left out (lane DS8).
         public var droppedLines = 0
 
+        /// The words 0.11.0's `note` said items were cut with, for finding a reading it cut short (`DistillAgain.Earlier.heldBack`).
+        public static let overWords = "past the first"
+
         /// For the review sheet: what was left out, in a sentence, or nil.
         public var note: String? {
             var parts: [String] = []
             if noList { return "The model's reply had no list of work items in it." }
             if cutOff { parts.append("the model's reply was cut off, so the last item may be missing") }
             if repeats > 0 { parts.append(repeats == 1 ? "1 repeat was left out" : "\(repeats) repeats were left out") }
-            if over > 0 { parts.append(over == 1 ? "1 item past the first \(DistillPrompt.maxItems) was left out" : "\(over) items past the first \(DistillPrompt.maxItems) were left out") }
+            // Lane BF2: only a reply that ran past the count it was asked for leaves items out now (a long note keeps every
+            // part's), in words other than 0.11.0's, whose "past the first 25" says a reading was cut short.
+            if over > 0 { parts.append(over == 1 ? "1 item more than the model was asked for was left out" : "\(over) items more than the model was asked for were left out") }
             if !skipped.isEmpty { parts.append(skipped.count == 1 ? "1 item couldn't be read" : "\(skipped.count) items couldn't be read") }
             if droppedWaits > 0 { parts.append(droppedWaits == 1 ? "1 wait that went in a circle was left out" : "\(droppedWaits) waits that went in a circle or nowhere were left out") }
             guard !parts.isEmpty else { return nil }

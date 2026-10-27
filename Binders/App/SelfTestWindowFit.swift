@@ -67,6 +67,37 @@ extension SelfTest {
             context.insert(card)
             boardSeveral.insert(card.id)
         }
+        // A crowded board in a binder of its own: 14 notes' cards and loose ones, far more than any column holds, with
+        // titles that wrap. Its headers stay in the window and every column scrolls by itself.
+        let crowded = BinderRecord(name: "Crowded", colorIndex: 3)
+        Store.shared.insert(crowded)
+        let wordy = " with a title long enough to wrap onto a third line of the card"
+        for part in 1...14 {
+            let source = NoteItem(text: "# Plan \(part)\n\nThe work for part \(part).")
+            source.binderID = crowded.id
+            context.insert(source)
+            let run = UUID()
+            for index in 0..<9 {
+                let column = BoardColumn.allCases[(part + index) % BoardColumn.allCases.count]
+                let card = TaskCard(title: "Part \(part) card \(index)" + (index % 2 == 0 ? wordy : ""), binderID: crowded.id, column: column)
+                card.sourceID = source.id.uuidString
+                card.distilledFrom = DistilledFrom(note: source.id, distill: run, item: UUID(), section: "Part \(part)")
+                // The chips a busy board carries: who it's for, an agent's suggestion, links.
+                card.meantFor = index % 3 == 0 ? "Helder Claude Code" : "Penny"
+                card.meantForByAgent = index % 4 == 1
+                card.links = Array(repeating: "https://example.com", count: index % 3)
+                context.insert(card)
+            }
+        }
+        for index in 0..<60 {
+            let column = BoardColumn.allCases[index % BoardColumn.allCases.count]
+            context.insert(TaskCard(title: "Loose card \(index)" + (index % 3 == 0 ? wordy : ""), binderID: crowded.id, column: column))
+        }
+        // One column far longer than the rest, as a backlog left to grow is.
+        for index in 0..<300 {
+            context.insert(TaskCard(title: "Long list card \(index)" + (index % 3 == 0 ? wordy : ""), binderID: crowded.id, column: .ready))
+        }
+        Store.shared.save()
         // A note three folders deep, the folders with long names, with Put on Board's notice showing.
         let top = Store.shared.createFolder(named: "Marketing and communications", in: harbor.id)
         let middle = Store.shared.createFolder(named: "Launch campaigns for the spring", in: harbor.id, parent: top?.id)
@@ -144,6 +175,7 @@ extension SelfTest {
             { $0.selection = .binder; $0.pendingBinderTab = .notes; $0.pendingNoteID = item.id }
         }
         let noteProbes = ["note.bottom.first", "note.bottom.last", "toolbar.first", "toolbar.last", "distill.button"]
+        let crowdedColumns = [BoardColumn.ready, .inProgress, .blocked, .review].map { "board.column." + $0.rawValue }
         let pages = [
             Page(name: "note", probes: noteProbes, configure: notePage(note)),
             Page(name: "note-markdown", probes: noteProbes, configure: notePage(note), markdown: true),
@@ -163,6 +195,12 @@ extension SelfTest {
             // Lane DS5: grouped by note, with several cards chosen: the bar over the columns, every button of it.
             Page(name: "board-several", probes: ["board.header.last", "board.several", "board.several.last"],
                  configure: { $0.selection = .binder; $0.pendingBinderTab = .board }),
+            // Far more cards than the window holds, grouped and not: the switches and the names of the columns that never fold
+            // stay in the window.
+            Page(name: "board-crowded", probes: ["board.header.last"] + crowdedColumns,
+                 configure: { $0.selection = .binder; $0.binderID = crowded.id; $0.pendingBinderTab = .board }),
+            Page(name: "board-crowded-grouped", probes: ["board.header.last"] + crowdedColumns,
+                 configure: { $0.selection = .binder; $0.binderID = crowded.id; $0.pendingBinderTab = .board }),
         ]
         // Every other page fits too, from its smallest: the page lies inside the window.
         let others: [Page] = [
@@ -184,11 +222,14 @@ extension SelfTest {
         let showed = AppDefaults.store.bool(forKey: "notesShowMarkdown")
         defer { AppDefaults.store.set(showed, forKey: "notesShowMarkdown") }
 
-        for page in pages + others {
+        // BINDERS_FIT_ONLY=<prefix>: only the pages whose names start with it.
+        let only = ProcessInfo.processInfo.environment["BINDERS_FIT_ONLY"]
+        for page in (pages + others) where only.map({ page.name.hasPrefix($0) }) ?? true {
             AppDefaults.store.set(page.markdown, forKey: "notesShowMarkdown")
             MeetingsView.selectOnOpen = page.selected
             defer { MeetingsView.selectOnOpen = nil }
             AppDefaults.store.set(page.name == "board-several", forKey: BoardView.groupKey(harbor.id))
+            AppDefaults.store.set(page.name == "board-crowded-grouped", forKey: BoardView.groupKey(crowded.id))
             BoardView.selectOnOpen = page.name == "board-several" ? boardSeveral : nil
             defer { BoardView.selectOnOpen = nil; AppDefaults.store.removeObject(forKey: BoardView.groupKey(harbor.id)) }
             let window = HubWindowController.makeWindow(hub(page.configure), size: sizes[0])

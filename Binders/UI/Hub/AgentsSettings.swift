@@ -46,6 +46,7 @@ struct AgentsSections: View {
                             .needsYou, symbol: "exclamationmark.shield")
             }
         }
+        ManagerSettingsSection(editing: $editing)
         Section {
             if registry.agents.isEmpty {
                 Text("No agents yet. An agent takes cards from your boards: Claude Code, Codex, OpenCode, GitHub Copilot CLI or Antigravity in a repository, a script, a web hook or an agent that checks the board itself. Binders hands one over when you give it a card, and it reports back on the card.")
@@ -65,6 +66,7 @@ struct AgentsSections: View {
                 Button("A Shortcut…") { editing = AgentProfile(name: "", wake: .shortcut(name: "")) }
                 Divider()
                 Button("One That Checks the Board Itself…") { editing = AgentProfile(name: "", wake: .board) }
+                Button("A Local Model as the Manager…") { editing = AgentProfile(name: "Manager", wake: .localModel(LocalModelWake()), manager: true) }
             }
             .fixedSize()
         } header: {
@@ -80,10 +82,14 @@ struct AgentsSections: View {
         .task { await tools.look() }
         .task { routerCanStart = await controller.router.models.startsPossible() }
         .sheet(item: $editing) { agent in
-            // A linked iPhone that doesn't send its yes with what you say can't start an agent from what you say to it.
-            AgentEditor(agent: agent, isNew: !registry.agents.contains { $0.id == agent.id },
-                        phoneNeedsUpdate: controller.link.phoneFeatures.contains { !$0.contains(MomentPayload.agreedFeature) },
-                        phoneNeedsAuto: controller.link.phoneFeatures.contains { !$0.contains(MomentPayload.autoFeature) })
+            if case .localModel = agent.wake {
+                LocalManagerEditor(agent: agent, isNew: !registry.agents.contains { $0.id == agent.id })
+            } else {
+                // A linked iPhone that doesn't send its yes with what you say can't start an agent from what you say to it.
+                AgentEditor(agent: agent, isNew: !registry.agents.contains { $0.id == agent.id },
+                            phoneNeedsUpdate: controller.link.phoneFeatures.contains { !$0.contains(MomentPayload.agreedFeature) },
+                            phoneNeedsAuto: controller.link.phoneFeatures.contains { !$0.contains(MomentPayload.autoFeature) })
+            }
         }
         .confirmationDialog("Remove “\(deleting?.name ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             presenting: deleting) { agent in
@@ -154,6 +160,8 @@ struct AgentsSections: View {
                 + (wake.postsToOpenSession ? ", or the session you have open there" : "")
         case .cliAgent(let wake):
             "\(wake.tool.name) in \((wake.repository as NSString).abbreviatingWithTildeInPath), \(AgentEditor.modeTitle(wake.safeMode).lowercased())"
+        case .localModel(let wake):
+            "A local model, \(wake.namedModel ?? "Distill's model"), only as the Manager"
         }
     }
 
@@ -210,6 +218,9 @@ struct AgentEditor: View {
     /// what you think out loud, or by Review… for an agent turned on before. Kept here until Save, as the others are.
     @State private var startsSolo: Bool
     @State private var askingToStart = false
+    /// The Manager's role (lane MG1), as the Keychain gives it: kept here until Save, as the start switch's yes is.
+    @State private var isManager: Bool
+    @State private var askingManager = false
     /// Whether the router can start anything now (DecisionModels.startsPossible), and why not; nil until looked at.
     @State private var routerCanStart: Bool?
     @State private var routerWhy: String?
@@ -229,6 +240,7 @@ struct AgentEditor: View {
         _kindIDs = State(initialValue: AgentKinds.ticked(agent.workKinds))
         _ownKinds = State(initialValue: AgentKinds.ownText(agent.workKinds))
         _starts = State(initialValue: AgentRegistry.shared.startsOnItsOwn(agent))
+        _isManager = State(initialValue: AgentRegistry.shared.isManager(agent))
         var claudeWake = ClaudeCodeWake(repository: "", permissionMode: ClaudeCodeWake.newAgentMode)
         var cliWake = CLIAgentWake(tool: .codex, repository: "")
         switch agent.wake {
@@ -252,6 +264,9 @@ struct AgentEditor: View {
             _kind = State(initialValue: Self.cliKind(wake.tool))
             cliWake = wake
             claudeWake.repository = wake.repository
+        case .localModel:
+            // Edited in LocalManagerEditor, never here.
+            _kind = State(initialValue: "localModel")
         }
         if case .claudeCode(let wake) = agent.wake { cliWake.repository = wake.repository }
         _claude = State(initialValue: claudeWake)
@@ -398,6 +413,16 @@ struct AgentEditor: View {
                         }
                     }
                 }
+                if kind == "claudeCode" {
+                    Section {
+                        Toggle("The Manager", isOn: Binding(get: { isManager }, set: { on in
+                            if on { askingManager = true } else { isManager = false }
+                        }))
+                        .fitProbe("agents.manager")
+                    } footer: {
+                        Text(isManager ? Self.managerOn(otherManager) : Self.managerOff(otherManager))
+                    }
+                }
                 Section {
                     Toggle("Add context from the binder", isOn: Binding(get: { draft.addsContext }, set: { draft.binderContext = $0 ? nil : false }))
                 } footer: {
@@ -480,6 +505,12 @@ struct AgentEditor: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(turnOnMessage)
+        }
+        .alert("Make \(assembled.name.isEmpty ? "this agent" : assembled.name) the Manager?", isPresented: $askingManager) {
+            Button("Make It the Manager") { isManager = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Self.managerAlert + (otherManager.map { " \($0.name) stops being the Manager." } ?? ""))
         }
         .task { if kind == "shortcut" { shortcuts = await AutomationService.installedShortcuts() } }
         .task {
@@ -835,7 +866,24 @@ struct AgentEditor: View {
         let chosen = AgentKinds.kinds(presets: kindIDs, own: ownKinds)
         agent.kinds = chosen == AgentProfile.defaultKinds(for: agent.wake) ? nil : chosen
         agent.autoStart = starts && agent.wake != .board && agent.mayAct != true ? true : nil
+        // The Manager is Claude Code (lane MG1).
+        agent.manager = isManager && kind == "claudeCode" ? true : nil
         return agent
+    }
+
+    /// The agent that's the Manager now, when it's another one.
+    private var otherManager: AgentProfile? {
+        AgentRegistry.shared.manager.flatMap { $0.id == draft.id ? nil : $0 }
+    }
+
+    static let managerAlert = "When you ask the Manager something, or ask it to tidy, Binders starts Claude Code with Binders' tools alone. It reads across your binders, notes, meetings and boards; edits, merges and closes cards; makes, renames and fills folders; and distills notes. It deletes nothing, can't change a note (it suggests an edit, which you accept or not) and can't start another agent. Everything it changes for a request can be undone at once. Captures, transcripts and teammates' items stay out unless Settings → MCP lets it read them."
+
+    static func managerOn(_ other: AgentProfile?) -> String {
+        "It tidies your boards and folders, distills notes and answers what you ask it on the Agents page, with Binders' tools alone and an Undo for each request. It runs in its own empty folder, not this repository." + (other.map { " Saving takes the role from \($0.name)." } ?? "")
+    }
+
+    static func managerOff(_ other: AgentProfile?) -> String {
+        "The Manager tidies your boards and folders, distills notes and answers what you ask it on the Agents page." + (other.map { " \($0.name) is the Manager now." } ?? " No agent is the Manager yet.")
     }
 
     private func save() {
@@ -848,7 +896,7 @@ struct AgentEditor: View {
         problem = AgentRegistry.shared.upsert(agent, token: kind == "webhook" && !token.isEmpty ? token : nil,
                                               statusToken: asksAnAddress ? (statusToken.isEmpty ? nil : statusToken) : (keptToken ? "" : nil),
                                               startsOnItsOwn: agent.autoStart == true, startsInAuto: agent.autoStart == true && startsAuto,
-                                              startsInSolo: agent.autoStart == true && startsAuto && startsSolo)
+                                              startsInSolo: agent.autoStart == true && startsAuto && startsSolo, isManager: agent.manager == true)
         guard problem == nil else { return }
         dismiss()
     }
@@ -941,7 +989,7 @@ struct AgentEditor: View {
             }
         case .cliAgent(let wake):
             tested = await checkCLI(wake)
-        case .board:
+        case .board, .localModel:
             break
         }
     }

@@ -102,6 +102,10 @@ final class AgentRegistry {
         for agent in agents where clearsOldYes && agent.autoStart != true && Keychain.read(Self.key("agent-starts-auto", agent.id)) == "1" {
             Keychain.write("", for: Self.key("agent-starts-auto", agent.id))
         }
+        // The Manager's role (lane MG1) goes too when the file no longer gives it to that agent.
+        if clearsOldYes, let id = Self.managerID, !agents.contains(where: { $0.id == id && $0.manager == true }) {
+            Keychain.write("", for: Self.key("agent-manager"))
+        }
         // And the yes for captures (lane Y2).
         for agent in agents where clearsOldYes && agent.autoStart != true && Keychain.read(Self.key("agent-starts-solo", agent.id)) == "1" {
             Keychain.write("", for: Self.key("agent-starts-solo", agent.id))
@@ -123,6 +127,7 @@ final class AgentRegistry {
                 }
             case .claudeCode(let wake): model = wake.model
             case .cliAgent(let wake): model = wake.model
+            case .localModel(let wake): model = wake.model
             default: break
             }
             if let model, let what = AgentCommands.refusal(model) {
@@ -223,6 +228,27 @@ final class AgentRegistry {
         Keychain.write(on ? "1" : "", for: Self.key("agent-starts-solo", id))
     }
 
+    // MARK: The Manager (lane MG1)
+
+    /// The agent that has the Manager role, whether or not it can be woken now.
+    var manager: AgentProfile? { agents.first(where: isManager) }
+
+    /// The Manager's role, as Binders reads it: on in the file, given by the turn-on alert (the Keychain names this agent,
+    /// which only Save in Settings writes), the agent not changed outside Binders, and Claude Code or a local model (lane
+    /// MG2). So a value written into the file by anything else gives it nothing.
+    func isManager(_ agent: AgentProfile) -> Bool {
+        guard agent.manager == true, Self.managerID == agent.id, !changedOutside.contains(agent.id) else { return false }
+        return agent.canManage
+    }
+
+    /// The agent the Keychain gives the role to.
+    private static var managerID: UUID? { Keychain.read(key("agent-manager")).flatMap(UUID.init(uuidString:)) }
+
+    /// Gives the role to this agent, or takes it from whoever has it. The self-tests set it directly.
+    func setManager(_ id: UUID?) {
+        Keychain.write(id?.uuidString ?? "", for: Self.key("agent-manager"))
+    }
+
     func token(for id: UUID) -> String? {
         Keychain.read(Self.key("agent-token", id)).flatMap { $0.isEmpty ? nil : $0 }
     }
@@ -248,9 +274,13 @@ final class AgentRegistry {
     /// the switch's own yes taken away takes it too. Returns why it can't be saved, or nil.
     @discardableResult
     func upsert(_ agent: AgentProfile, token: String? = nil, statusToken: String? = nil, startsOnItsOwn: Bool? = nil,
-                startsInAuto: Bool? = nil, startsInSolo: Bool? = nil) -> String? {
+                startsInAuto: Bool? = nil, startsInSolo: Bool? = nil, isManager: Bool? = nil) -> String? {
         if let problem = problem(with: agent) { return problem }
         if let index = agents.firstIndex(where: { $0.id == agent.id }) { agents[index] = agent } else { agents.append(agent) }
+        // One Manager at a time: giving the role takes it from the others, in the file too.
+        if isManager == true, agent.manager == true {
+            for index in agents.indices where agents[index].id != agent.id && agents[index].manager != nil { agents[index].manager = nil }
+        }
         if let token { Keychain.write(token, for: Self.key("agent-token", agent.id)) }
         if let statusToken { Keychain.write(statusToken, for: Self.key("agent-status-token", agent.id)) }
         save(approving: [agent.id])
@@ -260,6 +290,13 @@ final class AgentRegistry {
         }
         if let startsInSolo {
             setStartsInSolo(agent.id, startsInSolo && agent.autoStart == true && Keychain.read(Self.key("agent-starts-auto", agent.id)) == "1")
+        }
+        if let isManager {
+            if isManager, agent.manager == true {
+                setManager(agent.id)
+            } else if Self.managerID == agent.id {
+                setManager(nil)
+            }
         }
         return nil
     }
@@ -282,6 +319,7 @@ final class AgentRegistry {
         Keychain.write("", for: Self.key("agent-starts", id))
         Keychain.write("", for: Self.key("agent-starts-auto", id))
         Keychain.write("", for: Self.key("agent-starts-solo", id))
+        if Self.managerID == id { setManager(nil) }
         changedOutside.remove(id)
         save(approving: [])
     }
@@ -367,12 +405,16 @@ final class AgentRegistry {
             if !tool.readsOnly, !wake.editsFiles {
                 return "\(tool.name) can't be held to reading only, so Binders starts it only to edit files in the card's worktree. Set its Permissions to Edits Files."
             }
+        case .localModel(let wake):
+            let model = wake.namedModel ?? ""
+            if let what = AgentCommands.refusal(model) { return AgentCommands.message(what) }
+            if model.hasPrefix("-") { return "A model is a name, not an option: \(model)." }
         case .board:
             break
         }
         // Claude Code reports with Binders' tools and its run's hooks, and a CLI tool with the tools and its output,
-        // whatever the file says.
-        guard !["claudeCode", "cliAgent"].contains(agent.wake.kind) else { return nil }
+        // whatever the file says. A local model reports through the Manager's requests.
+        guard !["claudeCode", "cliAgent", "localModel"].contains(agent.wake.kind) else { return nil }
         switch agent.report {
         case .ssh(let host):
             if !AgentMCPEntry.isHost(host) { return "Give this Mac's address as the other machine reaches it, such as you@this-mac.local." }
@@ -453,6 +495,8 @@ final class AgentRegistry {
         asBefore.kinds = nil
         asBefore.autoStart = nil
         asBefore.takesTeamCards = nil
+        // The Manager's role is the Keychain's to say (`isManager`), and Mac 0.8.0 doesn't read it.
+        asBefore.manager = nil
         return hash(asBefore)
     }
 

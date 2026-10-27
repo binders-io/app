@@ -596,7 +596,8 @@ public enum DistillRun {
         if parts.count == 1 {
             result = reads.first ?? DistillReading.Result(items: [], noList: !cut)
         } else {
-            result = DistillParts.merge(reads, headings: headings)
+            // Every part's items: each reply holds to its own count, so a long note isn't cut to one reply's worth.
+            result = DistillParts.merge(reads, headings: headings, limit: .max)
             result.noList = reads.isEmpty && !cut
         }
         if reads.isEmpty {

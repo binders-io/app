@@ -226,7 +226,20 @@ final class DistillPartsTests: XCTestCase {
         XCTAssertEqual(merged.items[0].waitsFor, [], "its wait was on an item past the cap")
         XCTAssertEqual(merged.droppedWaits, 1)
         XCTAssertEqual(merged.items[9].waitsFor, [8])
-        XCTAssertEqual(merged.note, "5 items past the first 25 were left out; 1 wait that went in a circle was left out.")
+        XCTAssertEqual(merged.note, "5 items more than the model was asked for were left out; 1 wait that went in a circle was left out.")
+    }
+
+    func testALongNotesPartsAreAllKept() {
+        // A note read in parts: every part's items, however many, as the reading merges them (0.11.0 kept the first 25).
+        let headings = (1...6).map { "S\($0)" }
+        let reads = (0..<3).map { part in
+            DistillReading.Result(items: (0..<20).map { item("Item \(part)-\($0)", "S\(part * 2 + 1)") })
+        }
+        let merged = DistillParts.merge(reads, headings: headings, limit: .max)
+        XCTAssertEqual(merged.items.count, 60)
+        XCTAssertEqual(merged.over, 0)
+        XCTAssertNil(merged.note)
+        XCTAssertEqual(merged.items.last?.title, "Item 2-19")
     }
 
     func testMergingNeverKeepsACircleAcrossParts() {

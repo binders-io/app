@@ -25,15 +25,18 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
         /// A coding agent's command-line tool (Codex, OpenCode, GitHub Copilot CLI), started for the card in a git worktree
         /// Binders makes in `repository`, with Binders' board tools and the tool's own checks on. Kept in agents-cli.json.
         case cliAgent(CLIAgentWake)
+        /// A local model, as the Manager only (lane MG2): Binders runs it in turns with the Manager's tools. It takes no
+        /// cards. A Binders before this one leaves it out.
+        case localModel(LocalModelWake)
 
-        /// The kind, as agents.json names it: board, command, webhook, shortcut, claudeCode or cliAgent.
+        /// The kind, as agents.json names it: board, command, webhook, shortcut, claudeCode, cliAgent or localModel.
         public var kind: String { key.rawValue }
 
         // Each kind is one key holding its fields, as for an automation's action: {"command":{"command":"…"}}. Claude
         // Code's settings, and a CLI tool's, sit right under their key, without the "_0" that Swift's generated coding
         // would add.
         private enum Key: String, CodingKey {
-            case board, command, webhook, shortcut, claudeCode, cliAgent
+            case board, command, webhook, shortcut, claudeCode, cliAgent, localModel
         }
 
         private enum Field: String, CodingKey {
@@ -48,6 +51,7 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
             case .shortcut: .shortcut
             case .claudeCode: .claudeCode
             case .cliAgent: .cliAgent
+            case .localModel: .localModel
             }
         }
 
@@ -75,6 +79,8 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
                 self = .claudeCode(try container.decode(ClaudeCodeWake.self, forKey: .claudeCode))
             case .cliAgent:
                 self = .cliAgent(try container.decode(CLIAgentWake.self, forKey: .cliAgent))
+            case .localModel:
+                self = .localModel(try container.decode(LocalModelWake.self, forKey: .localModel))
             }
         }
 
@@ -97,6 +103,8 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
                 try container.encode(wake, forKey: .claudeCode)
             case .cliAgent(let wake):
                 try container.encode(wake, forKey: .cliAgent)
+            case .localModel(let wake):
+                try container.encode(wake, forKey: .localModel)
             }
         }
     }
@@ -226,13 +234,19 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
     /// starts it on its own when its start switch allows too. Nil means on, the default; only false turns it off. Keeps an
     /// agents.json from before as it was.
     public var takesTeamCards: Bool?
+    /// "The Manager" (lane MG1): this agent tidies your binders, distills notes and answers what you ask it from the Mac or
+    /// your iPhone. One agent at a time. Nil means no. It counts only with the Keychain's yes from the turn-on alert
+    /// (AgentRegistry.isManager), so a value written in by anything else gives it nothing. Keeps an agents.json from
+    /// before as it was.
+    public var manager: Bool?
 
     /// How many times an hour Binders wakes an agent unless it's told otherwise.
     public static let defaultWakesPerHour = 6
 
     public init(id: UUID = UUID(), name: String, isEnabled: Bool = true, wake: Wake, report: Report = .mcp, preset: String? = nil,
                 binders: [UUID]? = nil, wakesPerHour: Int? = nil, binderContext: Bool? = nil, mayAct: Bool? = nil,
-                vendor: String? = nil, purpose: String? = nil, kinds: [String]? = nil, autoStart: Bool? = nil, takesTeamCards: Bool? = nil) {
+                vendor: String? = nil, purpose: String? = nil, kinds: [String]? = nil, autoStart: Bool? = nil, takesTeamCards: Bool? = nil,
+                manager: Bool? = nil) {
         self.id = id
         self.name = name
         self.isEnabled = isEnabled
@@ -248,6 +262,7 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
         self.kinds = kinds
         self.autoStart = autoStart
         self.takesTeamCards = takesTeamCards
+        self.manager = manager
     }
 
     /// Whether it takes teammates' cards: on unless you turned it off.
@@ -302,6 +317,8 @@ public struct AgentProfile: Codable, Equatable, Identifiable, Sendable {
 
     /// Whether it takes cards from this binder. A card with no binder is only for an agent that takes every binder's.
     public func takesCards(from binder: UUID?) -> Bool {
+        // A local model is only ever the Manager.
+        if case .localModel = wake { return false }
         guard let binders else { return true }
         return binder.map(binders.contains) ?? false
     }

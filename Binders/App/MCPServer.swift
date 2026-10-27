@@ -63,8 +63,10 @@ enum MCPServer {
     /// for a woken run, which makes no new cards, and none for a run that didn't get its card or its name.
     static var offered: [MCPTool] {
         switch confinement {
-        case .everything: tools
+        case .everything: hostTools
         case .nothing: []
+        // The Manager (lane MG1): what it reads, the writes kept for its Undo, and its own.
+        case .manager: tools.filter { ManagerTools.offered.contains($0.name) }
         case .board(let card): tools.filter { boardTools.contains($0.name) && (card == nil || $0.name != "create_task") }
         case .card: tools.filter { boardTools.contains($0.name) && $0.name != "create_task" }
         }
@@ -102,6 +104,7 @@ enum MCPServer {
         switch confinement {
         case .everything: return instructions
         case .nothing: return MCPConfinement.nothingInstructions
+        case .manager: return instructions + "\n\n" + ManagerMCP.instructions
         case .board, .card: break
         }
         let board = instructions.components(separatedBy: "\n\n").dropFirst().joined(separator: "\n\n")
@@ -335,7 +338,11 @@ enum MCPServer {
             MCPToolParameter(name: "app", description: "Where it took place, such as Zoom. Default Imported."),
             MCPToolParameter(name: "binder", description: "The binder's name; see list_binders."),
         ]),
-    ] + DistillTools.tools
+    ] + DistillTools.tools + ManagerMCP.tools
+
+    /// Every tool but the Manager's own, which only its runs get: what your own hosts and the phone are offered, and what
+    /// Settings → MCP lists.
+    static let hostTools: [MCPTool] = tools.filter { !ManagerMCP.names.contains($0.name) }
 
     private static let knowledge = KnowledgeService()
     /// The host that connected ("claude-code"), from its initialize message: an agent's default name on the board.
@@ -412,12 +419,24 @@ enum MCPServer {
     /// `commentWake`: whom a phone's comment may wake (the agent it asked you about, or no one), from the phone link only.
     /// `momentAuto`: the iPhone has Auto (MomentPayload.autoFeature), so list_agents says what Auto can do, asking
     /// `decisionModels` (the router's) about the decision model; never for an agent.
-    static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write: Writer,
+    static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write writeOut: @escaping Writer,
                      actor: BoardActor = BoardActor(name: "AI agent", kind: .agent), reads: Reads = .everything, host: String = "",
                      askProgress: AskProgressSink? = nil, doing: Bool = true, momentAgreed: Bool = false, momentAuto: Bool = false, soloAuto: Bool = false,
                      decisionModels: DecisionModels? = nil, commentWake: CommentWake = .asTheBoardSays, teamAgents: Bool = false) async throws -> String {
         // A run Binders started that didn't get its card or its name gets nothing at all.
         if Self.confinement == .nothing { throw MCPCore.ToolFailure("No tool named \(name)") }
+        // The Manager's run has its tools alone, and what it writes says which request it's for, for the app to check and
+        // keep for Undo. Its own tools are for its runs alone.
+        let managerRequest = Self.confinement.managerRequest
+        if let managerRequest, !ManagerTools.offered.contains(name) { throw MCPCore.ToolFailure("No tool named \(name)") }
+        if managerRequest == nil, ManagerMCP.names.contains(name) { throw MCPCore.ToolFailure("No tool named \(name)") }
+        // Every write of its run is the Manager's, by its pinned name, whatever the tool would have said.
+        let write: Writer = managerRequest.map { request in
+            { action, fields in
+                try await writeOut(action, fields.merging(["manager_request": request.uuidString, "actor": Self.pinnedAgent ?? "",
+                                                           "actor_kind": BoardActor.Kind.agent.rawValue]) { _, ours in ours })
+            }
+        } ?? writeOut
         // The library didn't open here: what there is to read is an empty stand-in, not the user's binders. A write goes on
         // to `write`, and the app refuses it itself while its own library is out (InboxCommands).
         if !Store.shared.canSave, tools.first(where: { $0.name == name })?.readOnly == true {
@@ -441,7 +460,7 @@ enum MCPServer {
             guard actor.isAgent else { return actor }
             // A run Binders started, or a server set up for one of your agents (the board's tools, as that agent), is exactly
             // that agent, whatever it calls itself: that's how its cards are known as its own, and how your answers wake it.
-            if let pinned = Self.pinnedAgent, Self.confinement.boardOnly || Self.isRegisteredAgent(pinned) {
+            if let pinned = Self.pinnedAgent, Self.confinement.pinsAgent || Self.isRegisteredAgent(pinned) {
                 return BoardActor(name: pinned, kind: .agent)
             }
             // An agent that calls itself "You" acts under its host's name: the board tells you and agents apart by name.
@@ -493,6 +512,9 @@ enum MCPServer {
                     throw MCPCore.ToolFailure("This run works on card \(only.uuidString) only.")
                 }
             }
+        }
+        if let managerRequest, ManagerMCP.names.contains(name) {
+            return try await ManagerMCP.call(name, arguments, request: managerRequest, write: write, actor: acting())
         }
         // Distill's tools (lane DS1): a server confined to the board reaches a note only through a card distilled from it.
         if DistillTools.names.contains(name) {

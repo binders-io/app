@@ -676,6 +676,23 @@ final class BoardService {
         if teamCaptures.isEmpty { flushDeferred() }
     }
 
+    // MARK: The Manager's tidying (lane MG1)
+
+    /// A card's title, description or links, changed by the Manager or put back by its Undo, with a line on the timeline by
+    /// whoever did it. An edit wakes no one.
+    func tidy(_ card: TaskCard, title: String? = nil, details: String? = nil, links: [String]? = nil, by actor: BoardActor, line: String) {
+        if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { card.title = title }
+        if let details { card.details = details }
+        if let links { card.links = links }
+        log(card, .edited, by: actor, text: line)
+    }
+
+    /// A card the Manager closes, or its Undo opens again, between Backlog, Ready and Done: moved by Binders, which wakes no
+    /// one, with whose doing it was in the note.
+    func tidyMove(_ card: TaskCard, to column: BoardColumn, note: String) throws {
+        try move(card, to: column, by: Self.binders, note: note)
+    }
+
     func edit(_ card: TaskCard, title: String? = nil, details: String? = nil, due: Date?? = nil, by actor: BoardActor) {
         if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { card.title = title }
         if let details { card.details = details }

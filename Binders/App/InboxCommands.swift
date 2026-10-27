@@ -91,6 +91,21 @@ enum InboxCommands {
         // A note being typed in is read as it is on screen, not as it was a moment ago.
         MarkdownEditor.flushAll()
         func field(_ key: String) -> String { (request.fields[key] ?? "").trimmed }
+        // The Manager's run (lane MG1): only for the request running now, only the writes it's given, and what each one
+        // changes kept with the request for Undo.
+        if !field("manager_request").isEmpty {
+            if let refusal = controller.manager.refusal(request: field("manager_request"), actor: field("actor"), kind: field("actor_kind")) {
+                return .failure(refusal)
+            }
+            if ManagerCommands.own.contains(request.action) { return ManagerCommands.perform(request, controller: controller) }
+            guard ManagerTools.writes.contains(request.action) else { return .failure("The Manager doesn't do \(request.action).") }
+            let before = ManagerCommands.before(request)
+            var shared = request
+            shared.fields["manager_request"] = nil
+            let result = await carryOut(shared, controller: controller)
+            ManagerCommands.after(request, result: result, before: before, manager: controller.manager)
+            return result
+        }
         let store = Store.shared
         switch request.action {
         case "add_note":

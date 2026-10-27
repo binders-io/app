@@ -115,6 +115,7 @@ final class DistillService {
     func start() {
         boardWatcher = SaveWatcher(kinds: ["TaskCard", "TaskEvent"]) { [weak self] in self?.boardChanged() }
         forgetDeletedNotes()
+        coalesceAll()
         for note in DistillBoard.notes(in: nil) { seen[note.id] = watch(note.id) }
         // Lane DS8: briefs still to be written when Binders quit.
         resumeBriefs()
@@ -125,6 +126,43 @@ final class DistillService {
             for note in DistillBoard.workNotes(in: nil) where note.distill || DistillBoard.followsSections(note.id) {
                 self.checkSections(of: note, by: note.distill ? NoteHistory.index(of: note.id, note: note).current?.by ?? .you : .you)
             }
+        }
+    }
+
+    // MARK: Repeats (lane BF2)
+
+    /// Leaves out the repeats waiting in a note's proposals (`DistillAgain.repeats`): items much like one before them, which
+    /// Distill Again proposed again in other words. They count as dismissed, so they're never proposed again; a proposal
+    /// with nothing left waiting is done. Returns how many it left out.
+    @discardableResult
+    func coalesce(_ note: UUID) -> Int {
+        let found = DistillAgain.repeats(in: store.file(for: note).distills)
+        guard !found.isEmpty else { return 0 }
+        let drop = Set(found.map(\.item))
+        store.update(note) { file in
+            for index in file.distills.indices where found.contains(where: { $0.distill == file.distills[index].id }) {
+                for item in file.distills[index].items.indices where drop.contains(file.distills[index].items[item].id) {
+                    file.distills[index].items[item].dropped = true
+                }
+                // Waits on a repeat go with it.
+                for item in file.distills[index].items.indices {
+                    file.distills[index].items[item].waitsFor.removeAll(where: drop.contains)
+                }
+                if file.distills[index].status == .proposed, file.distills[index].waiting.isEmpty, file.distills[index].openUpdates.isEmpty {
+                    file.distills[index].status = .placed
+                }
+            }
+        }
+        boardRevision += 1
+        Log.app.notice("Distill: left out \(found.count, privacy: .public) repeats in a note's proposals")
+        return found.count
+    }
+
+    /// Every note's, once at launch: what Binders 0.11.0's test build proposed again in other words.
+    private func coalesceAll() {
+        for file in (try? FileManager.default.contentsOfDirectory(at: DistillStore.folder, includingPropertiesForKeys: nil)) ?? [] {
+            guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent) else { continue }
+            coalesce(id)
         }
     }
 
@@ -312,7 +350,7 @@ final class DistillService {
         } else {
             let reused = DistillKeep.result(split.kept)
             let new = outcome?.result ?? .empty
-            read = DistillParts.merge([reused, new], headings: sections.compactMap(\.heading), limit: DistillPrompt.maxItems + reused.items.count)
+            read = DistillParts.merge([reused, new], headings: sections.compactMap(\.heading), limit: .max)
             read.cutOff = new.cutOff
             read.noList = false
         }
@@ -611,15 +649,22 @@ final class DistillService {
                          readBy: String, readByAgent: Bool, version: String? = nil, requestCard: UUID? = nil, parts: Int? = nil,
                          readNote: String? = nil) -> DistillRecord {
         let id = UUID()
+        // Lane BF2: repeats already waiting in the note's proposals go first.
+        coalesce(note.id)
         let file = store.file(for: note.id)
-        let earlier = file.distills.flatMap { distill in
+        // The latest reading with items, when 0.11.0 cut it short: their sections offer what it held back, once a note.
+        let latest = file.distills.lastIndex { !$0.items.isEmpty }
+        let offeredBefore = file.distills.contains { $0.offeredHeldBack == true }
+        let earlier = file.distills.enumerated().flatMap { index, distill in
+            let heldBack = !offeredBefore && index == latest && distill.readNote?.contains(DistillReading.Result.overWords) == true
             // Lane DS9: one you dismissed from the Distill list counts too, so it's never proposed again.
-            distill.items.filter { $0.dropped || distill.status != .dismissed || $0.card != nil }.map { item -> DistillAgain.Earlier in
+            return distill.items.filter { $0.dropped || distill.status != .dismissed || $0.card != nil }.map { item -> DistillAgain.Earlier in
                 let card = item.card.flatMap { board?.card($0) }
                 // A card whose brief was brought up to date carries its section's newer version.
                 let hash = card?.distilledFrom?.sectionHash ?? item.sectionHash
                 return DistillAgain.Earlier(item: item.id, title: item.title, section: item.section, sectionHash: hash,
-                                            card: card?.id, finished: card.map { $0.column == .done } ?? false)
+                                            card: card?.id, finished: card.map { $0.column == .done } ?? false, heldBack: heldBack,
+                                            brief: item.brief, quote: item.quote)
             }
         }
         var record = DistillRecord(id: id, note: note.id, ranBy: ranBy.name, ranByAgent: ranBy.isAgent, readBy: readBy, readByAgent: readByAgent,
@@ -634,6 +679,7 @@ final class DistillService {
                 let plan = DistillAgain.plan(read: items, earlier: earlier, sections: sections)
                 record.items = plan.items
                 record.updates = plan.updates + plan.closes
+                if earlier.contains(where: \.heldBack) { record.offeredHeldBack = true }
             }
             record.after = file.distills.last?.id
         }

@@ -52,7 +52,7 @@ public enum AgentPrompts {
     /// a tag naming the sender), as when Binders posts a card into the Claude Code session you have open.
     public static func worthKeeping(_ raw: String) -> String? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.prefix(500).contains(AgentWake.promptMarker) { return nil }
+        if text.prefix(500).contains(AgentWake.promptMarker) || text.prefix(500).contains(ManagerPrompt.marker) { return nil }
         if text.hasPrefix("!") { return nil }
         if text.hasPrefix("/") {
             // "/compact keep the decisions about pricing": the words after a command can be worth keeping.

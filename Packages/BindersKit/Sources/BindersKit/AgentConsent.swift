@@ -25,6 +25,8 @@ public enum AgentConsent {
             if case .ssh = agent.reporting { return "on another machine, over SSH" } else { return "wherever it runs" }
         case .cliAgent(let wake):
             return vendor(agent) ?? "\(wake.tool.name), wherever it's set up to"
+        case .localModel:
+            return vendor(agent) ?? "your own model, as Settings → AI sets it up"
         }
     }
 
@@ -101,6 +103,9 @@ public enum AgentConsent {
             // Switching OpenCode from one provider to another (OpenCode Zen's free models among them) asks again, even with a
             // name typed under "Sends cards to".
             if wake.tool == .opencode { parts.append("provider " + (wake.provider ?? "")) }
+        case .localModel(let wake):
+            // Another model asks again.
+            parts.append("model " + (wake.namedModel ?? ""))
         }
         // Who it hands cards to. Claude Code always named Anthropic, so only a vendor you said that differs counts there. A
         // command running a program Binders knows (codex: OpenAI) is named now where it wasn't before, so a yes given before

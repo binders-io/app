@@ -842,6 +842,22 @@ enum SelfTest {
         if args.contains("--selftest-agent-handoffs") {
             return await agentHandoffsSelfTest()
         }
+        if args.contains("--selftest-distill-repeats") {
+            // Lane BF2: repeats in a note's proposals left out, in a throwaway BINDERS_DATA_DIR.
+            return await distillRepeatsSelfTest()
+        }
+        if let directory = value("--selftest-agents-page") {
+            // The Agents page as where you talk to your agents, drawn into the folder given, in a throwaway BINDERS_DATA_DIR.
+            return await agentsPageSelfTest(drawingTo: URL(fileURLWithPath: directory))
+        }
+        if args.contains("--selftest-manager-local") {
+            // The Manager on a local model (lane MG2), with a stand-in model, in a throwaway BINDERS_DATA_DIR.
+            return await managerLocalSelfTest()
+        }
+        if args.contains("--selftest-manager") {
+            // The Manager (lane MG1), with a stand-in claude, in a throwaway BINDERS_DATA_DIR.
+            return await managerSelfTest()
+        }
         if args.contains("--selftest-agent-sessions") {
             // A folder after the flag gets a drawing of a Claude Code agent's settings, posting to your open session.
             return await agentSessionsSelfTest(drawingTo: value("--selftest-agent-sessions").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })

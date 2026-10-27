@@ -110,6 +110,9 @@ Newline-delimited JSON-RPC 2.0, the same framing as `Binders --mcp`. One message
 | `binders/outcomes` `{ids}` | after hello, when `features` lists `outcomes` | `{outcomes}`: what became of each capture or moment asked after (at most 50), below |
 | `binders/outcome` `{id, action, agent?, request_id?}` | the same | `{message}`; `action` is `add`, `not-now`, `undo` or `assign` (from a moment's notification or row) |
 | `binders/decision` `{card, approval, approve, reason?}` | after hello, when `features` lists `approvals` | `{message}`; your Approve or Decline on an agent's request for approval, for exactly the request `approval` names (a newer request on the card isn't decided by it), sent from the card's approval box (the notification only opens the card); the Mac records the receipt, then answers the agent |
+| `binders/manager` `{text, id?, thread?, kind?, binder?}` | after hello, when `features` lists `manager` | the request, as `binders/manager-requests` gives it; something you typed to the Manager (`kind` `ask`, the default) or a tidy (`kind` `tidy`, with `binder` an id or a name, none for every binder). `id` is the phone's own, so one sent twice is one request; `thread` is a request whose conversation it goes on |
+| `binders/manager-requests` `{limit?, ids?, thread?}` | the same | `{requests, suggestions, agent?, problem?}`: what you asked, newest first (`limit`, 20 by default, at most 50), each `{id, thread, kind, text, from, at, status, agent?, reply?, replied_at?, why?, changes: [{kind, line}], can_undo, undone_at?}`; the note edits it suggested that wait for you, each with the lines it adds and takes away (`changes`, `+ ` and `- `) or `outdated`; who has the role, and why nothing would start now |
+| `binders/manager-act` `{id, action}` or `{suggestion, action}` | the same | `{message}`; `stop` or `undo` on a request (Undo puts back everything it changed), `accept` or `dismiss` on a suggested note edit (accepted, it's your edit) |
 | `binders/moment` (a moment, below) | after hello, when `features` lists `moment` | `{outcome}`: what the Mac made of it, kept once per `id` |
 | `ping` | after hello | `{}`: a word with no side effect, which every Mac with the link answers |
 | `initialize`, `tools/list`, `tools/call` | after hello | the same tools as the MCP server (see [AUTOMATIONS.md](AUTOMATIONS.md)) |
@@ -313,6 +316,9 @@ unchanged and has everything, so a phone that never sends a token, or a Mac that
 first update, the phone says the Mac is looking it up and writing the answer. The Mac gives the whole answer, its search included, 180 seconds; if the wait ends early, what was written stays
 on the phone with why. A checklist lives in a note or a meeting,
 so a change to either also lists `todos`. Clients refetch what they show.
+
+The Manager's requests change as `manager` in `binders/changed`: the phone asks `binders/manager-requests` again. Its
+replies are the Manager's words, shown as its.
 
 An agent's question arrives as `tasks`. The phone reads the Blocked cards (`list_tasks` with `column: blocked`, then
 `get_task` for each card whose `updated` changed), rings each question once, and sends an answer as `comment_task {id,

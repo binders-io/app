@@ -403,6 +403,7 @@ struct BoardView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
                 .allowsTightening(true)
+                .fitProbe("board.column." + column.rawValue)
             Text("\(count)")
                 .font(BoardDesign.columnCount)
                 .monospacedDigit()

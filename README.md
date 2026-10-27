@@ -59,6 +59,9 @@ memory you can ask questions. The speech models, the language model and your dat
   Binders finds become cards in a click, and each is ticked off where it came from when its card is done.
 - **Distill.** A note that asks for work, such as a spec, becomes cards on its binder's board for you and your agents,
   which wait for each other, and the note shows how the work is going.
+- **Talk to your agents, and the Manager.** The Agents page is where you message each agent and read its replies, a
+  conversation per card. One agent, Claude Code or a local model, can be the Manager: it tidies your boards and folders,
+  distills notes and answers what you ask it, with Binders' tools alone and an Undo for each request.
 - **Binders and teams.** One binder per thing you are working on. Share a binder with teammates through a folder you already sync
   (OneDrive, Dropbox, Google Drive, iCloud Drive). There is no server of ours in between.
 - **Open to other software.** Rules run a Shortcut, open a URL, run a script or call a web hook when you say a phrase or when

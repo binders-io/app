@@ -9,6 +9,13 @@ import Foundation
 /// "everything changed".
 public enum LinkFeatures {
     public static let changed = "binders/changed"
+    /// A Mac with the Manager (lane MG1): `binders/manager` asks it something or asks for a tidy, `binders/manager-requests`
+    /// lists what you asked with its replies, changes and suggested note edits, and `binders/manager-act` stops one, undoes
+    /// one's changes, or accepts or dismisses a suggested edit. `binders/changed` says "manager" when any of it changes.
+    public static let manager = "manager"
+    public static let managerMethod = "binders/manager"
+    public static let managerListMethod = "binders/manager-requests"
+    public static let managerActMethod = "binders/manager-act"
     /// A Mac that takes `binders/warm` loads its model when the phone hears someone start talking, so the write-up
     /// doesn't wait for it.
     public static let warm = "warm"

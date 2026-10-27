@@ -152,7 +152,8 @@ final class AgentDispatcher {
         if to == .done, from != .done, let board {
             for other in board.waiting(on: card) { waitEnded(on: other) }
         }
-        let yours = !actor.isAgent && !(kind == .comment && actor.name == BoardService.binders.name)
+        // Binders' own comments and moves (the Manager's tidying and its Undo, lane MG1) wake no one.
+        let yours = !actor.isAgent && !([.comment, .moved].contains(kind) && actor.name == BoardService.binders.name)
         let commented = yours && kind == .comment
         guard let reason = AgentWake.reason(kind: kind.rawValue, from: from, to: to, column: card.column, byPerson: yours),
               let agent = target(for: card, reason: reason) else {
@@ -622,6 +623,9 @@ final class AgentDispatcher {
         case .cliAgent(let wake):
             wakeCLI(agent, wake, card: card, reason: reason)
             return .woke
+        case .localModel:
+            // Only ever the Manager (lane MG2): `takesCards` keeps cards from it, and one that names it anyway waits.
+            return .notWoken("\(agent.name) is a local model that's only the Manager: it takes no cards.")
         }
     }
 

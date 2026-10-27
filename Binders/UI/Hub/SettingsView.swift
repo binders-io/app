@@ -1725,9 +1725,9 @@ private struct MCPSettings: View {
 
     private var executable: String { MCPHost.executable }
     private var mcpJSON: String { "{\"mcpServers\":{\"binders\":{\"command\":\"\(executable)\",\"args\":[\"--mcp\"]}}}" }
-    private var readingTools: [String] { MCPServer.tools.filter(\.readOnly).map(\.name) }
-    private var addingTools: [String] { MCPServer.tools.filter { !$0.readOnly && Self.isAdd($0.name) }.map(\.name) }
-    private var changingTools: [String] { MCPServer.tools.filter { !$0.readOnly && !Self.isAdd($0.name) }.map(\.name) }
+    private var readingTools: [String] { MCPServer.hostTools.filter(\.readOnly).map(\.name) }
+    private var addingTools: [String] { MCPServer.hostTools.filter { !$0.readOnly && Self.isAdd($0.name) }.map(\.name) }
+    private var changingTools: [String] { MCPServer.hostTools.filter { !$0.readOnly && !Self.isAdd($0.name) }.map(\.name) }
 
     /// Makes something new, rather than changing what's there.
     private static func isAdd(_ name: String) -> Bool {

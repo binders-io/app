@@ -43,6 +43,8 @@ public struct DistillRecord: Codable, Equatable, Identifiable, Sendable {
     public var parts: Int?
     /// What the reading left out, in words for the review sheet: repeats, a reply cut off, parts that gave no list.
     public var readNote: String?
+    /// Lane BF2: it offered what a reading by 0.11.0 held back (`DistillAgain.Earlier.heldBack`), which is done once a note.
+    public var offeredHeldBack: Bool?
 
     public init(id: UUID = UUID(), note: UUID, ranBy: String, ranByAgent: Bool = false, readBy: String, readByAgent: Bool = false,
                 at: Date = Date(), version: String? = nil, status: Status = .proposed, items: [DistillItem] = [], after: UUID? = nil,
@@ -66,7 +68,8 @@ public struct DistillRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, note, ranBy, ranByAgent, readBy, readByAgent, at, version, status, items, after, updates, requestCard, placedByAgent, parts, readNote
+        case id, note, ranBy, ranByAgent, readBy, readByAgent, at, version, status, items, after, updates, requestCard, placedByAgent, parts, readNote,
+             offeredHeldBack
     }
 
     public init(from decoder: Decoder) throws {
@@ -88,6 +91,7 @@ public struct DistillRecord: Codable, Equatable, Identifiable, Sendable {
         placedByAgent = try c.decodeIfPresent(Bool.self, forKey: .placedByAgent)
         parts = try? c.decodeIfPresent(Int.self, forKey: .parts)
         readNote = try? c.decodeIfPresent(String.self, forKey: .readNote)
+        offeredHeldBack = try? c.decodeIfPresent(Bool.self, forKey: .offeredHeldBack)
     }
 
     /// The items still in play: not dropped.
