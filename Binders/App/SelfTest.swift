@@ -850,6 +850,10 @@ enum SelfTest {
             // The Agents page as where you talk to your agents, drawn into the folder given, in a throwaway BINDERS_DATA_DIR.
             return await agentsPageSelfTest(drawingTo: URL(fileURLWithPath: directory))
         }
+        if let directory = value("--selftest-assistant") {
+            // A binder's Assistant, with a stand-in model, drawn into the folder given, in a throwaway BINDERS_DATA_DIR.
+            return await assistantSelfTest(drawingTo: URL(fileURLWithPath: directory))
+        }
         if args.contains("--selftest-manager-local") {
             // The Manager on a local model (lane MG2), with a stand-in model, in a throwaway BINDERS_DATA_DIR.
             return await managerLocalSelfTest()
