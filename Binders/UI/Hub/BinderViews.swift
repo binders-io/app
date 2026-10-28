@@ -3,7 +3,7 @@ import SwiftUI
 import BindersKit
 
 enum BinderTab: String, CaseIterable {
-    case overview = "Overview", board = "Board", meetings = "Meetings", conversations = "Captures", notes = "Notes", knowledge = "Knowledge"
+    case overview = "Overview", board = "Board", meetings = "Meetings", conversations = "Captures", notes = "Notes", knowledge = "Knowledge", assistant = "Assistant"
 }
 
 extension BinderTab {
@@ -188,7 +188,7 @@ struct BinderPage: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: tabs.count > 5 ? 640 : 520)
+            .frame(maxWidth: tabs.count > 6 ? 740 : tabs.count > 5 ? 640 : 520)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
             Divider()
@@ -207,6 +207,7 @@ struct BinderPage: View {
                 case .conversations: MeetingsView(binderID: binder.id, conversations: true, folderID: folderID).id("conversations-\(binder.id)")
                 case .notes: NotesView(binderID: binder.id, folderID: folderID)
                 case .knowledge: KnowledgeView(binderID: binder.id, folderID: folderID)
+                case .assistant: AssistantView(binder: binder).id("assistant-\(binder.id)")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
