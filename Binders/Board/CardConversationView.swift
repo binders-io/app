@@ -58,6 +58,7 @@ struct CardConversationColumn: View {
                 }
             }
             CardComposer(card: card, events: events, answering: answering, draft: $draft, problem: $problem, trayUp: trayUp, close: close)
+                .fitProbe("card.composer")
                 .frame(maxWidth: Self.readingWidth)
                 .frame(maxWidth: .infinity)
                 .fixedSize(horizontal: false, vertical: true)
@@ -151,12 +152,26 @@ struct ConversationView: View {
         let newestWords = events.lastIndex { CardConversation.isYours($0.conversation) }
         let failure = newestWords.flatMap { failureSpoken($0, status: status($0, deliveries: deliveries, agent: agent, newestWords: newestWords)) }
         let messageWidth = CGFloat(CardLayout.messageWidth(conversation: Double(max(0, width - 40))))
+        // The run the latest wake started, live under it (lane LS1).
+        let run = AgentSessionWatch.run(of: card, timeline: events)
+        let anchor = run.flatMap { _ in Self.sessionAnchor(rows, events: events) }
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
                     rowView(row, deliveries: deliveries, agent: agent, newestWords: newestWords, messageWidth: messageWidth)
                         .padding(.top, row.spacing)
                         .transition(.filed)
+                    if let run, row.id == anchor {
+                        AgentSessionBlock(log: run.log, tool: run.tool, agent: card.assignee ?? agent ?? "The agent", wordsWidth: messageWidth)
+                            .id(run.log.path)
+                            .padding(.top, 12)
+                            .padding(.leading, 2)
+                    }
+                }
+                if let run, anchor == nil {
+                    AgentSessionBlock(log: run.log, tool: run.tool, agent: card.assignee ?? agent ?? "The agent", wordsWidth: messageWidth)
+                        .id(run.log.path)
+                        .padding(.top, 12)
                 }
             }
             .padding(.horizontal, 20)
@@ -212,6 +227,21 @@ struct ConversationView: View {
     }
 
     // MARK: Rows
+
+    /// The row the session goes under: the last one at or before the latest wake's receipt.
+    static func sessionAnchor(_ rows: [Row], events: [TaskEvent]) -> String? {
+        guard let woke = events.lastIndex(where: { $0.kind == .woke }) else { return nil }
+        var anchor: String?
+        for row in rows {
+            switch row.entry {
+            case .message(let index, _, _), .line(let index), .context(let index):
+                if index <= woke { anchor = row.id }
+            case .day:
+                continue
+            }
+        }
+        return anchor
+    }
 
     struct Row: Identifiable {
         let id: String

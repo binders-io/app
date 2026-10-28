@@ -17,9 +17,10 @@ extension EnvironmentValues {
 /// dictate, hold to ask) in glass over everything.
 @available(iOS 26.0, *)
 struct HomeTabs: View {
-    enum Tab: Hashable { case today, binders, capture }
+    enum Tab: Hashable { case today, binders, agents, capture }
 
-    @State private var tab: Tab = .today
+    /// `-open agents|manager|agent` (development) starts on Agents.
+    @State private var tab: Tab = ["agents", "manager", "agent"].contains(UserDefaults.standard.string(forKey: "open") ?? "") ? .agents : .today
     @State private var dictating = false
     @State private var asking = false
     /// What was asked by holding the control: Ask opens with it asked, or empty to type when nothing was heard.
@@ -30,6 +31,7 @@ struct HomeTabs: View {
         TabView(selection: $tab) {
             SwiftUI.Tab("Today", systemImage: "sun.max", value: Tab.today) { TodayHome() }
             SwiftUI.Tab("Binders", systemImage: "books.vertical", value: Tab.binders) { BindersView(handlesNotifications: false) }
+            SwiftUI.Tab("Agents", systemImage: "sparkles", value: Tab.agents) { AgentsTab() }
             SwiftUI.Tab("Capture", systemImage: "waveform.and.mic", value: Tab.capture) { NavigationStack(path: $capturePath) { CaptureView() } }
         }
         .tabBarMinimizeBehavior(.onScrollDown)

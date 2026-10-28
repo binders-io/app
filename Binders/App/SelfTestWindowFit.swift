@@ -153,6 +153,27 @@ extension SelfTest {
         NoteEditor.noticeOnOpen = (filed.id, noticeCard, "Added to the \(harbor.name) board")
         defer { NoteEditor.noticeOnOpen = nil }
 
+        // An agent's long conversation, with a question waiting on you, for the Agents page.
+        let pennant = AgentProfile(name: "Pennant", wake: .board)
+        AgentRegistry.shared.upsert(pennant)
+        let talk = controller.board.create(title: "Book flights for Ignite", details: String(repeating: "Find a nonstop on the 16th. ", count: 12),
+                                           binderID: harbor.id, by: .you)
+        controller.board.give(talk, to: pennant.name, by: .you)
+        let pennantActor = BoardActor(name: pennant.name, kind: .agent)
+        try? controller.board.claim(talk, by: pennantActor)
+        for turn in 0..<24 {
+            _ = controller.board.comment(talk, text: String(repeating: "Verified live on the airline's page: DL679, JFK to SFO, 3:59 PM to 7:35 PM, $831.80 with taxes. ", count: 4 + turn % 3),
+                                         by: turn.isMultiple(of: 3) ? .you : pennantActor)
+        }
+        let quiet = controller.board.create(title: "Compare fares", binderID: harbor.id, by: .you)
+        controller.board.give(quiet, to: pennant.name, by: .you)
+        try? controller.board.claim(quiet, by: pennantActor)
+        for turn in 0..<24 {
+            _ = controller.board.comment(quiet, text: String(repeating: "Checked again: the fare holds at $831.80 with taxes. ", count: 4 + turn % 3), by: pennantActor)
+        }
+        _ = try? controller.board.ask(talk, question: String(repeating: "Should I book the 3:59 PM nonstop at $831.80, or wait for the fare to drop? ", count: 3), by: pennantActor)
+        Store.shared.save()
+
         func hub(_ configure: (HubNavigation) -> Void) -> some View {
             let navigation = HubNavigation()
             navigation.binderID = harbor.id
@@ -208,6 +229,12 @@ extension SelfTest {
             Page(name: "binder-knowledge", probes: [], configure: { $0.selection = .binder; $0.pendingBinderTab = .knowledge }),
             Page(name: "work", probes: [], configure: { $0.selection = .work }),
             Page(name: "agents", probes: [], configure: { $0.selection = .agents }),
+            Page(name: "agents-conversation", probes: ["agents.header", "agents.conversation.header", "card.composer"],
+                 configure: { $0.selection = .agents; $0.agentsPick = AgentsPick.card(talk.id).raw }),
+            Page(name: "agents-conversation-quiet", probes: ["agents.header", "agents.conversation.header", "card.composer"],
+                 configure: { $0.selection = .agents; $0.agentsPick = AgentsPick.card(quiet.id).raw }),
+            Page(name: "agents-agent", probes: ["agents.header", "agents.chat.message"],
+                 configure: { $0.selection = .agents; $0.agentsPick = AgentsPick.agent(pennant.id).raw }),
             Page(name: "writing", probes: [], configure: { $0.selection = .writing }),
             Page(name: "knowledge", probes: [], configure: { $0.selection = .knowledge }),
             Page(name: "dictionary", probes: [], configure: { $0.selection = .dictionary }),

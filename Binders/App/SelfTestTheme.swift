@@ -23,12 +23,12 @@ extension SelfTest {
 
         // The values, as the design's table has them (dark, light; alpha where it's a hairline).
         let table: [(String, NSColor, UInt32, UInt32)] = [
-            ("ground", NS.ground, 0x0B0A17, 0xF6F5FB), ("surface", NS.surface, 0x16142B, 0xFFFFFF), ("paper", NS.paper, 0x16142B, 0xFBFBF8),
-            ("paperInk", NS.paperInk, 0xEFEDFB, 0x1B1740), ("paperMuted", NS.paperMuted, 0xA7A2C4, 0x6F6A8C),
-            ("ink", NS.ink, 0xEFEDFB, 0x16132E), ("muted", NS.muted, 0xA7A2C4, 0x57527A),
-            ("faint", NS.faint, 0x767193, 0x8A85A8), ("accent", NS.accent, 0x604CF4, 0x604CF4), ("accentText", NS.accentText, 0xAA9EFF, 0x4A39D6),
-            ("needsYou", NS.needsYou, 0xF0A23A, 0xC9790F), ("live", NS.live, 0xFF5A52, 0xD93A34), ("agent", NS.agent, 0xC7BFF6, 0x6F5FE0),
-            ("done", NS.done, 0x3CCF6A, 0x1F9D4A),
+            ("ground", NS.ground, 0x1C1C1E, 0xFFFFFF), ("surface", NS.surface, 0x262628, 0xF5F5F7), ("paper", NS.paper, 0x1C1C1E, 0xFFFFFF),
+            ("paperInk", NS.paperInk, 0xF2F2F3, 0x111113), ("paperMuted", NS.paperMuted, 0xA1A1A8, 0x5E5E66),
+            ("ink", NS.ink, 0xF2F2F3, 0x111113), ("muted", NS.muted, 0xA1A1A8, 0x5E5E66),
+            ("faint", NS.faint, 0x7C7C83, 0x8B8B93), ("accent", NS.accent, 0x6446F5, 0x6446F5), ("accentText", NS.accentText, 0xA996FF, 0x5639E6),
+            ("needsYou", NS.needsYou, 0xF5A524, 0xB86A00), ("live", NS.live, 0xFF5A52, 0xD93A34), ("agent", NS.agent, 0xC4B5FF, 0x6A4BF0),
+            ("done", NS.done, 0x4ADE80, 0x15803D),
         ]
         for (name, color, darkHex, lightHex) in table {
             let inDark = color.resolved(for: dark), inLight = color.resolved(for: light)
@@ -36,8 +36,8 @@ extension SelfTest {
                   "\(name) is \(Self.hex(darkHex)) in the dark and \(Self.hex(lightHex)) in the light (\(Self.hex(inDark)), \(Self.hex(inLight)))")
         }
         let line = NS.line.resolved(for: dark), lineLight = NS.line.resolved(for: light)
-        check(Self.matches(line, 0xBEB4FF) && abs(line.alphaComponent - 0.12) < 0.01 && Self.matches(lineLight, 0x2D2282)
-              && abs(lineLight.alphaComponent - 0.11) < 0.01, "line is rgba(190,180,255,0.12) in the dark and rgba(45,34,130,0.11) in the light")
+        check(Self.matches(line, 0xFFFFFF) && abs(line.alphaComponent - 0.09) < 0.01 && Self.matches(lineLight, 0x000000)
+              && abs(lineLight.alphaComponent - 0.08) < 0.01, "line is white at 9% in the dark and black at 8% in the light")
 
         // The note page follows the appearance: in the dark it's the surface, with the dark's own words and lines; in
         // the light it's the paper it always was.
@@ -45,12 +45,12 @@ extension SelfTest {
             let x = a.resolved(for: appearance), y = b.resolved(for: appearance)
             return Self.close(x, y) && abs(x.alphaComponent - y.alphaComponent) < 0.01
         }
-        check([(NS.paper, NS.surface), (NS.paperInk, NS.ink), (NS.paperMuted, NS.muted), (NS.paperFaint, NS.faint), (NS.paperLine, NS.line)]
+        check([(NS.paper, NS.ground), (NS.paperInk, NS.ink), (NS.paperMuted, NS.muted), (NS.paperFaint, NS.faint), (NS.paperLine, NS.line)]
                 .allSatisfy { same($0.0, $0.1, in: dark) },
-              "in the dark a note's page is the surface, with ink, muted and faint words and the hairline")
+              "in the dark a note's page is the page's ground, with ink, muted and faint words and the hairline")
         let faintLight = NS.paperFaint.resolved(for: light), lineOnPaper = NS.paperLine.resolved(for: light)
-        check(Self.matches(faintLight, 0x6F6A8C) && abs(faintLight.alphaComponent - 0.6) < 0.01 && Self.matches(lineOnPaper, 0xEBE9F3)
-              && lineOnPaper.alphaComponent > 0.99, "in the light it keeps paper's faint words (#6F6A8C at 60%) and lines (#EBE9F3)")
+        check(Self.matches(faintLight, 0x5E5E66) && abs(faintLight.alphaComponent - 0.6) < 0.01 && Self.matches(lineOnPaper, 0xEAEAEE)
+              && lineOnPaper.alphaComponent > 0.99, "in the light it keeps paper's faint words (#5E5E66 at 60%) and lines (#EAEAEE)")
 
         // Words that read where they sit: WCAG contrast, in both appearances.
         let pairs: [(String, NSColor, NSColor, Double)] = [
@@ -124,19 +124,19 @@ extension SelfTest {
         let points = (0..<19).map { CGPoint(x: 20 + $0 * 40, y: 20) }
         let darkPixels = await Self.pixels(of: sample, size: NSSize(width: 760, height: 40), appearance: dark, at: points)
         let lightPixels = await Self.pixels(of: sample, size: NSSize(width: 760, height: 40), appearance: light, at: points)
-        check(Self.matches(darkPixels[0], 0x0B0A17) && Self.matches(lightPixels[0], 0xF6F5FB), "the ground draws as itself in a dark window and in a light one")
-        check(Self.matches(darkPixels[3], 0x16142B) && Self.matches(lightPixels[3], 0xFBFBF8),
+        check(Self.matches(darkPixels[0], 0x1C1C1E) && Self.matches(lightPixels[0], 0xFFFFFF), "the ground draws as itself in a dark window and in a light one")
+        check(Self.matches(darkPixels[3], 0x1C1C1E) && Self.matches(lightPixels[3], 0xFFFFFF),
               "a note's page is dark in a dark window (\(Self.hex(darkPixels[3]))) and light paper in a light one (\(Self.hex(lightPixels[3])))")
-        check(Self.matches(darkPixels[10], 0x0B0A17) && Self.matches(lightPixels[10], 0xF6F5FB),
+        check(Self.matches(darkPixels[10], 0x1C1C1E) && Self.matches(lightPixels[10], 0xFFFFFF),
               "what's drawn on a note's page follows the window's appearance (the ground there draws \(Self.hex(darkPixels[10])) in a dark window)")
-        check(Self.matches(darkPixels[11], 0xEFEDFB) && Self.matches(lightPixels[11], 0x1B1740), "a note's words are ink in the dark and paper ink in the light")
+        check(Self.matches(darkPixels[11], 0xF2F2F3) && Self.matches(lightPixels[11], 0x111113), "a note's words are ink in the dark and paper ink in the light")
         check(Self.matches(darkPixels[4], 0xE65C94), "a binder's fill is its colour, in place of the accent")
         check(Self.close(darkPixels[5], Self.color(BinderPalette.textColor(3), in: dark)) && Self.close(lightPixels[5], Self.color(BinderPalette.textColor(3), in: light)),
               "a link in a binder wears its colour mixed with ink, in each appearance")
-        check(Self.matches(darkPixels[8], 0xEFEDFB) && Self.matches(lightPixels[8], 0x16132E), "a section's title in a binder is ink, not the binder's colour")
-        check(Self.matches(darkPixels[9], 0xA7A2C4) && Self.matches(lightPixels[9], 0x57527A), "a status in a binder is muted, not the accent's colour")
-        check(Self.matches(darkPixels[12], 0xA7A2C4) && Self.matches(lightPixels[12], 0x57527A)
-              && Self.matches(darkPixels[13], 0xAA9EFF) && Self.matches(lightPixels[13], 0x4A39D6),
+        check(Self.matches(darkPixels[8], 0xF2F2F3) && Self.matches(lightPixels[8], 0x111113), "a section's title in a binder is ink, not the binder's colour")
+        check(Self.matches(darkPixels[9], 0xA1A1A8) && Self.matches(lightPixels[9], 0x5E5E66), "a status in a binder is muted, not the accent's colour")
+        check(Self.matches(darkPixels[12], 0xA1A1A8) && Self.matches(lightPixels[12], 0x5E5E66)
+              && Self.matches(darkPixels[13], 0xA996FF) && Self.matches(lightPixels[13], 0x5639E6),
               "what only tells you something is muted in a binder and the accent's words outside one")
         func over(_ fraction: CGFloat, of color: NSColor, in appearance: NSAppearance) -> NSColor {
             color.resolved(for: appearance).composited(over: NS.surface.resolved(for: appearance), opacity: fraction)
@@ -151,7 +151,7 @@ extension SelfTest {
         let washLight = NS.ground.resolved(for: light).blended(withFraction: 0.03, of: BinderPalette.nsColors[3])!
         check(Self.close(darkPixels[6], washDark) && Self.close(lightPixels[6], washLight),
               "a binder's page ground has a trace of its colour, 3% in both appearances (\(Self.hex(darkPixels[6])), \(Self.hex(lightPixels[6])))")
-        check(Self.matches(darkPixels[7], 0xAA9EFF) && Self.matches(lightPixels[7], 0x4A39D6), "accent-coloured words outside a binder are the accent's text colour")
+        check(Self.matches(darkPixels[7], 0xA996FF) && Self.matches(lightPixels[7], 0x5639E6), "accent-coloured words outside a binder are the accent's text colour")
         // A note's links and #tags wear the binder's colour on its pages, as its own links do, and the accent's elsewhere.
         let inBinder = await Self.editorColors(tint: 3), outside = await Self.editorColors(tint: nil)
         check(inBinder.link.map { same($0, BinderPalette.nsTextColor(3), in: dark) && same($0, BinderPalette.nsTextColor(3), in: light) } == true

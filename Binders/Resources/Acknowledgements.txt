@@ -1807,3 +1807,11 @@ this exception to it:
     portions of this Software are embedded into the binary product as a result,
     you may redistribute such product without providing attribution as would
     otherwise be required by Sections 4(a), 4(b) and 4(d) of the License.
+
+--------------------------------------------------------------------------------
+
+Simple Icons (https://simpleicons.org), version 16.3
+
+The icons of the agents' providers (Claude, OpenAI, GitHub Copilot, Google Gemini, OpenCode and Cursor) come from
+Simple Icons, released under CC0 1.0 Universal: no rights reserved. Each mark is a trademark of its owner; Binders
+shows it only to say which provider's agent you set up, and isn't endorsed by any of them.

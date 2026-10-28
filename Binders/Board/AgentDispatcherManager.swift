@@ -3,7 +3,7 @@ import BindersKit
 
 /// Waking the Manager (lane MG1), here because AgentDispatcher is the only code that starts an agent: Claude Code, for one
 /// request, in an empty folder Binders keeps for it, with its permission checks on and Binders' tools alone
-/// (`ManagerLaunch`). `ManagerService` keeps the requests and says when one is over.
+/// (`ManagerLaunch`), or the Manager's tools alone where an organization manages Claude Code. `ManagerService` keeps the requests and says when one is over.
 extension AgentDispatcher {
     /// The folder the Manager's runs start in, kept empty: it works through Binders' tools, never on files.
     static var managerFolder: URL { AgentPlaces.root.appendingPathComponent("manager", isDirectory: true) }
@@ -14,9 +14,11 @@ extension AgentDispatcher {
         guard registry.isManager(agent), registry.wakeable(agent), case .claudeCode(var wake) = agent.wake else {
             return .failure(.init("\(agent.name) can't be woken as it is. Look at it in Settings → Agents."))
         }
-        // The Manager has Binders' tools and nothing else, which a Claude Code that an organization manages may refuse.
-        guard Self.asksOnlyBinders else {
-            return .failure(.init("This Mac's Claude Code is managed in a way that won't run with Binders' tools alone, so the Manager can't start."))
+        // Not limited to Binders' tools, only the hook keeps it to the Manager's: an organization that runs its own hooks
+        // alone would leave it out.
+        let strict = Self.asksOnlyBinders
+        if !strict, Self.managedHooksOnly {
+            return .failure(.init("Claude Code on this Mac has settings from your organization that run only its own hooks, so Binders can't keep a Claude Code Manager to its tools. Make a local model the Manager in Settings → Agents, or ask your admin."))
         }
         wake.executable = wake.executable.map { ($0 as NSString).expandingTildeInPath }
         let folder = Self.managerFolder
@@ -28,7 +30,10 @@ extension AgentDispatcher {
         let launch = ManagerLaunch.make(request: request, boardName: agent.name, wake: wake, binders: MCPHost.executable,
                                         dataFolder: AppPaths.support.path, home: NSHomeDirectory(),
                                         alsoPrivate: [Self.logs.path] + [AppSettings.shared.teamFolderPath].compactMap { $0 },
-                                        session: UUID(), directory: folder.path)
+                                        session: UUID(), directory: folder.path,
+                                        // Limited to Binders' tools, unless this Mac's Claude Code is managed in a way that refuses
+                                        // that: then a hook keeps it to the Manager's tools.
+                                        strictMCP: strict)
         let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
             .replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "-", with: "")
         let log = Self.logs.appendingPathComponent("manager-\(request.uuidString.prefix(8).lowercased())-\(stamp).jsonl")
@@ -68,6 +73,13 @@ extension AgentDispatcher {
         } catch {
             return .failure(.init("Couldn't start Binders' tools for the Manager: \(error.localizedDescription)"))
         }
+    }
+
+    /// Whether the organization's managed settings for Claude Code run its own hooks alone (allowManagedHooksOnly).
+    static var managedHooksOnly: Bool {
+        let url = URL(fileURLWithPath: managedFolder).appendingPathComponent(ClaudeCodeManaged.settingsFile)
+        guard let data = try? Data(contentsOf: url), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["allowManagedHooksOnly"] as? Bool == true
     }
 
     /// The longest a request runs before Binders stops it.

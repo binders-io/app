@@ -56,6 +56,10 @@ enum MCPServer {
     /// The kit keeps the list, as a run's hook lets these through and no other tool (`ClaudeCodeToolGuard`).
     static let boardTools: Set<String> = ClaudeCodeToolGuard.boardTools
 
+    /// Whether this server answers an agent's chats: its own server for Binders, not a chat run Binders started.
+    /// Only one set up for one of your agents names it (BINDERS_AGENT): its chats are that agent's.
+    static var chatTools: Bool { ProcessInfo.processInfo.environment["BINDERS_CHAT"] == nil && pinnedAgent != nil }
+
     /// What started this server lets it offer (`MCPConfinement`): every tool, the board's, one card's, or none.
     static var confinement: MCPConfinement { MCPConfinement.read(ProcessInfo.processInfo.environment) }
 
@@ -67,7 +71,9 @@ enum MCPServer {
         case .nothing: []
         // The Manager (lane MG1): what it reads, the writes kept for its Undo, and its own.
         case .manager: tools.filter { ManagerTools.offered.contains($0.name) }
-        case .board(let card): tools.filter { boardTools.contains($0.name) && (card == nil || $0.name != "create_task") }
+        // An agent's own server, for all its cards, also has chat; a Claude Code chat Binders started (BINDERS_CHAT) doesn't.
+        case .board(let card): tools.filter { (boardTools.contains($0.name) && (card == nil || $0.name != "create_task"))
+            || (card == nil && chatTools && AgentChatTools.all.contains($0.name)) }
         case .card: tools.filter { boardTools.contains($0.name) && $0.name != "create_task" }
         }
     }
@@ -276,6 +282,15 @@ enum MCPServer {
             MCPToolParameter(name: "summary", description: "What was done, and anything the user should check.", required: true),
             MCPToolParameter(name: "agent", description: "Your name on the board."),
         ]),
+        // Chat (lane AC1), for an agent that checks the board itself, on its own server for Binders.
+        MCPTool(name: AgentChatTools.list, description: "The messages the user wrote you in Binders' chat that you haven't read, by chat, with the last few messages before them. Reading them marks them read: answer each chat with reply_message. Check this whenever you check the board.", parameters: [
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: AgentChatTools.reply, description: "Reply to the user in one of your chats. Write in Markdown, briefly, as in a chat. If they ask for work that takes a while, say so, do it, and reply again when it's done.", parameters: [
+            MCPToolParameter(name: "chat", description: "The chat's id, from list_messages.", required: true),
+            MCPToolParameter(name: "text", description: "Your reply.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
         MCPTool(name: "add_to_calendar", description: "Add an event to the user's calendar from a phrase such as \"lunch with Sam tomorrow at noon\". Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "What and when.", required: true),
         ]),
@@ -342,7 +357,7 @@ enum MCPServer {
 
     /// Every tool but the Manager's own, which only its runs get: what your own hosts and the phone are offered, and what
     /// Settings → MCP lists.
-    static let hostTools: [MCPTool] = tools.filter { !ManagerMCP.names.contains($0.name) }
+    static let hostTools: [MCPTool] = tools.filter { !ManagerMCP.names.contains($0.name) && !AgentChatTools.all.contains($0.name) }
 
     private static let knowledge = KnowledgeService()
     /// The host that connected ("claude-code"), from its initialize message: an agent's default name on the board.
@@ -856,6 +871,19 @@ enum MCPServer {
                 .filter { card in since.map { card.updatedAt > $0 } ?? true }
                 .filter(cardReadable)
             return json(cards.prefix(100).map { describe($0, now: now) })
+        case AgentChatTools.list, AgentChatTools.reply:
+            // Only on a server set up for one of your agents, which names it (BINDERS_AGENT): it reads its own chats alone.
+            guard actor.isAgent, Self.chatTools, case .board(nil) = Self.confinement, Self.pinnedAgent != nil else { throw MCPCore.ToolFailure("No tool named \(name)") }
+            let me = acting()
+            if name == AgentChatTools.reply {
+                guard UUID(uuidString: string("chat")) != nil else { throw MCPCore.ToolFailure("chat is required: the chat's id, from list_messages") }
+                guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
+                return try await write("chat_reply", ["chat": string("chat"), "text": string("text"), "actor": me.name, "actor_kind": me.kind.rawValue])
+            }
+            let waiting = AgentChatService.waiting(for: me.name, in: AgentChatService.read())
+            let ids = waiting.flatMap { ($0["messages"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String } }
+            if !ids.isEmpty { _ = try? await write("chat_read", ["ids": ids.joined(separator: ","), "actor": me.name, "actor_kind": me.kind.rawValue]) }
+            return json(["chats": waiting])
         case "list_agents":
             // Names and kinds only: never a command, an address or a token. Your iPhone, before it gives a card to one, also
             // hears where its cards go (a host, a program's name) and what goes with them, to say so and ask you first.
@@ -867,9 +895,15 @@ enum MCPServer {
             // it can't take a card, and a yes given for its name would be taken as one for the other.
             var reply: [String: Any] = ["paused": registry.paused]
             if let reach, let object = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(reach))) { reply["auto"] = object }
-            reply["agents"] = registry.agents.filter { $0.isEnabled && registry.held[$0.id] == nil }.map { saved in
+            // A local model is only ever the Manager: it takes no cards, so it's never offered for one.
+            let yourBinders = actor.isAgent ? [] : Store.shared.binders()
+            reply["agents"] = registry.agents.filter { $0.isEnabled && registry.held[$0.id] == nil && $0.wake.kind != "localModel" }.map { saved in
                              var entry: [String: Any] = ["name": saved.name, "wakes": saved.wake.kind]
                              guard !actor.isAgent else { return entry }
+                             // The binders whose cards it takes, by name, for where a message to it goes from the iPhone's
+                             // Agents screen; and whether it's the Manager.
+                             entry["binders"] = yourBinders.filter { saved.takesCards(from: $0.id) }.map(\.name)
+                             if registry.isManager(saved) { entry["manager"] = true }
                              // Changed outside Binders since you saved it, it drafts first until you save it again, and
                              // the iPhone hears that: never a leave it gave itself in agents.json, nor a vendor it named
                              // for itself there.

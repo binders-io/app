@@ -5,7 +5,7 @@ import BindersKit
 /// Sizes the Agents page keeps to.
 enum AgentsLayout {
     /// The list of agents on the left.
-    static let listWidth: CGFloat = 272
+    static let listWidth: CGFloat = 320
     /// How wide a conversation's lines run before they wrap, however wide the window.
     static let readingWidth: CGFloat = 720
     /// How many finished conversations show under an agent.
@@ -21,6 +21,8 @@ enum AgentsPick: Hashable {
     case other(String)
     /// A conversation: a card meant for an agent or held by one.
     case card(UUID)
+    /// A chat with an agent (lane AC1).
+    case chat(UUID)
 
     init?(_ raw: String) {
         if raw == "manager" { self = .manager; return }
@@ -30,6 +32,7 @@ enum AgentsPick: Hashable {
         case "agent": guard let id = UUID(uuidString: parts[1]) else { return nil }; self = .agent(id)
         case "other": self = .other(parts[1])
         case "card": guard let id = UUID(uuidString: parts[1]) else { return nil }; self = .card(id)
+        case "chat": guard let id = UUID(uuidString: parts[1]) else { return nil }; self = .chat(id)
         default: return nil
         }
     }
@@ -40,6 +43,7 @@ enum AgentsPick: Hashable {
         case .agent(let id): "agent:\(id.uuidString)"
         case .other(let name): "other:\(name)"
         case .card(let id): "card:\(id.uuidString)"
+        case .chat(let id): "chat:\(id.uuidString)"
         }
     }
 }
@@ -53,9 +57,11 @@ struct AgentsView: View {
     @Environment(DictationController.self) private var controller
     @State private var registry = AgentRegistry.shared
     @Query(sort: \TaskCard.updatedAt, order: .reverse) private var cards: [TaskCard]
-    @SceneStorage("agents.pick") private var picked = AgentsView.drawnPick ?? ""
-    /// Self-tests only: what's picked when the page is drawn.
-    @MainActor static var drawnPick: String?
+    /// What's picked. The hub's window isn't a SwiftUI scene, so the pick lives in its navigation.
+    private var picked: String {
+        get { navigation.agentsPick }
+        nonmutating set { navigation.agentsPick = newValue }
+    }
 
     /// An agent on the page: one you set up, or one working from its own session.
     struct Someone: Identifiable {
@@ -105,6 +111,9 @@ struct AgentsView: View {
         case .card(let id):
             guard let card = cards.first(where: { $0.id == id }) else { return nil }
             return people.first { Self.isFor(card, $0.name) }
+        case .chat(let id):
+            guard let chat = controller.chats.chat(id) else { return nil }
+            return people.first { BoardRules.isNamed(chat.agent, as: $0.name) || BoardRules.isNamed($0.name, as: chat.agent) }
         }
     }
 
@@ -122,55 +131,146 @@ struct AgentsView: View {
 
     // MARK: The list
 
+    /// The conversations the list shows, by binder: every card an agent holds or is meant for that isn't done, and those
+    /// done in the last day.
+    private func threads(_ people: [Someone]) -> [(binder: BinderRecord?, cards: [TaskCard])] {
+        let since = Date().addingTimeInterval(-86_400)
+        let all = cards.filter { card in
+            (card.column != .done || card.updatedAt > since) && people.contains { Self.isFor(card, $0.name) }
+        }
+        let grouped = Dictionary(grouping: all) { $0.binderID }
+        return grouped.map { (Store.shared.binder($0.key), $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
+            .sorted { ($0.cards.first?.updatedAt ?? .distantPast) > ($1.cards.first?.updatedAt ?? .distantPast) }
+    }
+
     private func list(_ people: [Someone], pick: AgentsPick, owner: Someone?) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Agents").font(BindersTheme.title(26))
-                    Spacer()
-                    Button {
+        let groups = threads(people)
+        let working = Set(cards.filter { controller.agents.isWorking(on: $0.id) }.compactMap(\.assignee)).count
+        let chats = people.filter(Self.chats).flatMap { controller.chats.chats(with: $0.name) }
+            .sorted { $0.updatedAt > $1.updatedAt }.prefix(AgentsLayout.earlier)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Agents").font(BindersTheme.title(24)).fitProbe("agents.header")
+                if working > 0 { Text("\(working) working").font(.callout).foregroundStyle(BindersTheme.muted) }
+                Spacer()
+                Menu {
+                    ForEach(people.filter(Self.chats)) { person in
+                        Button("New Chat with \(person.name)") { picked = person.pick.raw }
+                    }
+                    Divider()
+                    Toggle("Pause All Agents", isOn: Binding(get: { registry.paused }, set: { registry.setPaused($0) }))
+                    Button("Agent Settings…") {
                         navigation.pendingSettingsPage = .agents
                         navigation.selection = .settings
-                    } label: { Image(systemName: "gearshape") }
-                        .buttonStyle(.borderless)
-                        .help("Set up agents and the Manager in Settings → Agents")
+                    }
+                } label: {
+                    Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
+                        .frame(width: 26, height: 26)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(BindersTheme.surface2))
                 }
-                Toggle("Pause All Agents", isOn: Binding(get: { registry.paused }, set: { registry.setPaused($0) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .font(.callout)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Start a chat, pause agents, or set them up")
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 18)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+            if registry.paused {
+                StatusLabel("Agents are paused", .waiting).font(.caption).padding(.horizontal, 18).padding(.bottom, 8)
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     managerRow(selected: pick == .manager)
+                    ForEach(groups, id: \.binder?.id) { group in
+                        groupHeading(group.binder?.name ?? "No binder", color: group.binder.map { BinderPalette.color($0.colorIndex) })
+                        ForEach(group.cards) { card in threadRow(card, people: people, selected: pick == .card(card.id)) }
+                    }
+                    if !chats.isEmpty {
+                        groupHeading("Chats", color: nil)
+                        ForEach(Array(chats)) { chat in chatRow(chat, people: people, selected: pick == .chat(chat.id)) }
+                    }
                     if !people.isEmpty {
-                        Text("Your agents").font(.caption).foregroundStyle(.secondary).textCase(.uppercase).tracking(0.6)
-                            .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 4)
-                    }
-                    ForEach(people) { person in
-                        agentRow(person, selected: pick == person.pick)
-                        if owner?.id == person.id {
-                            conversationRows(person, pick: pick)
-                        }
-                    }
-                    if people.isEmpty {
+                        groupHeading("Your agents", color: nil)
+                        ForEach(people) { person in agentRow(person, selected: pick == person.pick) }
+                    } else {
                         Text("No agents yet. Set one up in Settings → Agents: Claude Code or a coding tool in a repository, a script, a web hook, or one that checks the board itself.")
                             .font(.callout).foregroundStyle(.secondary)
                             .padding(10)
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 10)
                 .padding(.bottom, 16)
             }
         }
-        .background(BindersTheme.paper.opacity(0.35))
+        .background(BindersTheme.ground)
+    }
+
+    private func groupHeading(_ name: String, color: Color?) -> some View {
+        HStack(spacing: 7) {
+            if let color { Circle().fill(color).frame(width: 6, height: 6) }
+            Text(name).font(.system(size: 12, weight: .medium)).foregroundStyle(BindersTheme.faint).lineLimit(1)
+        }
+        .padding(.leading, 10).padding(.top, 16).padding(.bottom, 4)
     }
 
     private func rowBackground(_ selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 8).fill(selected ? BindersTheme.accent.opacity(0.16) : Color.clear)
+        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? BindersTheme.selection : Color.clear)
+    }
+
+    /// A conversation: its agent's avatar with what it's doing, the card's title, a line of its state and when.
+    private func threadRow(_ card: TaskCard, people: [Someone], selected: Bool) -> some View {
+        let person = people.first { Self.isFor(card, $0.name) }
+        let name = card.assignee ?? card.meantFor ?? person?.name ?? ""
+        let working = controller.agents.isWorking(on: card.id)
+        let needs = BoardDesign.needsYou(card.column)
+        let state: (words: String, color: Color) = working ? (AgentDoingFeed.shared.lines[card.id] ?? "Working", BindersTheme.muted)
+            : needs ? (card.column == .review ? "Ready to check" : "Waiting for you", BindersTheme.needsYou)
+            : card.column == .done ? ("Done", BindersTheme.faint) : (card.column.title, BindersTheme.muted)
+        return Button { picked = AgentsPick.card(card.id).raw } label: {
+            HStack(spacing: 11) {
+                AgentAvatar(name: name, profile: person?.profile, size: 30,
+                            activity: working ? .working : needs ? .needsYou : card.column == .done ? .off : .idle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.title.isEmpty ? "Untitled" : card.title).font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(card.column == .done ? BindersTheme.muted : BindersTheme.ink).lineLimit(1)
+                    Text(state.words).font(.system(size: 12)).foregroundStyle(state.color).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text(card.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                    .font(BindersTheme.time(.caption)).foregroundStyle(BindersTheme.faint)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(rowBackground(selected))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(card.title), \(name), \(state.words)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func chatRow(_ chat: AgentChat, people: [Someone], selected: Bool) -> some View {
+        let person = people.first { BoardRules.isNamed(chat.agent, as: $0.name) || BoardRules.isNamed($0.name, as: chat.agent) }
+        let running = chat.status == .running
+        return Button { picked = AgentsPick.chat(chat.id).raw } label: {
+            HStack(spacing: 11) {
+                AgentAvatar(name: chat.agent, profile: person?.profile, size: 30, activity: running ? .working : chat.status == .waiting ? .needsYou : nil)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chat.title).font(.system(size: 13.5, weight: .medium)).foregroundStyle(BindersTheme.ink).lineLimit(1)
+                    Text(running ? "Answering" : chat.status == .waiting ? "Waiting for it to check" : chat.agent)
+                        .font(.system(size: 12)).foregroundStyle(BindersTheme.muted).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text(chat.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                    .font(BindersTheme.time(.caption)).foregroundStyle(BindersTheme.faint)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(rowBackground(selected))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Chat: \(chat.title), with \(chat.agent)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func managerRow(selected: Bool) -> some View {
@@ -178,22 +278,24 @@ struct AgentsView: View {
         let running = manager.runningID != nil
         let waiting = manager.waitingSuggestions.count
         return Button { picked = AgentsPick.manager.raw } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(BindersTheme.agent).frame(width: 18)
+            HStack(spacing: 11) {
+                AgentAvatar(name: "Manager", kind: .manager, size: 30, activity: running ? .working : waiting > 0 ? .needsYou : nil)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("The Manager").font(BindersTheme.cardTitle)
-                    if let agent = manager.agent {
-                        if running {
-                            StatusLabel("On it", .live).font(.caption)
-                        } else if waiting > 0 {
-                            StatusLabel(waiting == 1 ? "1 edit to review" : "\(waiting) edits to review", .needsYou).font(.caption)
+                    Text("The Manager").font(.system(size: 13.5, weight: .medium)).foregroundStyle(BindersTheme.ink)
+                    Group {
+                        if let agent = manager.agent {
+                            if running {
+                                Text("On it").foregroundStyle(BindersTheme.muted)
+                            } else if waiting > 0 {
+                                Text(waiting == 1 ? "1 edit to review" : "\(waiting) edits to review").foregroundStyle(BindersTheme.needsYou)
+                            } else {
+                                Text(ManagerSettingsSection.kindWords(agent).map { "\(agent.name) · \($0)" } ?? agent.name).foregroundStyle(BindersTheme.muted)
+                            }
                         } else {
-                            Text(ManagerSettingsSection.kindWords(agent).map { "\(agent.name) · \($0)" } ?? agent.name)
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text("Not set up").foregroundStyle(BindersTheme.muted)
                         }
-                    } else {
-                        Text("Not set up").font(.caption).foregroundStyle(.secondary)
                     }
+                    .font(.system(size: 12)).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -207,20 +309,18 @@ struct AgentsView: View {
 
     private func agentRow(_ person: Someone, selected: Bool) -> some View {
         let state = status(person)
+        let activity: AgentAvatar.Activity = state.tone == .live ? .working : state.tone == .needsYou ? .needsYou
+            : state.words == "Off" ? .off : .idle
         return Button { picked = person.pick.raw } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: BindersTheme.agentSymbol).foregroundStyle(BindersTheme.agent).frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(person.name).font(BindersTheme.cardTitle).lineLimit(1)
-                    if let tone = state.tone {
-                        StatusLabel(state.words, tone).font(.caption).lineLimit(1)
-                    } else {
-                        Text(state.words).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
+            HStack(spacing: 11) {
+                AgentAvatar(name: person.name, profile: person.profile, size: 26, activity: activity)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(person.name).font(.system(size: 13, weight: .medium)).foregroundStyle(BindersTheme.ink).lineLimit(1)
+                    Text(state.words).font(.system(size: 11.5)).foregroundStyle(state.tone == .needsYou ? BindersTheme.needsYou : BindersTheme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10).padding(.vertical, 8)
+            .padding(.horizontal, 10).padding(.vertical, 6)
             .background(rowBackground(selected))
             .contentShape(Rectangle())
         }
@@ -236,6 +336,7 @@ struct AgentsView: View {
             if !agent.isEnabled { return ("Off", .waiting) }
         }
         let open = conversations(person.name).open
+        if let chat = controller.chats.chats(with: person.name).first(where: { $0.status == .running }) { return ("Answering “\(chat.title)”", .live) }
         if let working = open.first(where: { controller.agents.isWorking(on: $0.id) }) { return ("Working on “\(working.title)”", .live) }
         let needs = open.filter { BoardDesign.needsYou($0.column) }.count
         if needs > 0 { return (needs == 1 ? "1 card needs you" : "\(needs) cards need you", .needsYou) }
@@ -244,41 +345,8 @@ struct AgentsView: View {
         return (open.count == 1 ? "1 open conversation" : "\(open.count) open conversations", nil)
     }
 
-    private func conversationRows(_ person: Someone, pick: AgentsPick) -> some View {
-        let (open, earlier) = conversations(person.name)
-        return VStack(alignment: .leading, spacing: 1) {
-            ForEach(open) { card in conversationRow(card, selected: pick == .card(card.id)) }
-            if !earlier.isEmpty {
-                Text("Earlier").font(.caption2).foregroundStyle(.secondary).textCase(.uppercase).tracking(0.6)
-                    .padding(.leading, 38).padding(.top, 6).padding(.bottom, 2)
-                ForEach(earlier) { card in conversationRow(card, selected: pick == .card(card.id)) }
-            }
-        }
-        .padding(.bottom, 6)
-    }
-
-    private func conversationRow(_ card: TaskCard, selected: Bool) -> some View {
-        let working = controller.agents.isWorking(on: card.id)
-        return Button { picked = AgentsPick.card(card.id).raw } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(working ? BindersTheme.agent : BoardDesign.needsYou(card.column) ? BindersTheme.needsYou : BindersTheme.faint.opacity(0.6))
-                    .frame(width: 6, height: 6)
-                Text(card.title.isEmpty ? "Untitled" : card.title)
-                    .font(.callout)
-                    .foregroundStyle(card.column == .done ? .secondary : .primary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(card.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                    .font(BindersTheme.time(.caption2)).foregroundStyle(.secondary)
-            }
-            .padding(.leading, 34).padding(.trailing, 10).padding(.vertical, 5)
-            .background(rowBackground(selected))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(card.title), \(working ? "working on it" : card.column.title)")
-    }
+    /// Whether it chats (lane AC1): Claude Code, or one that checks the board itself.
+    static func chats(_ person: Someone) -> Bool { person.profile.map { AgentChatReach.chats($0.wake.kind) } ?? false }
 
     // MARK: The right side
 
@@ -295,9 +363,20 @@ struct AgentsView: View {
                 gone
             }
         case .agent, .other:
-            if let owner {
+            if let owner, Self.chats(owner) {
+                // One that chats: a new chat with it, its cards beside it in the list.
+                AgentChatPanel(agent: owner.name, chatID: nil) { chat in picked = (chat.map(AgentsPick.chat) ?? owner.pick).raw }
+                    .id("new-" + owner.id)
+            } else if let owner {
                 AgentOverview(person: owner, open: conversations(owner.name).open) { card in picked = AgentsPick.card(card.id).raw }
                     .id(owner.id)
+            } else {
+                gone
+            }
+        case .chat(let id):
+            if let chat = controller.chats.chat(id) {
+                AgentChatPanel(agent: chat.agent, chatID: id) { next in picked = (next.map(AgentsPick.chat) ?? owner?.pick ?? .manager).raw }
+                    .id(id)
             } else {
                 gone
             }
@@ -461,21 +540,6 @@ struct AgentOverview: View {
     }
 }
 
-/// A message to an agent as a card: its first line, cut to a title, and the whole message as the details when there's more.
-enum AgentNote {
-    static let titleLimit = 80
-
-    static func card(from text: String) -> (title: String, details: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let first = trimmed.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? trimmed
-        var title = first.trimmingCharacters(in: .whitespaces)
-        if title.count > titleLimit {
-            let cut = title.prefix(titleLimit)
-            title = (cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? String(cut)) + "…"
-        }
-        return (title, title == trimmed ? "" : trimmed)
-    }
-}
 
 /// One conversation with an agent, on the Agents page: the card's conversation as its own window shows it, with what waits
 /// on you and the composer, under a line that names the card, its board and where it is, and opens it in its window.
@@ -490,6 +554,8 @@ struct AgentConversation: View {
     @State private var draft: String
     @State private var problem: String?
     @State private var editingContext: TaskEvent?
+    /// The run its latest wake started, read live (lane LS1).
+    @State private var session: AgentSessionWatch?
 
     init(card: TaskCard, agent: String?, back: @escaping () -> Void) {
         self.card = card
@@ -501,27 +567,45 @@ struct AgentConversation: View {
     }
 
     var body: some View {
+        let binder = Store.shared.binder(card.binderID)
+        let working = controller.agents.isWorking(on: card.id)
         VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Button(action: back) { Image(systemName: "chevron.backward") }
-                    .buttonStyle(.borderless)
-                    .help(agent.map { "Back to \($0)" } ?? "Back")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title.isEmpty ? "Untitled" : card.title).font(BindersTheme.title(20)).lineLimit(2)
-                    Text([agent.map { "With \($0)" }, Store.shared.binder(card.binderID).map { "\($0.name) board" }, card.column.title]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 7) {
+                            Circle().fill(BinderPalette.color(binder?.colorIndex ?? 0)).frame(width: 6, height: 6)
+                            Text(headline(binder: binder, working: working)).font(.callout).foregroundStyle(BindersTheme.muted).lineLimit(1)
+                        }
+                        Text(card.title.isEmpty ? "Untitled" : card.title).font(BindersTheme.title(26)).lineLimit(2)
+                    }
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button("Open Card") { navigation.open(card: card) }
+                            .buttonStyle(.soft)
+                            .fitProbe("agents.conversation.header")
+                            .help("Open the card in its own window, with its details")
+                        if working {
+                            Button("Stop") { controller.agents.stop(card.id) }
+                                .buttonStyle(.soft)
+                                .help("Stop this run. Your next message starts it again, carrying on its session.")
+                        }
+                    }
                 }
-                Spacer()
-                Button("Open Card") { navigation.open(card: card) }
-                    .help("Open the card in its own window, with its details")
+                if let session, !session.plan.isEmpty { AgentPlanBar(items: session.plan) }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            Divider()
+            .padding(.horizontal, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
+            .accessibilityElement(children: .contain)
+            Divider().opacity(0.6)
             CardConversationColumn(card: card, events: events, registry: registry, draft: $draft, problem: $problem,
                                    editingContext: $editingContext, close: back, compactApproval: false, detailsOver: nil)
+                .environment(\.agentSession, session)
         }
+        .onAppear { watchRun() }
+        .onChange(of: events.count) { watchRun() }
+        .onDisappear { session?.stop() }
         .binderTint(Store.shared.binder(card.binderID)?.colorIndex)
         .onChange(of: draft) { CardWindows.shared.setDraft(draft, for: card.id) }
         .alert("Couldn't do that", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
@@ -529,5 +613,26 @@ struct AgentConversation: View {
         } message: { Text(problem ?? "") }
         .sheet(item: $editingContext) { event in ContextEditor(event: event).environment(controller) }
         .followingAgentDoing()
+    }
+
+    /// "Binders · Claude Code · working for 14 min".
+    private func headline(binder: BinderRecord?, working: Bool) -> String {
+        var parts = [binder?.name, agent].compactMap { $0 }
+        if working, let started = session?.startedAt {
+            parts.append("working for \(max(1, Int(Date().timeIntervalSince(started) / 60))) min")
+        } else {
+            parts.append(card.column.title)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Follows the run of the latest wake, a newer one once it starts.
+    private func watchRun() {
+        guard let run = AgentSessionWatch.run(of: card, timeline: events) else { return }
+        guard session?.log != run.log else { return }
+        session?.stop()
+        let watch = AgentSessionWatch(log: run.log, tool: run.tool)
+        watch.start()
+        session = watch
     }
 }

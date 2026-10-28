@@ -850,6 +850,10 @@ enum SelfTest {
             // The Agents page as where you talk to your agents, drawn into the folder given, in a throwaway BINDERS_DATA_DIR.
             return await agentsPageSelfTest(drawingTo: URL(fileURLWithPath: directory))
         }
+        if args.contains("--selftest-agent-chat") {
+            // Chats with your agents (lane AC1), with a stand-in claude, in a throwaway BINDERS_DATA_DIR.
+            return await agentChatSelfTest()
+        }
         if args.contains("--selftest-manager-local") {
             // The Manager on a local model (lane MG2), with a stand-in model, in a throwaway BINDERS_DATA_DIR.
             return await managerLocalSelfTest()
@@ -2215,6 +2219,7 @@ open reports/import.html
         // Spare ports, so it runs alongside the real app's phone link.
         let server = LinkServer(controller: controller, port: 0, pairingPort: 0, devicesURL: AppPaths.support.appendingPathComponent("link-devices.json"))
         if CommandLine.arguments.contains("--real-network") { server.networkForTests = nil }
+        controller.link = server
         server.start()
         for _ in 0..<50 where server.status != .listening { try? await Task.sleep(for: .milliseconds(100)) }
         guard server.status == .listening else {
@@ -2286,6 +2291,64 @@ open reports/import.html
                 } else {
                     print("CARD: none")
                 }
+            } else if text == "agents" {
+                // Agents for the iPhone's Agents screen: two that check the board themselves, a conversation with each, and a
+                // local model as the Manager, answered by a stand-in.
+                let binders = Store.shared.binders()
+                guard let first = binders.first else { print("AGENTS: no binders"); continue }
+                let registry = AgentRegistry.shared
+                let claude = AgentProfile(name: "Claude Code · app", wake: .board)
+                let pennant = AgentProfile(name: "Pennant", wake: .board, binders: [binders.last?.id ?? first.id])
+                registry.upsert(claude)
+                registry.upsert(pennant)
+                registry.upsert(AgentProfile(name: "Manager", wake: .localModel(LocalModelWake(model: "stand-in")), manager: true), isManager: true)
+                // And Claude Code for chats (lane AC1), a stand-in that writes as it goes, then answers in Markdown.
+                let bin = AppPaths.support.appendingPathComponent("bin"), repository = AppPaths.support.appendingPathComponent("repo")
+                try? FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+                try? FileManager.default.createDirectory(at: repository.appendingPathComponent(".git"), withIntermediateDirectories: true)
+                let fake = bin.appendingPathComponent("claude")
+                try? """
+                    #!/bin/sh
+                    cat > /dev/null
+                    prev=""
+                    for a in "$@"; do if [ "$prev" = "--worktree" ]; then mkdir -p ".claude/worktrees/$a"; fi; prev="$a"; done
+                    cat <<'JSON'
+                    {"type":"assistant","message":{"content":[{"type":"text","text":"Looking at **BoardColumnsView** now…"}]}}
+                    JSON
+                    sleep 4
+                    cat <<'JSON'
+                    {"type":"result","result":"Found it. The board clips because:\\n\\n- each column is at least **260 pt** wide\\n- six columns need `1,560 pt`\\n\\n1. Fold Done into a strip\\n2. Let columns shrink to 200 pt\\n\\n```\\nlet minimum: CGFloat = 200\\n```"}
+                    JSON
+                    """.write(to: fake, atomically: true, encoding: .utf8)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+                registry.upsert(AgentProfile(name: "Claude Code · live", wake: .claudeCode(ClaudeCodeWake(repository: repository.path, permissionMode: "auto", executable: fake.path)),
+                                             preset: "claude-code"))
+                let board = controller.board
+                let agent = BoardActor(name: claude.name, kind: .agent)
+                let working = board.create(title: "Why does the board clip at 1100 pt?", details: "On my 14-inch screen the last column is cut off.", binderID: first.id, by: .you)
+                board.give(working, to: claude.name, by: .you)
+                try? board.claim(working, by: agent)
+                _ = board.comment(working, text: "Looking at BoardColumnsView now. The minimum column width is 260 pt, so six columns need 1,560 pt.", by: agent)
+                let asked = board.create(title: "Update the download link", binderID: first.id, by: .you)
+                board.give(asked, to: claude.name, by: .you)
+                try? board.claim(asked, by: agent)
+                _ = try? board.ask(asked, question: "Should the link point at 0.12.0 or the latest release?", by: agent)
+                let manager = controller.manager
+                manager.localPump = {
+                    let waiting = (try? FileManager.default.contentsOfDirectory(atPath: InboxCommands.directory.path)) ?? []
+                    for file in waiting where file.hasSuffix(".request.json") {
+                        await InboxCommands.apply(named: String(file.dropLast(".request.json".count)), controller: controller)
+                    }
+                }
+                manager.localModel = { _, _ in
+                    ScriptedModel { _, _, user in
+                        user.contains("tidy") || user.contains("Tidy")
+                            ? #"{"action":"reply","tool":"","arguments":[],"reply":"Done: nothing needed moving."}"#
+                            : #"{"action":"reply","tool":"","arguments":[],"reply":"Two cards need you: Claude Code asks which release the download link points at, and the board clipping is in progress."}"#
+                    }
+                }
+                Store.shared.save()
+                print("AGENTS: \(registry.agents.map(\.name).joined(separator: ", "))")
             } else if text == "hellos" {
                 // How many times the phone has connected: one per launch, and none for a quick trip to the background.
                 print("HELLOS: \(server.hellos)")

@@ -560,7 +560,8 @@ struct Prominent: ViewModifier {
     let on: Bool
 
     func body(content: Content) -> some View {
-        if on { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+        // The page's ink for the one that matters, a soft fill for the rest (lane UI2).
+        if on { content.buttonStyle(.primary) } else { content.buttonStyle(.soft) }
     }
 }
 

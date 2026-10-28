@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import SwiftData
 import SwiftUI
 import BindersKit
 
@@ -51,6 +52,16 @@ extension SelfTest {
             printf '%s\\n' "$@" > "$here/manager-args.txt"
             pwd > "$here/manager-pwd.txt"
             printf '%s' "$BINDERS_MANAGER" > "$here/manager-env.txt"
+            # As a Claude Code an organization manages: it refuses a run limited to the servers it's given.
+            if [ -f "$here/manager-managed" ]; then
+              for a in "$@"; do
+                if [ "$a" = "--strict-mcp-config" ]; then
+                  touch "$here/manager-refused"
+                  echo "Error: You cannot use --strict-mcp-config when an enterprise MCP config is present" >&2
+                  exit 1
+                fi
+              done
+            fi
             n=0
             while [ ! -f "$here/manager-go" ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n+1)); done
             rm -f "$here/manager-go"
@@ -100,6 +111,15 @@ extension SelfTest {
         let note = NoteItem(text: "# Plan\n\nShip the thing on Friday.\n")
         note.binderID = binder.id
         store.insert(note)
+        let scratch = NoteItem(text: "# Scratch\n\nold test words\n")
+        scratch.binderID = binder.id
+        store.insert(scratch)
+        let probe = board.create(title: "QA probe: create_task still works", binderID: binder.id, column: .backlog, by: .you)
+        probe.links = ["https://example.com/probe"]
+        // Distill's proposal of the plan: three items waiting.
+        let items = [DistillItem(title: "Write the release notes", section: nil), DistillItem(title: "Tag the build"), DistillItem(title: "Post it")]
+        let proposal = DistillRecord(note: note.id, ranBy: "You", readBy: "test", items: items)
+        DistillStore.shared.save(proposal)
         func receipts() -> Int { board.cards(in: binder.id).flatMap { board.timeline($0.id) }.filter { $0.kind == .woke }.count }
         let wokenBefore = receipts()
 
@@ -110,7 +130,7 @@ extension SelfTest {
         check(read("manager-prompt.txt").hasPrefix(ManagerPrompt.marker) && read("manager-prompt.txt").contains(request.id.uuidString)
               && !read("manager-prompt.txt").contains("Tidy my Personal board"), "its prompt names the request, not your words")
         let args = read("manager-args.txt").split(separator: "\n").map(String.init)
-        check(args.contains("dontAsk") && args.contains("--strict-mcp-config") && args.contains("mcp__binders") && args.contains("Bash")
+        check(args.contains("dontAsk") && args.contains("--strict-mcp-config") && args.contains("mcp__binders_manager") && args.contains("Bash")
               && !args.contains("--worktree"), "Binders' tools alone, nothing of its own, no worktree")
         check(read("manager-pwd.txt").trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("/manager")
               && read("manager-env.txt") == request.id.uuidString, "in the Manager's own folder, for this request")
@@ -128,7 +148,7 @@ extension SelfTest {
         }
         let offered = Set(MCPServer.offered.map(\.name))
         check(offered == ManagerTools.offered, "its server offers the Manager's tools: \(offered.symmetricDifference(ManagerTools.offered).sorted())")
-        check(await call("update_note", ["id": note.id.uuidString, "text": "x"]).text.contains("No tool named"), "no note edits of its own")
+        check(await call("claim_task", ["id": held.id.uuidString]).text.contains("No tool named"), "it works no card itself")
         check(await call("get_request", [:]).text.contains("Tidy my Personal board"), "get_request has your words")
 
         let merged = await call("merge_tasks", ["into": dentist.id.uuidString, "ids": [again.id.uuidString], "why": "Same appointment"])
@@ -136,9 +156,7 @@ extension SelfTest {
               && dentist.links == ["https://example.com/dentist"] && again.column == .done, "merge_tasks: one card with both, the other in Done (\(merged.text))")
         let closed = await call("close_task", ["id": stale.id.uuidString, "why": "No change in 90 days"])
         check(closed.ok && stale.column == .done && board.timeline(stale.id).contains { $0.text.contains("No change in 90 days") }, "close_task, saying why")
-        check(await call("close_task", ["id": held.id.uuidString, "why": "x"]).text.contains("holds"), "not a card an agent holds")
-        check(await call("close_task", ["id": waiting.id.uuidString, "why": "x"]).text.contains("waits on the user"), "not one waiting on you")
-        check(await call("close_task", ["id": waitedOn.id.uuidString, "why": "x"]).text.contains("wait for"), "not one other cards wait for")
+        check(await call("close_task", ["id": stale.id.uuidString, "why": "x"]).text.contains("done already"), "not one that's done already")
         let edited = await call("edit_task", ["id": dentist.id.uuidString, "title": "Book the dentist for March", "why": "Clearer"])
         check(edited.ok && dentist.title == "Book the dentist for March", "edit_task")
         let moved = await call("move_item", ["id": note.id.uuidString, "to": "Health"])
@@ -147,18 +165,49 @@ extension SelfTest {
         check(suggested.ok && note.text.contains("Ship the thing") && manager.waitingSuggestions.count == 1, "a suggested edit changes nothing yet")
         check(note.editedBy == nil, "and the note stays yours")
         check(await call("comment_task", ["id": held.id.uuidString, "text": "Looks close to done."]).ok, "it may comment")
+
+        // Complete control: cards moved, given and deleted, notes written and deleted, Distill's proposals, binders.
+        let movedCard = await call("move_task", ["id": waitedOn.id.uuidString, "column": "ready", "why": "Next up"])
+        check(movedCard.ok && waitedOn.column == .ready, "move_task (\(movedCard.text))")
+        let given = await call("assign_task", ["id": waitedOn.id.uuidString, "to": "Sam"])
+        check(given.ok && waitedOn.meantFor == "Sam", "assign_task to a person (\(given.text))")
+        let deleted = await call("delete_task", ["id": probe.id.uuidString, "why": "A test card"])
+        check(deleted.ok && board.card(probe.id) == nil, "delete_task (\(deleted.text))")
+        let listed = await call("list_proposals", ["id": note.id.uuidString])
+        check(listed.ok && listed.text.contains("Write the release notes") && listed.text.contains(proposal.id.uuidString), "list_proposals shows the waiting items")
+        let placed = await call("review_proposals", ["id": note.id.uuidString, "action": "place", "items": [items[0].id.uuidString]])
+        let placedCard = board.cards(in: binder.id).first { $0.title == "Write the release notes" }
+        check(placed.ok && placedCard?.column == .backlog && DistillStore.shared.distill(proposal.id, of: note.id)?.waiting.count == 2,
+              "review_proposals places an item in Backlog (\(placed.text))")
+        let dropped = await call("review_proposals", ["id": note.id.uuidString, "action": "dismiss", "items": [items[1].id.uuidString]])
+        check(dropped.ok && DistillStore.shared.distill(proposal.id, of: note.id)?.waiting.map(\.title) == ["Post it"], "and drops one (\(dropped.text))")
+        let aside = await call("review_proposals", ["id": note.id.uuidString, "action": "dismiss"])
+        check(aside.ok && DistillStore.shared.distill(proposal.id, of: note.id)?.status == .dismissed, "and puts the rest aside (\(aside.text))")
+        let written = await call("add_note", ["text": "# Weekly review\n\nAll calm.", "binder": binder.name])
+        let madeNote = ((try? store.context.fetch(FetchDescriptor<NoteItem>())) ?? []).first { $0.title == "Weekly review" }
+        check(written.ok && madeNote != nil, "add_note (\(written.text))")
+        let changedNote = await call("update_note", ["id": note.id.uuidString, "find": "on Friday", "replace": "on Monday"])
+        check(changedNote.ok && note.text.contains("on Monday"), "update_note changes the note itself")
+        let gone = await call("delete_note", ["id": scratch.id.uuidString, "why": "Old test words"])
+        check(gone.ok && store.note(scratch.id) == nil, "delete_note (\(gone.text))")
+        let binderName = binder.name, binderColor = binder.colorIndex
+        let renamed = await call("edit_binder", ["id": binder.id.uuidString, "name": "Home", "color": (binderColor + 1) % BinderRecord.paletteSize])
+        check(renamed.ok && binder.name == "Home" && binder.colorIndex != binderColor, "edit_binder (\(renamed.text))")
+        let madeBinder = await call("create_binder", ["name": "Garden"])
+        check(madeBinder.ok && store.binders().contains { $0.name == "Garden" }, "create_binder")
         check(receipts() == wokenBefore, "nothing it did woke an agent")
 
         // Someone else, or a request that isn't running, gets nothing.
+        let columnBefore = waitedOn.column
         let forged = await InboxCommands.perform(InboxRequest(action: "close_task", fields: ["id": waitedOn.id.uuidString, "why": "x", "actor": "Codex",
                                                                                               "actor_kind": "agent", "manager_request": request.id.uuidString]), controller: controller)
-        check(!forged.ok && waitedOn.column == .backlog, "another agent naming the request is refused")
+        check(!forged.ok && waitedOn.column == columnBefore, "another agent naming the request is refused")
         let wrong = await InboxCommands.perform(InboxRequest(action: "close_task", fields: ["id": waitedOn.id.uuidString, "why": "x", "actor": claude.name,
                                                                                              "actor_kind": "agent", "manager_request": second.id.uuidString]), controller: controller)
         check(!wrong.ok, "so is a request that isn't running")
-        let notAllowed = await InboxCommands.perform(InboxRequest(action: "update_note", fields: ["id": note.id.uuidString, "text": "x", "actor": claude.name,
+        let notAllowed = await InboxCommands.perform(InboxRequest(action: "claim_task", fields: ["id": waiting.id.uuidString, "actor": claude.name,
                                                                                                   "actor_kind": "agent", "manager_request": request.id.uuidString]), controller: controller)
-        check(!notAllowed.ok && note.text.contains("Ship the thing"), "and a write it isn't given")
+        check(!notAllowed.ok && waiting.assignee == nil, "and a write it isn't given")
 
         let replied = await call("reply", ["text": "Merged the two dentist cards and closed one stale idea."])
         check(replied.ok && manager.request(request.id)?.status == .answered && manager.request(request.id)?.reply?.contains("dentist") == true, "reply answers the request")
@@ -183,6 +232,15 @@ extension SelfTest {
         check(receipts() == wokenBefore, "Undo woke no one either")
         check(manager.request(request.id)?.undoable.isEmpty == true, "undone once")
         check(manager.waitingSuggestions.count == 1, "a suggestion still waits after Undo")
+        check(waitedOn.column == .backlog && waitedOn.meantFor == nil, "the moved card is back, meant for no one")
+        let back = board.cards(in: binder.id).first { $0.title == "QA probe: create_task still works" }
+        check(back?.links == ["https://example.com/probe"] && back?.column == .backlog, "the deleted card is made again")
+        let again2 = DistillStore.shared.distill(proposal.id, of: note.id)
+        check(again2?.status == .proposed && again2?.waiting.count == 3 && !board.cards(in: binder.id).contains { $0.title == "Write the release notes" },
+              "the proposal waits again, all three items, the placed card gone: \(again2?.waiting.map(\.title) ?? [])")
+        check(!((try? store.context.fetch(FetchDescriptor<NoteItem>())) ?? []).contains { $0.title == "Weekly review" } && note.text.contains("on Friday"), "the note it wrote is gone and its edit undone")
+        check(store.note(scratch.id)?.text.contains("old test words") == true, "the deleted note is back, with its id")
+        check(binder.name == binderName && binder.colorIndex == binderColor && !store.binders().contains { $0.name == "Garden" }, "the binder is as it was, the one it made gone")
 
         // The suggestion, accepted: your edit.
         let accepted = manager.accept(manager.waitingSuggestions[0].id)
@@ -195,6 +253,30 @@ extension SelfTest {
         manager.stop(third.id)
         await until { manager.request(third.id)?.isOver == true }
         check(manager.request(third.id)?.status == .stopped, "Stop ends a run")
+
+        // A Claude Code an organization manages refuses a run limited to Binders' tools: the Manager starts again without
+        // that, once, with a hook keeping it to the Manager's tools, and later requests start that way.
+        AppDefaults.store.removeObject(forKey: AgentDispatcher.refusedOnlyBindersKey)
+        files.createFile(atPath: folder.appendingPathComponent("manager-managed").path, contents: Data())
+        try? files.removeItem(at: folder.appendingPathComponent("manager-args.txt"))
+        let managed = manager.ask("What's blocked?", from: .mac)
+        await until { files.fileExists(atPath: folder.appendingPathComponent("manager-refused").path) && read("manager-args.txt").contains("pre-tool-manager") }
+        let managedArgs = read("manager-args.txt")
+        check(manager.runningID == managed.id && manager.request(managed.id)?.status == .running, "refused once, it starts again (\(manager.request(managed.id)?.why ?? ""))")
+        check(!managedArgs.contains("--strict-mcp-config") && managedArgs.contains("--agent-hook \(ClaudeCodeToolGuard.managerHook)"),
+              "without the limit, with the Manager's tool guard")
+        check(!AgentDispatcher.asksOnlyBinders, "later runs start without the limit")
+        letItEnd()
+        await until { manager.request(managed.id)?.isOver == true }
+        check(manager.request(managed.id)?.status == .answered, "and it answers")
+        try? files.removeItem(at: folder.appendingPathComponent("manager-managed"))
+        AppDefaults.store.removeObject(forKey: AgentDispatcher.refusedOnlyBindersKey)
+
+        // From the iPhone, asked of the Manager you were asked about: given to another agent since, it doesn't run there.
+        let elsewhere = manager.ask("What's due?", from: .iphone, askedOf: "Claude Code · second")
+        await until { manager.request(elsewhere.id)?.isOver == true }
+        check(manager.request(elsewhere.id)?.status == .failed && manager.request(elsewhere.id)?.why?.contains("Ask again") == true,
+              "asked of another Manager than the one with the role, it doesn't run")
 
         // What the phone reads.
         let object = manager.request(request.id)?.jsonObject ?? [:]

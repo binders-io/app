@@ -76,7 +76,8 @@ enum InboxCommands {
     static func perform(_ request: InboxRequest, controller: DictationController) async -> InboxResult {
         // Nothing is saved while the library didn't open: a write said to have worked would be gone at quit. A calendar
         // event is kept in Calendar, not the library, so it still goes.
-        if !Store.shared.canSave, request.action != "add_to_calendar" { return .failure(Store.refusedMessage) }
+        // So is a chat (lane AC1), kept in its own file.
+        if !Store.shared.canSave, !["add_to_calendar", "chat_read", "chat_reply"].contains(request.action) { return .failure(Store.refusedMessage) }
         // Sent again with the same request_id (the iPhone's outbox, its reply lost on the way): the first answer, and
         // nothing done twice. Only what worked is kept, so one that failed can be sent again.
         guard let handled = HandledRequests.key(for: request) else { return await carryOut(request, controller: controller) }
@@ -108,6 +109,19 @@ enum InboxCommands {
         }
         let store = Store.shared
         switch request.action {
+        case "chat_read", "chat_reply":
+            // An agent that checks the board itself, reading and answering your chats (lane AC1): only as itself.
+            guard field("actor_kind") == BoardActor.Kind.agent.rawValue, !field("actor").isEmpty, !BoardRules.isReserved(field("actor")) else {
+                return .failure("Only an agent reads and answers its chats.")
+            }
+            if request.action == "chat_read" {
+                let ids = Set(field("ids").split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+                _ = controller.chats.read(ids, by: field("actor"))
+                return InboxResult(ok: true, message: "Read.")
+            }
+            guard let chat = UUID(uuidString: field("chat")) else { return .failure("No chat with that id. list_messages shows yours.") }
+            if let refused = controller.chats.reply(field("text"), chat: chat, by: field("actor")) { return .failure(refused) }
+            return InboxResult(ok: true, id: chat.uuidString, message: "Sent to the user.")
         case "add_note":
             let text = field("text")
             guard !text.isEmpty else { return .failure("text is required") }
@@ -706,7 +720,7 @@ enum InboxCommands {
     }
 
     /// The named binder, or the current one when no name is given. Nil when a name is given and nothing matches.
-    private static func binder(named name: String) -> BinderRecord? {
+    static func binder(named name: String) -> BinderRecord? {
         guard !name.isEmpty else { return Store.shared.binder(AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder() }
         // By name, or by the id list_binders gives.
         let key = name.trimmingCharacters(in: .whitespacesAndNewlines)

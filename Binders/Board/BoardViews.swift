@@ -154,6 +154,11 @@ struct BoardView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
             if let said { saidLine(said) }
+            // Where the cards are, at a glance (lane UI2).
+            BoardSpreadBar(counts: BoardColumn.allCases.map { ($0, byColumn[$0]?.count ?? 0) })
+                .padding(.horizontal, 24)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
             // Columns narrow to fit the window, down to a width a card still reads at. Short of that, Done and then Backlog
             // fold to strips with their counts, so Ready, In progress, and Blocked and Review, the ones waiting on you,
             // show without scrolling sideways.
@@ -391,23 +396,18 @@ struct BoardView: View {
 
     /// A column's name and count, and its fold and add controls: a mark that says what the column means, then the words.
     private func columnHeader(_ column: BoardColumn, count: Int, foldable: Bool, accent: Color) -> some View {
-        HStack(spacing: 6) {
-            // A glyph in the column's colour, then its name: at 150 pt the name has to keep to one line.
-            Image(systemName: BoardDesign.symbol(column))
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(accent)
-                .frame(width: 14)
-                .accessibilityHidden(true)
+        HStack(spacing: 7) {
+            // Its name, then its count: at 150 pt the name has to keep to one line.
             Text(column.title)
-                .font(.system(size: 15.5, weight: .heavy, design: .rounded))
+                .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
                 .allowsTightening(true)
                 .fitProbe("board.column." + column.rawValue)
             Text("\(count)")
-                .font(BoardDesign.columnCount)
+                .font(.system(size: 13, weight: .regular))
                 .monospacedDigit()
-                .foregroundStyle(accent)
+                .foregroundStyle(BindersTheme.faint)
                 .rollingCount(count)
             Spacer(minLength: 2)
             if foldable {
@@ -896,29 +896,6 @@ struct CardTile: View {
                         .accessibilityHidden(true)
                 }
             }
-            // What a run Binders started says it's doing between its reports, in its words.
-            if card.column == .inProgress, let line = AgentDoingFeed.shared.lines[card.id] {
-                DoingLine(agent: card.assignee ?? "The agent", line: line)
-            }
-            if card.column == .blocked {
-                // A question or a request for your approval waits on you: amber. Blocked with a reason, such as a run that
-                // stopped before it finished, is a problem: the problem style.
-                let approving = card.waitingApproval() != nil
-                let asking = approving || card.taskState() == .inputRequired
-                if asking {
-                    BoardPill(text: approving ? "Approve" : "Answer",
-                              symbol: approving ? "checkmark.shield" : "questionmark.bubble",
-                              color: BindersTheme.needsYou, strong: true)
-                        .help(approving ? "Open it to approve or decline what it asks" : "Open it to answer")
-                } else {
-                    BoardPill(text: "Blocked: open it", symbol: BindersTheme.problemSymbol, color: BindersTheme.muted)
-                        .help("Open it to see why")
-                }
-            } else if card.column == .review {
-                // Finished work waits on you to check it: amber, as a question does.
-                BoardPill(text: "Check", symbol: "eye", color: BindersTheme.needsYou, strong: true)
-                    .help("Open it to check the work")
-            }
             if !items.isEmpty {
                 // Wide enough, the facts sit in a row; in a narrow column each keeps to its own line and truncates there.
                 ViewThatFits(in: .horizontal) {
@@ -934,6 +911,8 @@ struct CardTile: View {
                     }
                 }
             }
+            // Who has it and how it's going, with when (lane UI2).
+            CardFooter(card: card)
         }
         .padding(.horizontal, BoardDesign.cardHorizontalInset)
         .padding(.vertical, BoardDesign.cardVerticalInset)
@@ -944,15 +923,6 @@ struct CardTile: View {
             if selected {
                 RoundedRectangle(cornerRadius: BoardDesign.cardRadius, style: .continuous).fill(TintFill().opacity(0.10))
                 RoundedRectangle(cornerRadius: BoardDesign.cardRadius, style: .continuous).strokeBorder(TintFill(), lineWidth: 2)
-            }
-        }
-        .overlay(alignment: .leading) {
-            if BoardDesign.needsYou(card.column) || card.column == .inProgress {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(accent.opacity(0.75))
-                    .frame(width: 3)
-                    .padding(.vertical, 11)
-                    .padding(.leading, 1)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -991,18 +961,10 @@ struct CardTile: View {
             items.append(Meta(view: AnyView(BoardPill(text: shown, symbol: "square.stack.3d.down.right", color: BindersTheme.muted)
                 .help("Part of “\(noteTitle)”"))))
         }
-        if let assignee = card.assignee, BoardRules.isClaimed(card.state, at: .now) || card.column == .review || card.column == .done {
-            items.append(Meta(view: AnyView(AssigneeChip(name: assignee, isAgent: card.assigneeIsAgent,
-                                                         expires: card.column == .inProgress ? card.claimExpiresAt : nil))))
-        }
-        if let meantFor = card.meantFor, !BoardRules.isClaimed(card.state, at: .now), card.column != .done {
-            // An agent's suggestion asks, and waits on you; your own choice says.
-            if card.meantForByAgent {
-                items.append(Meta(view: AnyView(BoardPill(text: "Give to \(meantFor)?", symbol: "questionmark.circle",
-                                                         color: BindersTheme.needsYou, strong: true))))
-            } else {
-                items.append(Meta(view: AnyView(BoardPill(text: "For \(meantFor)", symbol: "person.crop.circle"))))
-            }
+        // Who has it, and who you meant it for, are its footer's (`CardFooter`); an agent's suggestion asks, and waits on you.
+        if let meantFor = card.meantFor, card.meantForByAgent, !BoardRules.isClaimed(card.state, at: .now), card.column != .done {
+            items.append(Meta(view: AnyView(BoardPill(text: "Give to \(meantFor)?", symbol: "questionmark.circle",
+                                                     color: BindersTheme.needsYou, strong: true))))
         }
         if let due = card.dueAt, card.column != .done {
             let urgent = due < Date() || Calendar.current.isDateInToday(due)

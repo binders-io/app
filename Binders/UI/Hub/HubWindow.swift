@@ -74,6 +74,9 @@ final class HubNavigation {
     var pendingEntityID: Int64?
     /// The Settings page to open next, consumed by Settings when it appears.
     var pendingSettingsPage: SettingsPage?
+    /// What's picked on the Agents page (`AgentsPick.raw`), empty for its first choice: kept here, so it stays as you go
+    /// to other pages and back.
+    var agentsPick = ""
     /// The quick switcher, when it's open: ⌘O to find, ⌘P for commands.
     var switcher: SwitcherMode?
     /// What to type into the switcher as it opens, such as a #tag.
@@ -290,6 +293,12 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
     }
 }
 
+/// The hub window's page panel.
+enum HubLayout {
+    static let panelRadius: CGFloat = 12
+    static let panelInset: CGFloat = 8
+}
+
 struct HubView: View {
     @Environment(HubNavigation.self) private var navigation
 
@@ -305,6 +314,12 @@ struct HubView: View {
                 }
                 .pageGround()
                 .fitProbe("page")
+                // The page, a panel on the sidebar's ground (lane UI2): rounded, with a hairline edge.
+                .clipShape(RoundedRectangle(cornerRadius: HubLayout.panelRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: HubLayout.panelRadius, style: .continuous).strokeBorder(BindersTheme.line))
+                .padding([.trailing, .bottom], HubLayout.panelInset)
+                .padding(.top, 2)
+                .background(BindersTheme.ground2.ignoresSafeArea())
         }
         .overlay(alignment: .top) {
             if let mode = navigation.switcher {
@@ -414,7 +429,7 @@ struct HubSidebar: View {
                     .shadow(color: .black.opacity(dark ? 0.35 : 0.18), radius: 8, y: 4)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Binders")
-                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(ink)
                     Text("Private, on this Mac.")
                         .font(.caption)
@@ -433,8 +448,9 @@ struct HubSidebar: View {
                 }
                 .foregroundStyle(ink.opacity(0.6))
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(edge))
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(BindersTheme.surface))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(edge))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -443,6 +459,7 @@ struct HubSidebar: View {
             .padding(.bottom, 10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
+                    groupLabel("Navigation")
                     row(.home)
                     row(.today)
                     row(.work)
@@ -523,7 +540,6 @@ struct HubSidebar: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(BindersTheme.ground2)
-        .overlay(alignment: .trailing) { edge.frame(width: 1) }
         .toolbar(removing: .sidebarToggle)
         // The folder you're in shows in the sidebar, its binder and the folders around it open.
         .onChange(of: navigation.folderID, initial: true) { _, folder in reveal(folder) }
@@ -546,13 +562,12 @@ struct HubSidebar: View {
     }
 
     private func groupLabel(_ name: String) -> some View {
-        Text(name.uppercased())
-            .font(.system(size: 10.5, weight: .semibold))
-            .tracking(0.9)
-            .foregroundStyle(ink.opacity(0.42))
+        Text(name)
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(BindersTheme.faint)
             .padding(.leading, 10)
-            .padding(.top, 18)
-            .padding(.bottom, 5)
+            .padding(.top, 16)
+            .padding(.bottom, 4)
     }
 
     private func createBinder() {
@@ -584,7 +599,7 @@ struct HubSidebar: View {
                         .frame(width: 10, height: 14)
                         .frame(width: 20)
                     Text(binder.name)
-                        .font(.system(size: 13.5, weight: here ? .semibold : .regular))
+                        .font(.system(size: 13.5, weight: here ? .medium : .regular))
                         .foregroundStyle(ink.opacity(here ? 1 : (binder.archived ? 0.5 : 0.82)))
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -735,8 +750,8 @@ struct HubSidebar: View {
 
     private func rowFill(selected: Bool, hovered: Bool, dropping: Bool) -> AnyShapeStyle {
         if dropping { return AnyShapeStyle(BindersTheme.accent.opacity(dark ? 0.4 : 0.22)) }
-        if selected { return AnyShapeStyle(BindersTheme.accent.opacity(dark ? 0.3 : 0.14)) }
-        return AnyShapeStyle(hovered ? ink.opacity(0.06) : .clear)
+        if selected { return AnyShapeStyle(ink.opacity(dark ? 0.09 : 0.07)) }
+        return AnyShapeStyle(hovered ? ink.opacity(0.045) : .clear)
     }
 
     private func row(_ section: HubSection) -> some View {
@@ -747,18 +762,18 @@ struct HubSidebar: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: section.symbol)
-                    .font(.system(size: 13.5, weight: .medium))
+                    .font(.system(size: 13, weight: .regular))
                     .frame(width: 20)
-                    .foregroundStyle(selected ? BindersTheme.accentText : ink.opacity(0.7))
+                    .foregroundStyle(ink.opacity(selected ? 0.95 : 0.55))
                 Text(section.title)
-                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(ink.opacity(selected ? 1 : 0.82))
+                    .font(.system(size: 13.5, weight: selected ? .medium : .regular))
+                    .foregroundStyle(ink.opacity(selected ? 1 : 0.8))
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 6.5)
             .padding(.horizontal, 10)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(selected ? BindersTheme.accent.opacity(dark ? 0.3 : 0.14) : (hovered == section ? ink.opacity(0.06) : .clear)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? ink.opacity(dark ? 0.09 : 0.07) : (hovered == section ? ink.opacity(0.045) : .clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -16,6 +16,9 @@ struct HomeView: View {
     @State private var data = HomeData()
     @State private var search = ""
     @State private var found: [TranscriptRecord]?
+    /// The agents' day, read when the page shows and every minute while it does.
+    @State private var agentDay = AgentActivity.Day()
+    @Query(filter: #Predicate<TaskCard> { $0.columnRaw != "done" }) private var openCards: [TaskCard]
 
     static var recentRecords: FetchDescriptor<TranscriptRecord> {
         var descriptor = FetchDescriptor<TranscriptRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
@@ -82,6 +85,12 @@ struct HomeView: View {
                 consumePendingSearch()
             }
             .onChange(of: navigation.pendingHistorySearch) { consumePendingSearch() }
+            .task {
+                while !Task.isCancelled {
+                    agentDay = AgentActivityData.read()
+                    try? await Task.sleep(for: .seconds(60))
+                }
+            }
             .followingWorkStreams()
             // What the page first reads just shows; what arrives after files in, and counts roll.
             .settlesAfterAppearing()
@@ -101,11 +110,24 @@ struct HomeView: View {
     }
 
     private var greetingLines: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(greeting).font(BindersTheme.title(32))
-            Text("\(Date().formatted(date: .complete, time: .omitted)) · Hold \(settings.hotkeys.dictation.displayString()) and speak, double-tap for hands-free.")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day())).font(BindersTheme.title(34)).fitProbe("home.title")
+            Text(summary).foregroundStyle(BindersTheme.muted)
         }
+        .help(greeting)
+    }
+
+    /// "Three agents working · two questions for you · ten things to check", or how to dictate when nothing's going on.
+    private var summary: String {
+        let working = Set(openCards.filter { $0.assigneeIsAgent && $0.column == .inProgress }.compactMap(\.assignee)).count
+        let questions = openCards.filter { $0.column == .blocked }.count
+        let check = openCards.filter { $0.column == .review }.count
+        func count(_ n: Int, _ one: String, _ many: String) -> String? {
+            n == 0 ? nil : "\(n.formatted(.number.notation(.automatic))) \(n == 1 ? one : many)"
+        }
+        let parts = [count(working, "agent working", "agents working"), count(questions, "question for you", "questions for you"),
+                     count(check, "thing to check", "things to check")].compactMap { $0 }
+        return parts.isEmpty ? "Hold \(settings.hotkeys.dictation.displayString()) and speak, double-tap for hands-free." : parts.joined(separator: " · ")
     }
 
     /// Record, New note and Scratchpad.
@@ -117,17 +139,22 @@ struct HomeView: View {
                     if meetingService.recordingMeetingID != nil { openMeetings() }
                 }
             } label: {
-                Label(meetingService.isRecording ? "Stop" : "Record",
-                      systemImage: meetingService.isRecording ? "stop.fill" : "record.circle")
+                if meetingService.isRecording {
+                    // Red only while the microphone is live.
+                    Label("Stop", systemImage: "stop.fill").foregroundStyle(BindersTheme.live)
+                } else {
+                    Text("Record")
+                }
             }
-            .buttonStyle(.borderedProminent)
-            // Red only while the microphone is live.
-            .tint(meetingService.isRecording ? BindersTheme.live : BindersTheme.accent)
-            Button { newNote() } label: { Label("New note", systemImage: "square.and.pencil") }
-            Button { ScratchpadController.shared.show() } label: { Label("Scratchpad", systemImage: "note.text.badge.plus") }
+            .buttonStyle(.soft)
+            Button { ScratchpadController.shared.show() } label: { Image(systemName: "note.text.badge.plus") }
+                .buttonStyle(.soft)
+                .help("Scratchpad")
+                .accessibilityLabel("Scratchpad")
+            Button("New note") { newNote() }
+                .buttonStyle(.primary)
                 .fitProbe("home.header.last")
         }
-        .controlSize(.large)
         .fixedSize()
     }
 
@@ -149,13 +176,11 @@ struct HomeView: View {
                     }
                 }
 
-                NeedsYouStrip()
+                // The agents' day, who's on what, and what waits for you (lane UI2).
+                AgentActivityPanel(day: agentDay)
+                HomeAgentsSection()
 
-                // Now: what's moving on the boards, and what was heard today.
-                HStack(alignment: .top, spacing: 16) {
-                    WorkStreamsSection()
-                    HeardTodaySection()
-                }
+                HeardTodaySection()
 
                 if !AppPaths.isDemo { SetupChecklist() }
 
@@ -227,8 +252,9 @@ struct HomeView: View {
                     }
                 }
             }
-            .padding(28)
-            .frame(maxWidth: 1100, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 28)
+            .frame(maxWidth: 1180, alignment: .leading)
         }
     }
 

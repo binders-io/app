@@ -12,20 +12,54 @@ enum ManagerMCP {
         MCPTool(name: "reply", description: "Your answer to the request, which the user reads on their iPhone or Mac: short, plain, with what you changed and anything left for them. It ends the request; Binders lists your changes with an Undo.", parameters: [
             MCPToolParameter(name: "text", description: "The answer.", required: true),
         ]),
-        MCPTool(name: "edit_task", description: "Change a card's title or description: a clearer title starting with a verb, a description that says what done looks like. Not a card an agent holds, one waiting on the user, or one on a team's board. Undo puts it back.", parameters: [
+        MCPTool(name: "edit_task", description: "Change a card's title or description: a clearer title starting with a verb, a description that says what done looks like. Undo puts it back.", parameters: [
             MCPToolParameter(name: "id", description: "The card's id.", required: true),
             MCPToolParameter(name: "title", description: "Its new title."),
             MCPToolParameter(name: "details", description: "Its new description, in full."),
             MCPToolParameter(name: "why", description: "Why, in a few words, for its timeline.", required: true),
         ]),
-        MCPTool(name: "close_task", description: "Move a card in Backlog or Ready to Done: work that's done already, or long untouched and no longer wanted. Not one other cards wait for, or one on a team's board. Undo puts it back where it was.", parameters: [
+        MCPTool(name: "close_task", description: "Move a card to Done: work that's done already, or no longer wanted. A card an agent is working on stops there. On a team's board the move goes to the team's database, which may refuse it while it's out of reach. Undo puts it back where it was.", parameters: [
             MCPToolParameter(name: "id", description: "The card's id.", required: true),
             MCPToolParameter(name: "why", description: "Why, for its timeline: \"done in 0.11.0\", \"no change in 90 days\".", required: true),
         ]),
-        MCPTool(name: "merge_tasks", description: "Merge cards that are the same work into one: the others' descriptions and links go into it, and they move to Done, saying where they went. Every card must be in Backlog or Ready, on the same board, and not on a team's board; none of the others may have cards waiting for it. Undo puts them all back.", parameters: [
+        MCPTool(name: "merge_tasks", description: "Merge cards that are the same work into one: the others' descriptions and links go into it, and they move to Done, saying where they went. Every card must be open and on the same board. Undo puts them all back.", parameters: [
             MCPToolParameter(name: "into", description: "The card that stays.", required: true),
             MCPToolParameter(name: "ids", type: "array", description: "The cards that merge into it.", required: true),
             MCPToolParameter(name: "why", description: "Why they're the same work.", required: true),
+        ]),
+        MCPTool(name: "move_task", description: "Move a card to another column: backlog, ready, in_progress, review, blocked or done. Ready hands a card meant for an agent to it. A card an agent is working on stops there when it leaves In progress. Undo puts it back.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "column", description: "backlog, ready, in_progress, review, blocked or done.", required: true),
+            MCPToolParameter(name: "why", description: "Why, for its timeline."),
+        ]),
+        MCPTool(name: "assign_task", description: "Give a card to someone: an agent (list_agents), which Binders starts on it as Give to does, moving it from Backlog to Ready; a person; or no one (leave to empty). Undo gives it back to whoever had it, but can't stop a run it started.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "to", description: "The agent's or person's name, as list_agents or the board writes it; empty for no one."),
+            MCPToolParameter(name: "why", description: "Why, for its timeline."),
+        ]),
+        MCPTool(name: "delete_task", description: "Delete a card: a duplicate, a test card, or noise. Prefer close_task for work that's done or no longer wanted, which keeps its history. Undo makes it again, with its title, description, links, column and who it was for.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "why", description: "Why, for your reply.", required: true),
+        ]),
+        MCPTool(name: "list_proposals", readOnly: true, description: "Distill's proposals still waiting for review: for one note (id), or for every note (no id). Each proposal with when and who read it, and its waiting items: id, title, brief, section, whether that section is still in the note, size and who it's for.", parameters: [
+            MCPToolParameter(name: "id", description: "The note's id. Leave it out for every note with a proposal waiting."),
+        ]),
+        MCPTool(name: "review_proposals", description: "Review a note's waiting proposals as the user would: place their items on the board as cards (place), or put them aside (dismiss). Without proposals, every waiting proposal of the note; without items, every waiting item of those. Dismissing items drops only them; dismissing whole proposals puts aside what's left of each. Placed cards go to Backlog unless column is ready, which hands the ones meant for agents to them. Undo takes it back.", parameters: [
+            MCPToolParameter(name: "id", description: "The note's id.", required: true),
+            MCPToolParameter(name: "action", description: "place or dismiss.", required: true),
+            MCPToolParameter(name: "proposals", type: "array", description: "The proposals' ids, from list_proposals."),
+            MCPToolParameter(name: "items", type: "array", description: "The items' ids, from list_proposals."),
+            MCPToolParameter(name: "column", description: "For place: backlog (the default) or ready."),
+        ]),
+        MCPTool(name: "delete_note", description: "Delete a note of the user's. Not a teammate's, or one shared with the team (that deletes it for everyone: the user does that). Undo puts it back with the same id.", parameters: [
+            MCPToolParameter(name: "id", description: "The note's id.", required: true),
+            MCPToolParameter(name: "why", description: "Why, for your reply.", required: true),
+        ]),
+        MCPTool(name: "edit_binder", description: "Rename a binder, change its colour, or archive it (or bring it back). Undo puts it back as it was.", parameters: [
+            MCPToolParameter(name: "id", description: "The binder's id or name.", required: true),
+            MCPToolParameter(name: "name", description: "Its new name."),
+            MCPToolParameter(name: "color", type: "integer", description: "Its colour: 0 to 7, as list_binders gives them."),
+            MCPToolParameter(name: "archived", type: "boolean", description: "true to archive it, false to bring it back."),
         ]),
         MCPTool(name: "propose_note_edit", description: "Suggest an edit to a note, for the user to accept or not: nothing changes until they do, and then it's their edit. Give find and replace to change a passage (exactly as get_note shows it, there once), or text for the whole note.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
@@ -40,11 +74,12 @@ enum ManagerMCP {
 
     /// The words a run of the Manager reads about Binders, after the rest.
     static let instructions = """
-        You are the user's Manager: Binders woke you for one request, which get_request shows. You read across their \
-        binders; you tidy their boards with edit_task, close_task, merge_tasks, create_task and comment_task, and their \
-        folders with create_folder, rename_folder and move_item; you distill notes with distill_note; and you suggest note \
-        edits with propose_note_edit, which wait for the user. Every change is kept with the request, and the user can undo \
-        them all at once. Finish with reply.
+        You are the user's Manager: Binders woke you for one request, which get_request shows. You manage their binders \
+        for them: their boards (create_task, edit_task, move_task, assign_task, close_task, merge_tasks, delete_task, \
+        comment_task), Distill (distill_note, list_proposals, review_proposals), their notes (add_note, update_note, \
+        append_to_note, delete_note, propose_note_edit), folders (create_folder, rename_folder, move_item) and binders \
+        (create_binder, edit_binder). Every change is kept with the request, and the user can undo them all at once. \
+        Finish with reply.
         """
 
     /// Runs one of its tools for the run's request. The writes say which request they're for.
@@ -92,6 +127,35 @@ enum ManagerMCP {
             }
             guard !string("into").isEmpty, !ids.isEmpty else { throw MCPCore.ToolFailure("into and ids are required") }
             return try await write("merge_tasks", who.merging(["into": string("into"), "ids": ids.joined(separator: ","), "why": string("why")]) { a, _ in a })
+        case "move_task":
+            guard !string("id").isEmpty, !string("column").isEmpty else { throw MCPCore.ToolFailure("id and column are required") }
+            return try await write("move_task", who.merging(["id": string("id"), "column": string("column"), "why": string("why")]) { a, _ in a })
+        case "assign_task":
+            guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
+            return try await write("assign_task", who.merging(["id": string("id"), "to": string("to"), "why": string("why")]) { a, _ in a })
+        case "delete_task", "delete_note":
+            guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
+            guard !string("why").isEmpty else { throw MCPCore.ToolFailure("why is required") }
+            return try await write(name, who.merging(["id": string("id"), "why": string("why")]) { a, _ in a })
+        case "list_proposals":
+            return json(ManagerProposals.list(note: UUID(uuidString: string("id"))))
+        case "review_proposals":
+            guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
+            guard ["place", "dismiss"].contains(string("action")) else { throw MCPCore.ToolFailure("action is place or dismiss") }
+            func ids(_ key: String) -> String {
+                if let list = arguments[key] as? [Any] { return list.compactMap { $0 as? String }.joined(separator: ",") }
+                return string(key)
+            }
+            return try await write("review_proposals", who.merging(["id": string("id"), "action": string("action"), "proposals": ids("proposals"),
+                                                                    "items": ids("items"), "column": string("column")]) { a, _ in a })
+        case "edit_binder":
+            guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
+            var fields = who.merging(["id": string("id"), "name": string("name")]) { a, _ in a }
+            if let color = arguments["color"] { fields["color"] = "\(color)" }
+            if let archived = arguments["archived"] {
+                fields["archived"] = (archived as? Bool).map { $0 ? "true" : "false" } ?? "\(archived)"
+            }
+            return try await write("edit_binder", fields)
         case "propose_note_edit":
             guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
             var fields = who.merging(["id": string("id"), "why": string("why")]) { a, _ in a }

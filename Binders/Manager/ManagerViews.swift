@@ -170,9 +170,8 @@ struct ManagerChat: View {
                 }
                 if let reply = request.reply {
                     // The Manager's words: shown as its, never as yours.
-                    Text(reply)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
+                    ChatMarkdownView(markdown: reply)
+                        .padding(.horizontal, 12).padding(.vertical, 9)
                         .background(BindersTheme.agent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                 }
                 if !request.changes.isEmpty {

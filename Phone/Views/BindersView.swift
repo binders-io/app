@@ -29,7 +29,7 @@ struct BindersView: View {
     @State private var opened: Date? = nil
 
     enum Place: Hashable {
-        case allTodos, allTasks, allMeetings, allNotes, capture, happening
+        case allTodos, allTasks, allMeetings, allNotes, capture, happening, agents
         case binder(BinderInfo)
     }
 
@@ -64,6 +64,7 @@ struct BindersView: View {
                         Label("Board", systemImage: "rectangle.split.3x1")
                     }
                     NavigationLink(value: Place.happening) { Label("What's happening", systemImage: "waveform.path.ecg") }
+                    NavigationLink(value: Place.agents) { Label("Agents", systemImage: "sparkles") }
                     NavigationLink(value: Place.allMeetings) { Label("Meetings", systemImage: "person.2.wave.2") }
                     NavigationLink(value: Place.allNotes) { Label("Notes", systemImage: "note.text") }
                 }
@@ -101,6 +102,7 @@ struct BindersView: View {
                 case .allNotes: NotesList(binder: nil).navigationTitle("Notes")
                 case .capture: CaptureView()
                 case .happening: WorkStreamsView { path.append(Place.allTasks) }
+                case .agents: AgentsList()
                 case .binder(let binder): BinderDetailView(binder: binder)
                 }
             }
@@ -199,6 +201,13 @@ struct BindersView: View {
         case "meetings": path.append(Place.allMeetings)
         case "notes": path.append(Place.allNotes)
         case "capture": path.append(Place.capture)
+        case "agents": path.append(Place.agents)
+        case "manager":
+            path.append(Place.agents)
+            path.append(AgentsPlace.manager)
+        case "agent":
+            path.append(Place.agents)
+            if let name = UserDefaults.standard.string(forKey: "agent") { path.append(AgentsPlace.agent(name)) }
         default:
             if UserDefaults.standard.bool(forKey: "openFirst"),
                let fullest = binders.filter({ !$0.archived }).max(by: { $0.meetings + $0.notes < $1.meetings + $1.notes }) {

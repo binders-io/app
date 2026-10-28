@@ -84,8 +84,11 @@ final class DictationController {
     @ObservationIgnored private(set) lazy var distill = DistillService(controller: self)
     /// The Manager (lane MG1): what you ask the agent with the role, and its tidies, one at a time.
     @ObservationIgnored private(set) lazy var manager = ManagerService(controller: self)
+    /// Your chats with your agents (lane AC1).
+    @ObservationIgnored private(set) lazy var chats = AgentChatService(controller: self)
     /// Binders as a server for paired phones; started by the app when the setting is on.
-    @ObservationIgnored private(set) lazy var link = LinkServer(controller: self)
+    /// The phone link. `--selftest-link-serve` puts its own in, on spare ports, so what changes reaches the iPhone it serves.
+    @ObservationIgnored lazy var link = LinkServer(controller: self)
 
     init() {
         hotkeys = HotkeyMonitor(bindings: AppSettings.shared.hotkeys)

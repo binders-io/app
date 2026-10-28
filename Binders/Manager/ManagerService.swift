@@ -18,6 +18,8 @@ final class ManagerService {
     @ObservationIgnored private var process: (any ManagerRunning)?
     /// The run going now is a local model's (lane MG2): when it fails, its log's result says why in its own words.
     @ObservationIgnored private var runningLocal = false
+    /// The run going now asked for Binders' tools alone (`ManagerLaunch.make`'s `strictMCP`).
+    @ObservationIgnored private var runStrict = false
     @ObservationIgnored private var stopping = false
     /// The model a local Manager runs on (lane MG2): Distill's in Settings → AI, or the one it names; in the lane you're
     /// waiting on for what you ask, behind it for a scheduled tidy. Self-tests put a stand-in here.
@@ -86,17 +88,21 @@ final class ManagerService {
     /// Something you asked it, in your words. `thread`: a request whose conversation this goes on.
     /// `id`: the phone's own for it, so one sent twice is one request.
     @discardableResult
-    func ask(_ text: String, thread: UUID? = nil, from: ManagerRequest.From, id: UUID? = nil) -> ManagerRequest {
+    func ask(_ text: String, thread: UUID? = nil, from: ManagerRequest.From, id: UUID? = nil, askedOf: String? = nil) -> ManagerRequest {
         let follows = thread.flatMap(request)
-        return add(ManagerRequest(id: id ?? UUID(), thread: follows?.thread, kind: .ask,
-                                  text: String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)), from: from))
+        var request = ManagerRequest(id: id ?? UUID(), thread: follows?.thread, kind: .ask,
+                                     text: String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)), from: from)
+        request.askedOf = askedOf
+        return add(request)
     }
 
     /// A tidy of one binder, or of every binder.
     @discardableResult
-    func tidy(binder: UUID?, from: ManagerRequest.From, id: UUID? = nil) -> ManagerRequest {
+    func tidy(binder: UUID?, from: ManagerRequest.From, id: UUID? = nil, askedOf: String? = nil) -> ManagerRequest {
         let name = binder.flatMap { Store.shared.binder($0)?.name }
-        return add(ManagerRequest(id: id ?? UUID(), kind: .tidy, text: ManagerRequest.tidyText(binder: name), binder: binder, from: from))
+        var request = ManagerRequest(id: id ?? UUID(), kind: .tidy, text: ManagerRequest.tidyText(binder: name), binder: binder, from: from)
+        request.askedOf = askedOf
+        return add(request)
     }
 
     private func add(_ request: ManagerRequest) -> ManagerRequest {
@@ -115,6 +121,13 @@ final class ManagerService {
             return startNext()
         }
         guard let agent, let dispatcher = controller?.agents else { return }
+        // Asked from your iPhone of another Manager, whose yes it had: not this one's.
+        if let askedOf = file.requests[index].askedOf, askedOf != agent.name {
+            finish(id, status: .failed, why: "The Manager is \(agent.name) now, not \(askedOf), which you asked. Ask again, so your iPhone can ask you about \(agent.name) first.")
+            return startNext()
+        }
+        // Whether this run asks for Binders' tools alone, as it starts: a refusal of that starts it again once.
+        runStrict = agent.wake.kind == "claudeCode" && AgentDispatcher.asksOnlyBinders
         let exited: @MainActor (Int32, URL) -> Void = { [weak self] status, log in self?.ended(id, status: status, log: log) }
         let woken: Result<any ManagerRunning, ManagerWakeFailure>
         if case .localModel(let wake) = agent.wake {
@@ -154,9 +167,24 @@ final class ManagerService {
         process = nil
         let stoppedByYou = stopping
         stopping = false
+        // This Mac's Claude Code, managed by an organization, refused a run limited to Binders' tools: once, it starts again
+        // without that limit (`AgentDispatcher.asksOnlyBinders` is false from now, so it can't be refused so again), with a
+        // hook keeping it to the Manager's tools.
+        let managed = runningLocal || stoppedByYou ? nil : ClaudeCodeManaged.finding(in: AgentDispatcher.startAndEnd(of: log), server: ManagerLaunch.server)
+        let wasStrict = runStrict
+        runStrict = false
+        if managed == .refusedOnlyBinders, wasStrict, let index = file.requests.firstIndex(where: { $0.id == id }),
+           !file.requests[index].isOver, file.requests[index].changes.isEmpty {
+            AppDefaults.store.set(Date(), forKey: AgentDispatcher.refusedOnlyBindersKey)
+            file.requests[index].status = .waiting
+            save()
+            return startNext()
+        }
         if let request = request(id), !request.isOver {
             if stoppedByYou {
                 finish(id, status: .stopped, why: "You stopped it.")
+            } else if managed == .keptOut, request.reply == nil {
+                finish(id, status: .failed, why: ClaudeCodeManaged.managerKeptOutLine)
             } else if runningLocal, status != 0 {
                 // A local run says why it failed in its own words.
                 finish(id, status: .failed, why: AgentDispatcher.lastResult(in: log).text ?? "Its run stopped (exit \(status)).")
@@ -261,7 +289,69 @@ final class ManagerService {
             guard card.column == .backlog || card.column == .ready, card.assignee == nil else {
                 return "“\(card.title)” was picked up since, so it stays."
             }
+            ManagerProposals.unplace(card)
             if let why = board.delete(card) { return "“\(card.title)”: \(why)" }
+        case .movedCard:
+            guard let card = board.card(change.id) else { return "“\(change.line)”: the card is gone." }
+            guard let column = BoardColumn(rawValue: change.before ?? ""), card.column != column else { return nil }
+            do {
+                try board.tidyMove(card, to: column, note: "Undid the Manager's move.")
+            } catch {
+                return "“\(card.title)”: \(error.localizedDescription)"
+            }
+        case .assignedCard:
+            guard let card = board.card(change.id) else { return "“\(change.line)”: the card is gone." }
+            let before = change.before ?? ""
+            board.assign(card, to: before.isEmpty ? nil : before, by: .you)
+        case .deletedCard:
+            guard board.card(change.id) == nil else { return nil }
+            guard let was = ManagerCardSnapshot.read(change.snapshot) else { return "“\(change.line)”: Binders didn't keep enough of it to make it again." }
+            let shared = controller?.teamBoard.isShared(binder: was.binder) == true
+            let column = BoardColumn(rawValue: was.column) ?? .backlog
+            let card = board.create(title: was.title, details: was.details, binderID: was.binder, column: column == .done ? .backlog : column, due: was.due,
+                                    source: was.sourceKind.flatMap { kind in was.sourceID.map { (kind, $0, was.sourceTitle ?? "") } },
+                                    id: shared ? nil : was.id, by: .you)
+            if !was.links.isEmpty { board.tidy(card, links: was.links, by: .you, line: "Brought back: Undid the Manager's deleting it.") }
+            if let who = was.meantFor { board.assign(card, to: who, by: .you) }
+            if column == .done { try? board.tidyMove(card, to: .done, note: "Brought back as it was.") }
+        case .editedNote:
+            guard let note = store.note(change.id), let was = change.beforeDetails else { return "“\(change.line)”: the note is gone." }
+            guard note.text == change.snapshot else { return "“\(note.title)” changed since, so it stays as it is. Its history has the earlier version." }
+            NoteHistory.willChange(note, to: was, always: true)
+            note.text = was
+            note.updatedAt = Date()
+            // Whose edit it was before, as it was: yours again if it was yours.
+            note.editedBy = (change.before ?? "").isEmpty ? nil : change.before
+            note.editedAt = note.editedBy == nil ? nil : change.beforeLinks?.first.flatMap { ISO8601DateFormatter().date(from: $0) }
+            store.save()
+        case .madeNote:
+            guard let note = store.note(change.id) else { return nil }
+            guard note.text == change.snapshot else { return "“\(note.title)” changed since, so it stays." }
+            store.delete(note)
+        case .deletedNote:
+            guard store.note(change.id) == nil else { return nil }
+            guard let was = ManagerNoteSnapshot.read(change.snapshot) else { return "“\(change.line)”: Binders didn't keep enough of it to put it back." }
+            let note = NoteItem(text: was.text)
+            note.id = was.id
+            note.binderID = store.binder(was.binder)?.id ?? store.defaultBinder().id
+            note.folderID = store.shownFolder(was.folder, in: note.binderID)
+            note.createdAt = was.createdAt
+            note.madeBy = was.madeBy
+            note.staysUnshared = was.staysUnshared
+            store.insert(note)
+        case .dismissedProposal:
+            return ManagerProposals.undoDismiss(change)
+        case .madeBinder:
+            guard let binder = store.binder(change.id) else { return nil }
+            let counts = store.counts(in: binder.id)
+            guard counts.meetings + counts.notes == 0, board.cards(in: binder.id).isEmpty else { return "The binder “\(binder.name)” has things in it now, so it stays." }
+            store.deleteBinder(binder, movingItemsTo: store.defaultBinder())
+        case .editedBinder:
+            guard let binder = store.binder(change.id), let was = ManagerBinderSnapshot.read(change.snapshot) else { return "“\(change.line)”: the binder is gone." }
+            binder.name = was.name
+            binder.colorIndex = was.color
+            binder.archived = was.archived
+            store.save()
         case .movedItem:
             guard let (item, binder) = Self.movable(change.id) else { return "“\(change.line)”: it's gone." }
             let folder = change.before.flatMap(UUID.init(uuidString:)).flatMap { store.folder($0) != nil ? $0 : nil }

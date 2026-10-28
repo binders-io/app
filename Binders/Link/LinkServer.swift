@@ -479,7 +479,7 @@ final class LinkServer {
         switch method {
         case "binders/dictation", ConversationPayload.method, MomentPayload.method: return .close
         // What you asked the Manager waits on the phone and comes again (lane MG1); a tap on Undo or Accept is said no to.
-        case LinkFeatures.managerMethod: return .close
+        case LinkFeatures.managerMethod, LinkFeatures.chatSendMethod: return .close
         case CaptureOutcome.actMethod, ConversationSuggestion.actMethod, LinkFeatures.managerActMethod: return .error(Store.refusedMessage)
         case "tools/call" where tool.map(answerTools.contains) == true: return .close
         default: return nil
@@ -547,7 +547,7 @@ final class LinkServer {
     static let features = [ConversationPayload.feature, ConversationSuggestion.feature, LinkFeatures.warm, CaptureOutcome.feature, MomentPayload.feature,
                            LinkFeatures.dedupe, LinkFeatures.askProgress, LinkFeatures.approvals, MomentPayload.addsFeature, LinkFeatures.giveTo,
                            LinkFeatures.addresses, MomentPayload.agreedFeature, LinkFeatures.commentWakes, MomentPayload.autoFeature,
-                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager]
+                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager, LinkFeatures.chats]
 
     /// What became of what the phone sent, for the ids it asks after (at most 50); ones this Mac doesn't know are left out.
     fileprivate func outcomes(_ ids: [String]) -> [[String: Any]] {
@@ -1279,6 +1279,14 @@ private final class LinkSession {
                     return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
                 }
             }
+            // Chats with your agents (lane AC1).
+            if [LinkFeatures.chatListMethod, LinkFeatures.chatMethod, LinkFeatures.chatSendMethod, LinkFeatures.chatActMethod].contains(method) {
+                do {
+                    return reply(MCPCore.success(id: id, result: try server.chats(method, params)))
+                } catch {
+                    return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
+                }
+            }
             // The Manager (lane MG1): what you ask it, what it said and changed, and your Undo, Stop, Accept and Dismiss.
             if method == LinkFeatures.managerMethod || method == LinkFeatures.managerActMethod {
                 do {
@@ -1407,9 +1415,39 @@ private final class AskProgressRelay {
 // MARK: The Manager (lane MG1)
 
 extension LinkServer {
+    /// Chats with your agents, from your iPhone (lane AC1): the list (`agent`: one agent's), one chat with its messages
+    /// (`id`), your message (`agent`, `text`, `chat?`, `id?` the phone's own for it), or Stop (`id`, `action` "stop").
+    fileprivate func chats(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
+        guard let controller else { throw MCPCore.ToolFailure("Binders is shutting down") }
+        let chats = controller.chats
+        func uuid(_ key: String) -> UUID? { (params[key] as? String).flatMap(UUID.init(uuidString:)) }
+        switch method {
+        case LinkFeatures.chatListMethod:
+            let agent = (params["agent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let list = agent.isEmpty ? chats.file.chats : chats.chats(with: agent)
+            return ["chats": list.prefix(60).map { $0.jsonObject(messages: false, live: chats.live[$0.id]) }]
+        case LinkFeatures.chatMethod:
+            guard let id = uuid("id"), let chat = chats.chat(id) else { throw MCPCore.ToolFailure("Binders on this Mac doesn't have that chat.") }
+            return chat.jsonObject(messages: true, live: chats.live[id])
+        case LinkFeatures.chatSendMethod:
+            let agent = (params["agent"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !agent.isEmpty else { throw MCPCore.ToolFailure("Say which agent it's for.") }
+            switch chats.send(params["text"] as? String ?? "", to: agent, chat: uuid("chat"), via: "iphone", id: uuid("id")) {
+            case .success(let chat): return chat.jsonObject(messages: true, live: chats.live[chat.id])
+            case .failure(let failure): throw MCPCore.ToolFailure(failure.why)
+            }
+        default:
+            guard let id = uuid("id"), chats.chat(id) != nil else { throw MCPCore.ToolFailure("Binders on this Mac doesn't have that chat.") }
+            guard params["action"] as? String == "stop" else { throw MCPCore.ToolFailure("A chat takes stop.") }
+            chats.stop(id)
+            return ["message": "Stopped."]
+        }
+    }
+
     /// Something you typed to the Manager on your iPhone, or a tidy you asked for there: it goes to the Manager at once,
     /// as a request from you. `id`, the phone's own, makes one sent twice a single request. `thread`: the request whose
-    /// conversation it goes on. `kind` "tidy" with `binder` (an id or a name; none: every binder).
+    /// conversation it goes on. `kind` "tidy" with `binder` (an id or a name; none: every binder). `agent`: the Manager the
+    /// iPhone asked you about first; one given the role since refuses it.
     fileprivate func askManager(_ params: [String: Any]) throws -> [String: Any] {
         guard let controller else { throw MCPCore.ToolFailure("Binders is shutting down") }
         let manager = controller.manager
@@ -1418,6 +1456,11 @@ extension LinkServer {
         }
         let text = (params["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let kind = ManagerRequest.Kind(rawValue: params["kind"] as? String ?? "") ?? .ask
+        // The Manager the iPhone asked you about, or asked of: it runs only on that one.
+        let askedOf = (params["agent"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        if let askedOf, let current = manager.agent?.name, askedOf != current {
+            throw MCPCore.ToolFailure("The Manager is \(current) now, not \(askedOf). Look again, and ask again.")
+        }
         let request: ManagerRequest
         switch kind {
         case .tidy:
@@ -1428,11 +1471,11 @@ extension LinkServer {
                 }
                 binder = found.id
             }
-            request = manager.tidy(binder: binder, from: .iphone, id: (params["id"] as? String).flatMap(UUID.init(uuidString:)))
+            request = manager.tidy(binder: binder, from: .iphone, id: (params["id"] as? String).flatMap(UUID.init(uuidString:)), askedOf: askedOf)
         case .ask:
             guard !text.isEmpty else { throw MCPCore.ToolFailure("Say what you'd like the Manager to do.") }
             request = manager.ask(text, thread: (params["thread"] as? String).flatMap(UUID.init(uuidString:)), from: .iphone,
-                                  id: (params["id"] as? String).flatMap(UUID.init(uuidString:)))
+                                  id: (params["id"] as? String).flatMap(UUID.init(uuidString:)), askedOf: askedOf)
         }
         return request.jsonObject
     }
@@ -1452,7 +1495,11 @@ extension LinkServer {
         let limit = min(max(1, params["limit"] as? Int ?? 20), 50)
         var reply: [String: Any] = ["requests": requests.suffix(limit).reversed().map(\.jsonObject),
                                     "suggestions": manager.waitingSuggestions.map { $0.jsonObject(current: Store.shared.note($0.note)?.text) }]
-        if let agent = manager.agent { reply["agent"] = agent.name }
+        if let agent = manager.agent {
+            reply["agent"] = agent.name
+            // A local model stays on this Mac; anything else, the iPhone asks you about first (its list_agents entry).
+            if case .localModel = agent.wake { reply["local"] = true }
+        }
         if let problem = manager.problem { reply["problem"] = problem }
         return reply
     }

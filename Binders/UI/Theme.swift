@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The Binders look, the website's binder: a deep indigo ground in the dark and a pale lavender one in the light, opaque
-/// surfaces for cards, a note page that's light paper in the light and a dark page in the dark, and the icon's indigo as
-/// the accent. Four colours each mean one thing, and always come with their glyph: amber needs you, red is the live
-/// microphone, lavender with the sparkle is an agent's doing, green is done. Titles and counts are rounded and heavy, your
-/// own words are quoted in New York italic, and times have monospaced digits. site/styles.css has the same grounds,
-/// surfaces, words and accent; the site keeps its own light paper and stronger binder tints.
+/// The Binders look (lane UI2, after the founder's "F" mockups): graphite in the dark and white in the light, the sidebar a
+/// shade off the page, opaque surfaces for cards, and a vivid violet as the accent. Primary buttons are the page's ink
+/// (white in the dark, black in the light). Four colours each mean one thing, and always come with their glyph: amber
+/// needs you, red is the live microphone, lavender with the sparkle is an agent's doing, green is done. Agents wear a
+/// colour of their own on their avatar (`AgentAvatar`). Titles and counts are semibold in the system face, your own words
+/// are quoted in New York italic, and times have monospaced digits.
 enum BindersTheme {
     // MARK: Grounds and surfaces
 
@@ -54,45 +54,62 @@ enum BindersTheme {
     static let agent = Color(nsColor: NS.agent)
     /// Green: done, and nothing else.
     static let done = Color(nsColor: NS.done)
+    /// Lines an edit took out, in a diff, and nothing else.
+    static let removed = Color(nsColor: NS.removed)
+    /// The warm brand stroke: a run's plan, the activity chart's lead line.
+    static let brandWarm = Color(nsColor: NS.brandWarm)
+    /// Under code: a diff, a command's output.
+    static let codeGround = Color(nsColor: NS.codeGround)
+    /// A primary button's fill, the page's ink, and its words.
+    static let primaryFill = Color(nsColor: NS.primaryFill)
+    static let onPrimary = Color(nsColor: NS.onPrimary)
+    /// What's picked in a list: a faint wash of ink.
+    static let selection = Color(nsColor: NS.selection)
 
     /// The tokens as AppKit colours, for windows, menus and the note editor. Each follows the appearance it's drawn in.
     enum NS {
-        static let ground = dynamic("ground", dark: 0x0B0A17, light: 0xF6F5FB)
-        static let ground2 = dynamic("ground2", dark: 0x0F0D1F, light: 0xEFEDF8)
-        static let surface = dynamic("surface", dark: 0x16142B, light: 0xFFFFFF)
-        static let surface2 = dynamic("surface2", dark: 0x1F1C3A, light: 0xF1EFFA)
-        // The note page. In the dark these are the surface, ink, muted, faint and line.
-        static let paper = dynamic("paper", dark: 0x16142B, light: 0xFBFBF8)
-        static let paperInk = dynamic("paperInk", dark: 0xEFEDFB, light: 0x1B1740)
-        static let paperMuted = dynamic("paperMuted", dark: 0xA7A2C4, light: 0x6F6A8C)
-        static let paperFaint = dynamic("paperFaint", dark: 0x767193, light: 0x6F6A8C, lightAlpha: 0.6)
-        static let paperLine = dynamic("paperLine", dark: 0xBEB4FF, light: 0xEBE9F3, darkAlpha: 0.12)
-        static let ink = dynamic("ink", dark: 0xEFEDFB, light: 0x16132E)
-        static let muted = dynamic("muted", dark: 0xA7A2C4, light: 0x57527A)
-        static let faint = dynamic("faint", dark: 0x767193, light: 0x8A85A8)
-        static let line = dynamic("line", dark: 0xBEB4FF, light: 0x2D2282, darkAlpha: 0.12, lightAlpha: 0.11)
-        static let lineStrong = dynamic("lineStrong", dark: 0xBEB4FF, light: 0x2D2282, darkAlpha: 0.22, lightAlpha: 0.2)
-        static let accent = srgb(0x604CF4)
-        static let accentText = dynamic("accentText", dark: 0xAA9EFF, light: 0x4A39D6)
-        static let needsYou = dynamic("needsYou", dark: 0xF0A23A, light: 0xC9790F)
+        static let ground = dynamic("ground", dark: 0x1C1C1E, light: 0xFFFFFF)
+        static let ground2 = dynamic("ground2", dark: 0x141415, light: 0xF3F3F5)
+        static let surface = dynamic("surface", dark: 0x262628, light: 0xF5F5F7)
+        static let surface2 = dynamic("surface2", dark: 0x313134, light: 0xEBEBEF)
+        // The note page. In the dark these are the page's ground, ink, muted, faint and line.
+        static let paper = dynamic("paper", dark: 0x1C1C1E, light: 0xFFFFFF)
+        static let paperInk = dynamic("paperInk", dark: 0xF2F2F3, light: 0x111113)
+        static let paperMuted = dynamic("paperMuted", dark: 0xA1A1A8, light: 0x5E5E66)
+        static let paperFaint = dynamic("paperFaint", dark: 0x7C7C83, light: 0x5E5E66, lightAlpha: 0.6)
+        static let paperLine = dynamic("paperLine", dark: 0xFFFFFF, light: 0xEAEAEE, darkAlpha: 0.09)
+        static let ink = dynamic("ink", dark: 0xF2F2F3, light: 0x111113)
+        static let muted = dynamic("muted", dark: 0xA1A1A8, light: 0x5E5E66)
+        static let faint = dynamic("faint", dark: 0x7C7C83, light: 0x8B8B93)
+        static let line = dynamic("line", dark: 0xFFFFFF, light: 0x000000, darkAlpha: 0.09, lightAlpha: 0.08)
+        static let lineStrong = dynamic("lineStrong", dark: 0xFFFFFF, light: 0x000000, darkAlpha: 0.17, lightAlpha: 0.15)
+        static let accent = srgb(0x6446F5)
+        static let accentText = dynamic("accentText", dark: 0xA996FF, light: 0x5639E6)
+        static let needsYou = dynamic("needsYou", dark: 0xF5A524, light: 0xB86A00)
         static let live = dynamic("live", dark: 0xFF5A52, light: 0xD93A34)
-        static let agent = dynamic("agent", dark: 0xC7BFF6, light: 0x6F5FE0)
-        static let done = dynamic("done", dark: 0x3CCF6A, light: 0x1F9D4A)
+        static let agent = dynamic("agent", dark: 0xC4B5FF, light: 0x6A4BF0)
+        static let done = dynamic("done", dark: 0x4ADE80, light: 0x15803D)
+        static let removed = dynamic("removed", dark: 0xF87171, light: 0xC81E1E)
+        static let brandWarm = dynamic("brandWarm", dark: 0xE8875B, light: 0xD2602F)
+        static let codeGround = dynamic("codeGround", dark: 0x151517, light: 0xF5F5F7)
+        static let primaryFill = dynamic("primaryFill", dark: 0xF2F2F3, light: 0x111113)
+        static let onPrimary = dynamic("onPrimary", dark: 0x111113, light: 0xFFFFFF)
+        static let selection = dynamic("selection", dark: 0xFFFFFF, light: 0x000000, darkAlpha: 0.08, lightAlpha: 0.06)
     }
 
     /// The dark values whatever the appearance: the Flow bar, dark over any app, and the graph's night sky.
     enum Dark {
         static let ground = Color(nsColor: srgb(0x0B0A17))
         static let surface2 = Color(nsColor: srgb(0x1F1C3A))
-        static let accentText = Color(nsColor: srgb(0xAA9EFF))
+        static let accentText = Color(nsColor: srgb(0xA996FF))
         static let live = Color(nsColor: srgb(0xFF5A52))
     }
 
     /// The light values whatever the appearance.
     enum Light {
-        static let accentText = Color(nsColor: srgb(0x4A39D6))
-        static let done = Color(nsColor: srgb(0x1F9D4A))
-        static let agent = Color(nsColor: srgb(0x6F5FE0))
+        static let accentText = Color(nsColor: srgb(0x5639E6))
+        static let done = Color(nsColor: srgb(0x15803D))
+        static let agent = Color(nsColor: srgb(0x6A4BF0))
     }
 
     /// One colour for the dark appearance and another for the light, picked as it's drawn.
@@ -109,14 +126,14 @@ enum BindersTheme {
 
     // MARK: Type
 
-    /// Page titles: SF Pro Rounded, heavy.
-    static func title(_ size: CGFloat = 30) -> Font { .system(size: size, weight: .heavy, design: .rounded) }
-    /// A section's title on a page: "Open to-dos", "Binders".
-    static let columnTitle = Font.system(size: 20, weight: .heavy, design: .rounded)
+    /// Page titles: the system face, a large one lighter than a small one, as a Mac app's titles are.
+    static func title(_ size: CGFloat = 30) -> Font { .system(size: size, weight: size >= 26 ? .medium : .semibold) }
+    /// A section's title on a page: "Agents", "Waiting for you".
+    static let columnTitle = Font.system(size: 15, weight: .semibold)
     /// A title inside a card, a panel or a sheet: a binder's name, an agent's, a board column's, "Digest".
-    static let cardTitle = Font.system(size: 14, weight: .heavy, design: .rounded)
-    /// A count on its own: rounded and heavy, with digits that keep their width as it changes.
-    static func count(_ size: CGFloat = 20) -> Font { .system(size: size, weight: .heavy, design: .rounded).monospacedDigit() }
+    static let cardTitle = Font.system(size: 13.5, weight: .semibold)
+    /// A count on its own, with digits that keep their width as it changes.
+    static func count(_ size: CGFloat = 20) -> Font { .system(size: size, weight: .medium).monospacedDigit() }
     /// Your own words, quoted: what you said, a transcript's lines, a moment, a snippet's trigger. New York italic.
     static func quote(_ style: Font.TextStyle = .body) -> Font { .system(style, design: .serif).italic() }
     /// Times and durations, with monospaced digits so they don't jitter.

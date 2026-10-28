@@ -184,7 +184,11 @@ struct AgentList: Codable, Equatable {
         /// its owner and who it sends cards to (`sendsTo`). Nil from any other Mac, and for your own agents.
         var teammate: Bool? = nil
         var owner: String? = nil
+        /// The binders whose cards it takes, by name: a teammate's agent's shared binders, and, from a Mac with the Manager
+        /// (`LinkFeatures.manager`), your own agent's, for where a message to it goes. Nil from any other Mac.
         var binders: [String]? = nil
+        /// Your agent that has the Manager's role; nil from a Mac before it.
+        var manager: Bool? = nil
         var headless: Bool? = nil
         var purpose: String? = nil
         var takesTeamCards: Bool? = nil

@@ -15,8 +15,10 @@ enum AgentRunHook {
         let input = FileHandle.standardInput.readDataToEndOfFile()
         // `--agent-hook pre-tool`: a run not limited to Binders' tools asks before each MCP tool. A refusal is said on standard
         // error with exit status 2, which Claude Code takes as "don't run it" and tells the run why.
-        if let index = arguments.firstIndex(of: "--agent-hook"), arguments.indices.contains(index + 1), arguments[index + 1] == ClaudeCodeToolGuard.hook {
-            guard let why = ClaudeCodeToolGuard.refusal(input) else { exit(0) }
+        if let index = arguments.firstIndex(of: "--agent-hook"), arguments.indices.contains(index + 1),
+           [ClaudeCodeToolGuard.hook, ClaudeCodeToolGuard.managerHook].contains(arguments[index + 1]) {
+            let manager = arguments[index + 1] == ClaudeCodeToolGuard.managerHook
+            guard let why = manager ? ClaudeCodeToolGuard.managerRefusal(input) : ClaudeCodeToolGuard.refusal(input) else { exit(0) }
             FileHandle.standardError.write(Data((why + "\n").utf8))
             exit(2)
         }

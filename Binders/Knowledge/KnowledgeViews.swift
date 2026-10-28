@@ -240,9 +240,12 @@ struct KnowledgeView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            PageHeader(title: binderID == nil ? "Knowledge" : "Knowledge in this binder",
-                       subtitle: binderID == nil ? "Everything said in meetings, written in notes and dictated — searchable and linked."
-                                                : "Search, ask and explore what's in this binder's meetings and notes.")
+            VStack(alignment: .leading, spacing: 6) {
+                Text(binderID == nil ? "Everything said in meetings, written in notes and dictated · all on this Mac"
+                                     : "This binder's meetings and notes · all on this Mac")
+                    .font(.callout).foregroundStyle(BindersTheme.muted)
+                Text(binderID == nil ? "Ask your work anything" : "Ask this binder anything").font(BindersTheme.title(34))
+            }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search, or ask “what did we decide about pricing?”", text: $query)
@@ -251,22 +254,33 @@ struct KnowledgeView: View {
                     .onSubmit(ask)
                 if searching { ProgressView().controlSize(.small) }
                 // Ask is the language model answering from your binders; no agent does it, so not the sparkle.
-                Button(action: ask) {
-                    Label("Ask", systemImage: BindersTheme.askSymbol)
-                }
+                Button("Ask", action: ask)
+                .buttonStyle(.primary)
                 .disabled(query.trimmed.isEmpty || (run?.isWorking == true && run?.question == query.trimmed))
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(BindersTheme.surface))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(BindersTheme.line))
+            .padding(.leading, 16)
+            .padding(.trailing, 7)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BindersTheme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(BindersTheme.line))
             // On one line while they fit; on a narrow page they carry on to the next.
             Wrapping(spacing: 8, lineSpacing: 8) {
-                Picker("", selection: $mode) {
-                    ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                HStack(spacing: 18) {
+                    ForEach(Mode.allCases, id: \.self) { choice in
+                        Button { mode = choice } label: {
+                            Text(choice.rawValue)
+                                .font(.system(size: 13.5, weight: mode == choice ? .semibold : .regular))
+                                .foregroundStyle(mode == choice ? BindersTheme.ink : BindersTheme.muted)
+                                .padding(.vertical, 4)
+                                .overlay(alignment: .bottom) {
+                                    if mode == choice { Capsule().fill(BindersTheme.ink).frame(height: 2).offset(y: 4) }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(mode == choice ? .isSelected : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 180)
+                .padding(.trailing, 10)
                 Picker("", selection: $kindFilter) {
                     Text("Everything").tag(KnowledgeKind?.none)
                     ForEach(KnowledgeKind.allCases) { Text($0.displayName).tag(KnowledgeKind?.some($0)) }

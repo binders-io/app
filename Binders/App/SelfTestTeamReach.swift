@@ -61,6 +61,16 @@ extension SelfTest {
             return "\(card.column.rawValue) \(card.assignee ?? "nobody")"
         }
 
+        // The Manager tidies the team's board as you would: a free card it may close while the database answers.
+        let manager = BoardActor(name: "Manager", kind: .agent)
+        if let card = mac.card(free) {
+            bed.check(ManagerCommands.refusal(card, board: mac.board, closing: true) == nil && ManagerCommands.refusal(card, board: mac.board, closing: false) == nil,
+                      "the Manager may close and edit a free card on the team's board")
+        }
+        if let card = mac.card(held) {
+            bed.check(ManagerCommands.refusal(card, board: mac.board, closing: true) == nil, "and one an agent holds, when you ask it to")
+        }
+
         // MARK: The server stops.
         bed.check(await bed.postgres.pause(), "the team's server stops")
         let away = await bed.eventually(10) { team.outboxReach == .unreachable }
@@ -73,6 +83,11 @@ extension SelfTest {
             ("complete_task", ["id": held.uuidString, "summary": "Checked."], .finish, "complete_task"),
             ("release_task", ["id": held.uuidString], .release, "release_task"),
         ]
+        if let card = mac.card(free) {
+            let refusal = ManagerCommands.refusal(card, board: mac.board, closing: true)
+            bed.check(refusal == TeamBoardWrites.refusal(.move(.done), .unreachable, agent: true) && mac.board.teamRefusal(.move(.done), on: card, by: manager) == refusal,
+                      "stopped: the Manager hears why it can't close a team card now: \(refusal?.prefix(60) ?? "-")")
+        }
         for (tool, arguments, write, name) in refusals {
             let answer = await timed(tool, arguments)
             bed.check(!answer.ok && answer.text == TeamBoardWrites.refusal(write, .unreachable, agent: true) && answer.seconds < 3,

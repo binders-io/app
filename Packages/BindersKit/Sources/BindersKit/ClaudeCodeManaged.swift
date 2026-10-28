@@ -80,6 +80,9 @@ public enum ClaudeCodeManaged {
     /// The card's line when the organization's settings kept Binders' tools out of the run.
     public static let keptOutLine = "Claude Code on this Mac has settings from your organization that keep Binders' board tools out of its runs, so this run couldn't read or update the card. Ask your admin to allow Binders' server, named binders; or turn on “Post to the Claude Code session open in this repository” for this agent in Settings → Agents; or use a command agent instead."
 
+    /// The Manager's request when the organization's settings kept Binders' tools out of its run.
+    public static let managerKeptOutLine = "Claude Code on this Mac has settings from your organization that keep Binders' tools out of its runs, so the Manager couldn't read or change anything. Ask your admin to allow Binders' server, named binders, or make a local model the Manager in Settings → Agents."
+
     /// Settings → Agents' line for a Claude Code agent on a Mac whose Claude Code an organization manages.
     public static let settingsLine = "Claude Code on this Mac is managed by your organization. Binders starts its runs without limiting them to Binders' tools, which managed settings refuse, and still keeps your other connected tools out of them. When the organization's settings keep Binders' tools out of a run too, the card says so and what to do."
 }
@@ -92,6 +95,8 @@ public enum ClaudeCodeManaged {
 public enum ClaudeCodeToolGuard {
     /// The hook's name on Binders' command line.
     public static let hook = "pre-tool"
+    /// The same for a run of the Manager, which may use the Manager's tools (`ManagerTools.offered`) and no other.
+    public static let managerHook = "pre-tool-manager"
 
     /// The board's tools, as Binders' server offers them to a woken run (`MCPServer.boardTools`).
     public static let boardTools: Set<String> = ["list_tasks", "get_task", "create_task", "claim_task", "update_task", "ask_on_task",
@@ -106,5 +111,13 @@ public enum ClaudeCodeToolGuard {
         let prefix = "mcp__\(server)__"
         if tool.hasPrefix(prefix), boardTools.contains(String(tool.dropFirst(prefix.count))) { return nil }
         return "A Binders card run may use only Binders' board tools for its card\(tool.isEmpty ? "" : ", not \(tool)"). Carry on with those and your built-in tools."
+    }
+
+    /// The same for a run of the Manager: only the Manager's tools from Binders' server.
+    public static func managerRefusal(_ input: Data, server: String = ManagerLaunch.server) -> String? {
+        let tool = ((try? JSONSerialization.jsonObject(with: input)) as? [String: Any])?["tool_name"] as? String ?? ""
+        let prefix = "mcp__\(server)__"
+        if tool.hasPrefix(prefix), ManagerTools.offered.contains(String(tool.dropFirst(prefix.count))) { return nil }
+        return "The Manager may use only Binders' Manager tools\(tool.isEmpty ? "" : ", not \(tool)"). Carry on with those."
     }
 }

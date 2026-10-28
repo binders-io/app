@@ -40,8 +40,8 @@ settings:
     DEVELOPMENT_TEAM: 87LFD98HJU
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development: Helder Feixas (2SNS7F6FAZ)"
-    MARKETING_VERSION: "0.12.0"
-    CURRENT_PROJECT_VERSION: "42"
+    MARKETING_VERSION: "0.12.1"
+    CURRENT_PROJECT_VERSION: "46"
 targets:
   Binders:
     type: application
@@ -211,8 +211,8 @@ targets:
       base:
         # The App Store Connect record "Binders" (6751210657), taken over from the old events app at 2.0.
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app
-        MARKETING_VERSION: "2.2"
-        CURRENT_PROJECT_VERSION: "42"
+        MARKETING_VERSION: "2.3"
+        CURRENT_PROJECT_VERSION: "44"
         PRODUCT_NAME: Binders
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
@@ -264,8 +264,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app.widgets
         # Same as the app's: an extension's versions must match the app it's in.
-        MARKETING_VERSION: "2.2"
-        CURRENT_PROJECT_VERSION: "42"
+        MARKETING_VERSION: "2.3"
+        CURRENT_PROJECT_VERSION: "44"
         PRODUCT_NAME: BindersWidgets
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
@@ -308,8 +308,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app.keyboard
         # Same as the app's: an extension's versions must match the app it's in.
-        MARKETING_VERSION: "2.2"
-        CURRENT_PROJECT_VERSION: "42"
+        MARKETING_VERSION: "2.3"
+        CURRENT_PROJECT_VERSION: "44"
         PRODUCT_NAME: BindersKeyboard
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"

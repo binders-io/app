@@ -1084,7 +1084,8 @@ public struct ClaudeCodeLaunch: Equatable, Sendable {
     /// - `dataFolder` is Binders' data folder, which the run may neither read nor change, and `home` the home folder.
     ///   `alsoPrivate` are more folders it may neither read nor change: the team folder, the agents' logs.
     /// - `worktreeExists` says the card's worktree is there from an earlier wake: the run starts in it rather than making it.
-    /// - `session` is the run's session id, for `claude --resume`.
+    /// - `session` is the run's session id, for `claude --resume`. With `resuming`, it's the card's last run's, which this
+    ///   run carries on (`claude --resume`): your comment or answer is a next turn of the same session, in the same folder.
     /// - `draftsFirst`, unless you let the agent act for you (`AgentProfile.draftsFirst`): its prompt tells it to ask your
     ///   approval with request_approval before it sends, posts, buys or deletes anything outside its folder.
     /// - `strictMCP`: the run gets only Binders' MCP server (--strict-mcp-config), none of yours. A Claude Code that an
@@ -1097,7 +1098,7 @@ public struct ClaudeCodeLaunch: Equatable, Sendable {
     /// on the card.
     public static func make(card: UUID, reason: AgentWake.Reason, boardName: String, wake: ClaudeCodeWake, binders: String,
                             dataFolder: String, home: String, alsoPrivate: [String] = [], worktreeExists: Bool, session: UUID,
-                            draftsFirst: Bool = true, strictMCP: Bool = true) -> ClaudeCodeLaunch {
+                            draftsFirst: Bool = true, strictMCP: Bool = true, resuming: Bool = false) -> ClaudeCodeLaunch {
         let denied = deniedTools(dataFolder: dataFolder, home: home, alsoPrivate: alsoPrivate)
         let servers: [String: Any] = [
             "mcpServers": ["binders": ["type": "stdio", "command": binders, "args": ["--mcp"],
@@ -1118,7 +1119,13 @@ public struct ClaudeCodeLaunch: Equatable, Sendable {
         arguments += ["--mcp-config", json(servers), "--settings", json(settings), "--allowedTools", "mcp__binders"]
         arguments += taskTools + ["--disallowedTools"]
         arguments += denied
-        arguments += ["--session-id", session.uuidString.lowercased(), "--name", "Binders card \(short(card))"]
+        // Carrying on needs the folder it ran in: the card's worktree, or the folder itself.
+        let resumes = resuming && (worktreeExists || wake.worksInFolder)
+        if resumes {
+            arguments += ["--resume", session.uuidString.lowercased()]
+        } else {
+            arguments += ["--session-id", session.uuidString.lowercased(), "--name", "Binders card \(short(card))"]
+        }
         // In the folder itself there's no worktree to make or resume.
         if !worktreeExists, !wake.worksInFolder { arguments += ["--worktree", worktreeName(for: card)] }
         // A model is a name, never another flag.

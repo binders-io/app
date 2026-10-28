@@ -63,7 +63,7 @@ enum ManagerWords {
         } else {
             starts = "Binders starts Claude Code with Binders' tools alone."
         }
-        return "When you ask the Manager something, or ask it to tidy, \(starts) It reads across your binders, notes, meetings and boards; edits, merges and closes cards; makes, renames and fills folders; and distills notes. It deletes nothing, can't change a note (it suggests an edit, which you accept or not) and can't start another agent. Everything it changes for a request can be undone at once. Captures, transcripts and teammates' items stay out unless Settings → MCP lets it read them."
+        return "When you ask the Manager something, or ask it to tidy, \(starts) It manages your binders for you: it reads across them, and changes what you could. It makes, edits, moves, gives, closes, merges and deletes cards (giving one to an agent starts it), places or puts aside what Distill proposed, writes, changes and deletes notes (not the team's), and makes, renames and archives folders and binders. Everything it changes for a request can be undone at once. Captures, transcripts and teammates' items stay out unless Settings → MCP lets it read them."
     }
 }
 

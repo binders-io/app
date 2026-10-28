@@ -8,13 +8,17 @@ import BindersKit
 /// InboxCommands as anyone's do, with what they change noted before and after.
 @MainActor
 enum ManagerCommands {
-    static let own: Set<String> = ["manager_reply", "edit_task", "close_task", "merge_tasks", "propose_note_edit"]
+    static let own: Set<String> = ["manager_reply", "edit_task", "close_task", "merge_tasks", "move_task", "assign_task", "delete_task",
+                                   "review_proposals", "delete_note", "edit_binder", "propose_note_edit"]
 
     /// What a shared write changes, read before it: where moved things were, a folder's name, the folders there were.
     struct Before {
         var folders: Set<UUID>
         var places: [UUID: (folder: UUID?, title: String)] = [:]
         var folderName: (id: UUID, name: String)?
+        /// A note's text before an edit.
+        var noteText: (id: UUID, text: String, editedBy: String?, editedAt: Date?)?
+        var binders: Set<UUID> = []
     }
 
     static func before(_ request: InboxRequest) -> Before {
@@ -35,6 +39,10 @@ enum ManagerCommands {
             }
         case "rename_folder":
             if let id = UUID(uuidString: field("id")), let folder = store.folder(id) { before.folderName = (id, folder.name) }
+        case "update_note", "append_to_note":
+            if let id = UUID(uuidString: field("id")), let note = store.note(id) { before.noteText = (id, note.text, note.editedBy, note.editedAt) }
+        case "create_binder":
+            before.binders = Set(store.binders(includeArchived: true).map(\.id))
         default:
             break
         }
@@ -67,6 +75,17 @@ enum ManagerCommands {
             guard let card = result.id.flatMap(UUID.init(uuidString:)) else { return }
             let title = (try? store.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == card })))?.first?.title ?? ""
             manager.record(ManagerChange(kind: .madeCard, id: card, line: "Made the card “\(title)”"), for: id)
+        case "update_note", "append_to_note":
+            guard let old = before.noteText, let note = store.note(old.id), note.text != old.text else { return }
+            manager.record(ManagerChange(kind: .editedNote, id: note.id, line: request.action == "append_to_note" ? "Added to “\(note.title)”" : "Changed “\(note.title)”",
+                                         before: old.editedBy ?? "", beforeDetails: old.text, beforeLinks: old.editedAt.map { [AutomationPayload.iso($0)] },
+                                         snapshot: note.text), for: id)
+        case "add_note":
+            guard let made = result.id.flatMap(UUID.init(uuidString:)), let note = store.note(made) else { return }
+            manager.record(ManagerChange(kind: .madeNote, id: made, line: "Wrote the note “\(note.title)”", snapshot: note.text), for: id)
+        case "create_binder":
+            guard let made = result.id.flatMap(UUID.init(uuidString:)), !before.binders.contains(made), let binder = store.binder(made) else { return }
+            manager.record(ManagerChange(kind: .madeBinder, id: made, line: "Made the binder “\(binder.name)”"), for: id)
         case "distill_note":
             guard let note = UUID(uuidString: request.fields["id"] ?? "") else { return }
             manager.record(ManagerChange(kind: .distilled, id: note, line: "Distilled “\(store.note(note)?.title ?? "a note")”: its work items wait for you"), for: id)
@@ -128,7 +147,6 @@ enum ManagerCommands {
             }
             guard !others.isEmpty else { return .failure("Give the cards that merge into it, other than it") }
             if let refusal = refusal(into, board: board, closing: false) { return .failure(refusal) }
-            guard into.column == .backlog || into.column == .ready else { return .failure("“\(into.title)” isn't in Backlog or Ready.") }
             for other in others {
                 if let refusal = refusal(other, board: board, closing: true) { return .failure(refusal) }
                 guard other.binderID == into.binderID else { return .failure("“\(other.title)” is on another board: merge cards on the same one.") }
@@ -159,6 +177,106 @@ enum ManagerCommands {
                                          beforeDetails: oldDetails, beforeLinks: oldLinks, merged: closed), for: id)
             return InboxResult(ok: true, id: into.id.uuidString, message: "Merged \(closed.count) of \(others.count) into “\(into.title)”.")
 
+        case "move_task":
+            guard let card = card(field("id")) else { return .failure("No card with that id") }
+            guard let column = BoardColumn(loose: field("column")) else { return .failure("column is backlog, ready, in_progress, review, blocked or done") }
+            guard card.column != column else { return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is in that column already.") }
+            if let refusal = board.teamRefusal(.move(column), on: card, by: actor) { return .failure(refusal) }
+            let from = card.column
+            do {
+                try board.tidyMove(card, to: column, note: "Moved by the Manager (\(actor.name))" + (why.isEmpty ? "." : ": \(why)"))
+            } catch {
+                return .failure(error.localizedDescription)
+            }
+            manager.record(ManagerChange(kind: column == .done ? .closedCard : .movedCard, id: card.id, line: "Moved “\(card.title)” to \(column.title)",
+                                         before: from.rawValue), for: id)
+            return InboxResult(ok: true, id: card.id.uuidString, message: "Moved “\(card.title)” to \(column.title).")
+
+        case "assign_task":
+            guard let card = card(field("id")) else { return .failure("No card with that id") }
+            let to = field("to")
+            let previous = card.meantFor ?? ""
+            guard to != previous else { return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is meant for \(to.isEmpty ? "no one" : to) already.") }
+            if to.isEmpty {
+                board.assign(card, to: nil, by: .you)
+                manager.record(ManagerChange(kind: .assignedCard, id: card.id, line: "Took “\(card.title)” from \(previous)", before: previous), for: id)
+                return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is meant for no one now.")
+            }
+            let team = controller.teamBoard
+            if let theirs = team.teammatesAgent(named: to), !team.agreed(to: theirs) {
+                return .failure("\(to) is a teammate's agent, and Binders asks the user before their first card goes to it. Ask them to give it one themselves.")
+            }
+            let isAgent = AgentRegistry.shared.agent(named: to) != nil || team.teammatesAgent(named: to) != nil
+            let handOff = isAgent ? board.give(card, to: to, by: .you) : nil
+            if !isAgent { board.assign(card, to: to, by: .you) }
+            board.note(card, text: "Given to \(to) by the Manager (\(actor.name))" + (why.isEmpty ? "." : ": \(why)"))
+            manager.record(ManagerChange(kind: .assignedCard, id: card.id, line: "Gave “\(card.title)” to \(to)", before: previous), for: id)
+            var said = "“\(card.title)” is meant for \(to)."
+            if case .notWoken(let why)? = handOff { said += " \(to) wasn't started: \(why)" } else if isAgent { said += " Binders handed it over." }
+            return InboxResult(ok: true, id: card.id.uuidString, message: said)
+
+        case "delete_task":
+            guard let card = card(field("id")) else { return .failure("No card with that id") }
+            guard !why.isEmpty else { return .failure("why is required") }
+            let snapshot = ManagerCardSnapshot(card).json
+            let title = card.title
+            if let refused = board.delete(card) { return .failure(refused) }
+            manager.record(ManagerChange(kind: .deletedCard, id: card.id, line: "Deleted “\(title)”: \(why)", snapshot: snapshot), for: id)
+            return InboxResult(ok: true, id: card.id.uuidString, message: "Deleted “\(title)”.")
+
+        case "review_proposals":
+            guard let note = UUID(uuidString: field("id")) else { return .failure("id must be a note id") }
+            func ids(_ key: String) -> Set<UUID> { Set(field(key).split(separator: ",").compactMap { UUID(uuidString: $0.trimmingCharacters(in: .whitespaces)) }) }
+            let column: BoardColumn = BoardColumn(loose: field("column")) == .ready ? .ready : .backlog
+            return ManagerProposals.review(note: note, action: field("action"), proposals: ids("proposals"), items: ids("items"), column: column,
+                                           request: id, controller: controller)
+
+        case "delete_note":
+            guard let noteID = UUID(uuidString: field("id")), let note = Store.shared.note(noteID) else { return .failure("No note with that id") }
+            guard !why.isEmpty else { return .failure("why is required") }
+            if note.isTeamCopy { return .failure("“\(note.title)” is a teammate's note: only they delete it.") }
+            if TeamNotes.current?.covers(note) == true || note.sharedWithTeam {
+                return .failure("“\(note.title)” is shared with the team, so deleting it deletes it for everyone: the user does that themselves.")
+            }
+            MarkdownEditor.flushAll()
+            let entry = NoteTrash.Entry(note)
+            ScratchpadController.shared.noteWillBeDeleted(note)
+            NotePopouts.shared.close(note.id)
+            Store.shared.delete(note, keepingHistory: true)
+            manager.record(ManagerChange(kind: .deletedNote, id: noteID, line: "Deleted the note “\(entry.title)”: \(why)", snapshot: ManagerNoteSnapshot(entry).json), for: id)
+            return InboxResult(ok: true, id: noteID.uuidString, message: "Deleted “\(entry.title)”.")
+
+        case "edit_binder":
+            guard let binder = InboxCommands.binder(named: field("id")), !field("id").isEmpty else { return .failure("No binder with that id or name. list_binders shows them.") }
+            if binder.isTeamCopy { return .failure("“\(binder.name)” is a teammate's binder: only they change it.") }
+            let snapshot = ManagerBinderSnapshot(binder)
+            var changed: [String] = []
+            let name = field("name")
+            if !name.isEmpty, name != binder.name {
+                if Store.shared.binders(includeArchived: true).contains(where: { $0.id != binder.id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                    return .failure("There's a binder named “\(name)” already.")
+                }
+                binder.name = name
+                changed.append("renamed it “\(name)”")
+            }
+            if let color = Int(field("color")), color != binder.colorIndex {
+                guard (0..<BinderRecord.paletteSize).contains(color) else { return .failure("color is 0 to \(BinderRecord.paletteSize - 1)") }
+                binder.colorIndex = color
+                changed.append("changed its colour")
+            }
+            if !field("archived").isEmpty {
+                let archive = field("archived") == "true"
+                if archive, binder.isDefault { return .failure("“\(binder.name)” is the binder things go to by default, so it stays.") }
+                if archive != binder.archived {
+                    binder.archived = archive
+                    changed.append(archive ? "archived it" : "brought it back")
+                }
+            }
+            guard !changed.isEmpty else { return InboxResult(ok: true, id: binder.id.uuidString, message: "“\(binder.name)” is like that already.") }
+            Store.shared.save()
+            manager.record(ManagerChange(kind: .editedBinder, id: binder.id, line: "“\(snapshot.name)”: " + changed.joined(separator: ", "), snapshot: snapshot.json), for: id)
+            return InboxResult(ok: true, id: binder.id.uuidString, message: "“\(snapshot.name)”: " + changed.joined(separator: ", ") + ".")
+
         case "propose_note_edit":
             guard let noteID = UUID(uuidString: field("id")), let note = Store.shared.note(noteID) else { return .failure("No note with that id") }
             if note.isTeamCopy { return .failure("“\(note.title)” is a teammate's note: suggest the change on a card for the user instead.") }
@@ -183,16 +301,12 @@ enum ManagerCommands {
         }
     }
 
-    /// Why the Manager may not change this card, or nil. It leaves alone a card on a team's board, one an agent holds, and
-    /// one waiting on you; it closes only from Backlog or Ready, and never one that other cards wait for.
+    /// Why the Manager can't change this card now, or nil. It manages every board as you would, a team's too, whose moves
+    /// go through the team's database, which may refuse them while it's out of reach. A card that's done stays done unless
+    /// it's moved with move_task.
     static func refusal(_ card: TaskCard, board: BoardService, closing: Bool) -> String? {
-        if board.isTeams(card) { return "“\(card.title)” is on a team's board: the team tidies it." }
-        if card.assigneeIsAgent, BoardRules.isClaimed(card.state, at: Date()) { return "\(card.assignee ?? "An agent") holds “\(card.title)”: leave it to them." }
-        if card.column == .blocked || card.column == .review { return "“\(card.title)” waits on the user: leave it to them." }
-        if closing {
-            guard card.column == .backlog || card.column == .ready else { return "“\(card.title)” isn't in Backlog or Ready, so it stays open." }
-            if !board.waiting(on: card).isEmpty { return "Other cards wait for “\(card.title)”, so it stays open." }
-        }
+        if card.column == .done { return "“\(card.title)” is done already." }
+        if closing, let refusal = board.teamRefusal(.move(.done), on: card, by: BoardActor(name: "Manager", kind: .agent)) { return refusal }
         return nil
     }
 }

@@ -425,6 +425,30 @@ agent on a board it takes cards from (you choose which when it takes several), i
 to does. One that checks the board itself picks it up there. What you write on an open conversation is a comment on its
 card, which reaches the agent as comments always do. The Manager has its own conversation, its requests and replies.
 
+Claude Code and an agent that checks the board itself also chat: picked, the agent opens a chat, a conversation of its
+own that is never a card, and its chats are listed under it beside its cards. Claude Code answers in a session Binders
+starts for the chat in a worktree of its own (`.claude/worktrees/binders-chat-<8 characters>`), with its permission mode,
+sandbox and web, and Binders' board tools as the agent; each message carries the session on (`--resume`), what it writes
+shows while it works, and its last word is its reply. An agent that checks the board itself reads your messages with
+`list_messages` (the messages it hasn't read, by chat, with the last few before them, marked read as it reads them) and
+answers with `reply_message` (`chat`, `text`), only in its own chats; these two are offered on an agent's own Binders
+server alone. Scripts, web hooks, shortcuts and the other coding tools keep cards. Replies are drawn as Markdown.
+
+Binders for iPhone has the same in its Agents tab (under Everything before iOS 26): the Manager's conversation, with
+Stop, Undo, Reply and its suggested note edits, and each agent's chats, or for one that doesn't chat its work with a box
+to message it, which makes the same card through `create_task` with `for`. The first message to an agent asks you
+first, as Give to does.
+
+### A run, live
+
+A run Binders starts (Claude Code, Codex, OpenCode, Copilot or Antigravity) writes its tool's JSON to Binders' own log of
+the run, in ~/Library/Logs/Binders/Agents. While you look at its conversation, on the Agents page or in the card's window,
+Binders reads that log every second and shows the session under the receipt that started it: what it says, each step it
+takes (reading or editing a file, a command, tests, a search, the board) with a check once it's done or the problem glyph
+if it failed, an edit's lines, and its plan as a bar of steps. Only that log is read, never a tool's own files, and what
+it shows is kept in memory while it shows. When you comment on or answer a Claude Code card whose run is over, its next
+run carries on the same session (`claude --resume`), in the card's worktree or the folder it works in.
+
 ## The Manager
 
 One agent can be **the Manager**, one at a time: one of your Claude Code agents, or a local model. Choose it under The
@@ -435,16 +459,23 @@ binder or all of them. A tidy on a schedule (every day or every week) is off unt
 Mac is plugged in, cool and idle.
 
 Binders starts it for one request at a time, in an empty folder of its own (`~/.binders/manager`), with its permission
-checks on and Binders' tools alone: no files, commands or web. It reads your binders, notes, meetings and boards the way
-a tool you set up does (captures, transcripts and teammates' items only where Settings → MCP lets it), and it can:
+checks on and Binders' tools alone: no files, commands or web. It manages your binders for you: it reads your binders,
+notes, meetings and boards the way a tool you set up does (captures, transcripts and teammates' items only where Settings →
+MCP lets it), and it changes what you could:
 
-- edit a card's title or description (`edit_task`), close a card in Backlog or Ready (`close_task`, saying why), merge cards
-  that are the same work (`merge_tasks`), make a card (`create_task`) and comment on one (`comment_task`), leaving alone a
-  card an agent holds, one that waits on you, one other cards wait for, and a team's boards;
-- make, rename and fill folders (`create_folder`, `rename_folder`, `move_item`);
-- distill a note (`distill_note`): its work items wait for you, as Distill's always do;
-- suggest an edit to a note (`propose_note_edit`), which you accept or dismiss on the Agents page; accepted,
-  it's your edit, the earlier version in the note's history, so the note stays yours and Ask keeps reading it.
+- cards, on your boards and the team's: make one (`create_task`), edit its title or description (`edit_task`), move it to
+  any column (`move_task`), give it to an agent or a person (`assign_task`; giving one to an agent starts it, as Give to
+  does, and a teammate's agent you haven't given a card to yet waits for you to give it one yourself), close it
+  (`close_task`, saying why), merge cards that are the same work (`merge_tasks`), delete one (`delete_task`) and comment
+  (`comment_task`). On a team's board, a move waits for the team's database, as yours does;
+- Distill: distill a note (`distill_note`), see what still waits for review (`list_proposals`), and place those items on
+  the board or put them aside (`review_proposals`), as the review does;
+- notes: write one (`add_note`), change or add to one (`update_note`, `append_to_note`; the earlier version stays in its
+  history, and the note says the Manager edited it), delete one (`delete_note`; not a teammate's, or one shared with the
+  team, which would go for everyone), or suggest an edit for you to decide on (`propose_note_edit`), which you accept or
+  dismiss on the Agents page; accepted, it's your edit;
+- folders and binders: make, rename and fill folders (`create_folder`, `rename_folder`, `move_item`), make a binder
+  (`create_binder`), and rename, recolour, archive or bring back one (`edit_binder`).
 
 A local model as the Manager is the model Distill uses in Settings → AI, or another you name on the same server (Ollama,
 a model in Binders, or the OpenAI-compatible server). It takes no cards, only the role. Binders runs it in turns, at most
@@ -452,7 +483,8 @@ a model in Binders, or the OpenAI-compatible server). It takes no cards, only th
 the model the request, the Manager's tools and what it did so far, and calls the one tool the model picks each turn
 (each turn's answer held to a JSON schema where the server can hold it). A bigger model follows the steps better.
 
-It can't delete anything, change a note itself or start another agent, and nothing it does wakes one. It ends with a reply
-you read where you asked. Each request lists what it changed, and **Undo Its Changes** puts them all back. Requests, their
+It ends with a reply you read where you asked. Each request lists what it changed, and **Undo Its Changes** puts them
+all back: a deleted card is made again, a deleted note comes back with its id, Distill's items wait for review again, and
+a note it changed goes back while nobody changed it since. Undo can't stop an agent it started. Requests, their
 changes and the suggestions are kept in manager.json in the data folder (the last 200).
 

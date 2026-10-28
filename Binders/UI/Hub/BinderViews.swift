@@ -67,7 +67,8 @@ struct BinderPage: View {
         let tabs = BinderTab.allCases.filter { $0 != .conversations || conversations > 0 || tab == .conversations }
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center, spacing: 12) {
+                // Its colour and what it is, small, over its name (lane UI2).
+                HStack(spacing: 6) {
                     Menu {
                         ForEach(0..<BinderPalette.colors.count, id: \.self) { index in
                             Button {
@@ -78,9 +79,11 @@ struct BinderPage: View {
                             }
                         }
                     } label: {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        Circle()
                             .fill(BinderPalette.color(binder.colorIndex))
-                            .frame(width: 26, height: 26)
+                            .frame(width: 8, height: 8)
+                            .padding(3)
+                            .contentShape(Rectangle())
                     }
                     // A borderless menu draws no shape label (only symbols): the button style draws the square itself.
                     .menuStyle(.button)
@@ -89,6 +92,9 @@ struct BinderPage: View {
                     .fixedSize()
                     .disabled(binder.isTeamCopy)
                     .help("Colour")
+                    Text(folderID == nil ? "Binder" : "Folder").font(.callout).foregroundStyle(BindersTheme.muted)
+                }
+                HStack(alignment: .center, spacing: 12) {
                     if binder.isTeamCopy {
                         Text(binder.name).font(BindersTheme.title())
                     } else if renaming {
@@ -181,17 +187,18 @@ struct BinderPage: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
-            .padding(.bottom, 12)
-            Picker("", selection: $tab) {
-                ForEach(tabs, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: tabs.count > 5 ? 640 : 520)
+            .padding(.top, 22)
+            .padding(.bottom, 14)
+            BinderTabBar(tabs: tabs, selection: $tab, count: { tab in
+                switch tab {
+                case .meetings: counts.meetings
+                case .notes: counts.notes
+                case .conversations: conversations
+                default: nil
+                }
+            })
             .padding(.horizontal, 24)
-            .padding(.bottom, 12)
-            Divider()
+            Divider().opacity(0.7)
             Group {
                 switch tab {
                 case .overview:
@@ -482,5 +489,49 @@ struct MoveToBinderItems: View {
             }
             .disabled(binder.id == current)
         }
+    }
+}
+
+/// A binder's tabs as words with their counts, the one you're on underlined in ink (lane UI2).
+struct BinderTabBar: View {
+    let tabs: [BinderTab]
+    @Binding var selection: BinderTab
+    let count: (BinderTab) -> Int?
+    @Namespace private var underline
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 22) {
+                ForEach(tabs, id: \.self) { tab in
+                    let on = tab == selection
+                    Button {
+                        withAnimation(.snappy(duration: 0.22)) { selection = tab }
+                    } label: {
+                        VStack(spacing: 8) {
+                            HStack(spacing: 5) {
+                                Text(tab.rawValue).font(.system(size: 13.5, weight: on ? .semibold : .regular))
+                                    .foregroundStyle(on ? BindersTheme.ink : BindersTheme.muted)
+                                if let number = count(tab) {
+                                    Text("\(number)").font(.system(size: 13)).monospacedDigit().foregroundStyle(BindersTheme.faint)
+                                }
+                            }
+                            ZStack {
+                                Rectangle().fill(.clear).frame(height: 2)
+                                if on {
+                                    Capsule().fill(BindersTheme.ink).frame(height: 2).matchedGeometryEffect(id: "tab", in: underline)
+                                }
+                            }
+                        }
+                        .fixedSize()
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Binder tabs")
     }
 }

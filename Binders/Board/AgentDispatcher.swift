@@ -689,15 +689,19 @@ final class AgentDispatcher {
             return .notWoken(line)
         }
         let worktree = wake.worksInFolder ? repository : ClaudeCodeLaunch.worktree(repository: repository, card: id)
-        let session = UUID()
+        let worktreeExists = !wake.worksInFolder && FileManager.default.fileExists(atPath: worktree)
+        // Your comment or answer to a run that's over carries on its session (lane LS1), in the folder it ran in.
+        let earlier = (reason == .commented || reason == .answered) && !again && (worktreeExists || wake.worksInFolder)
+            ? lastClaudeSession(card, agent: agent) : nil
+        let session = earlier ?? UUID()
         // Limited to Binders' tools, unless this Mac's Claude Code is managed in a way that refuses that.
         let onlyBinders = !again && Self.asksOnlyBinders
         // Your team's shared folder and other runs' logs are as private to it as Binders' own data.
         let launch = ClaudeCodeLaunch.make(card: id, reason: reason, boardName: agent.name, wake: wake, binders: MCPHost.executable,
                                            dataFolder: AppPaths.support.path, home: NSHomeDirectory(),
                                            alsoPrivate: [Self.logs.path] + [AppSettings.shared.teamFolderPath].compactMap { $0 },
-                                           worktreeExists: !wake.worksInFolder && FileManager.default.fileExists(atPath: worktree), session: session,
-                                           draftsFirst: agent.draftsFirst, strictMCP: onlyBinders)
+                                           worktreeExists: worktreeExists, session: session,
+                                           draftsFirst: agent.draftsFirst, strictMCP: onlyBinders, resuming: earlier != nil)
         let log = Self.logFile(for: id, suffix: "jsonl")
         let run = UUID()
         do {
@@ -712,13 +716,20 @@ final class AgentDispatcher {
             sessions[id] = session
             launches[id] = (onlyBinders, reason, again)
             if wake.worksInFolder { inFolderRuns[id] = repository } else { inFolderRuns[id] = nil }
-            receipt(card, agent: agent, note + "Started Claude Code in \(worktree)\(wake.worksInFolder ? ", the folder itself" : "") (\(wake.safeMode), \(Self.describe(reason))). To look in: claude --resume \(session.uuidString.lowercased()) there.",
+            receipt(card, agent: agent, note + (earlier != nil ? "Carried on its session. " : "") + "Started Claude Code in \(worktree)\(wake.worksInFolder ? ", the folder itself" : "") (\(wake.safeMode), \(Self.describe(reason))). To look in: claude --resume \(session.uuidString.lowercased()) there.",
                     log: log)
             return .woke
         } catch {
             record(id, ok: false, "Couldn't start Claude Code: \(error.localizedDescription)")
             return .notWoken("Couldn't start Claude Code: \(error.localizedDescription)")
         }
+    }
+
+    /// The session of the card's last Claude Code run for this agent, from its wake receipt, when there was one.
+    private func lastClaudeSession(_ card: TaskCard, agent: AgentProfile) -> UUID? {
+        guard let receipt = board?.timeline(card.id).last(where: { $0.kind == .woke && AgentRegistry.isAgent(agent, named: $0.author) }),
+              receipt.text.contains("Started Claude Code"), let session = AgentDoing.session(inReceipt: receipt.text) else { return nil }
+        return UUID(uuidString: session)
     }
 
     private func started(_ id: UUID, _ process: Process, run: UUID) {

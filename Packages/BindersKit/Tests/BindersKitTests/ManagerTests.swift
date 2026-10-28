@@ -21,13 +21,17 @@ final class ManagerTests: XCTestCase {
         XCTAssertFalse(MCPConfinement.everything.pinsAgent)
     }
 
-    func testItsToolsDeleteNothingAndChangeNoNote() {
+    func testItManagesTheBindersButWorksNoCard() {
         let offered = ManagerTools.offered
-        for tool in ["update_note", "append_to_note", "add_note", "correct_knowledge", "add_to_calendar", "set_todo_status", "claim_task",
-                     "complete_task", "release_task", "request_approval", "ask_knowledge", "recent_dictations", "create_binder"] {
+        // An agent's own work on a card, and what reads beyond the binders, stay out.
+        for tool in ["correct_knowledge", "add_to_calendar", "claim_task", "complete_task", "release_task", "request_approval", "ask_on_task",
+                     "ask_knowledge", "recent_dictations", "list_messages", "reply_message"] {
             XCTAssertFalse(offered.contains(tool), tool)
         }
-        XCTAssertTrue(offered.isSuperset(of: ["get_request", "reply", "edit_task", "close_task", "merge_tasks", "propose_note_edit", "move_item"]))
+        XCTAssertTrue(offered.isSuperset(of: ["get_request", "reply", "edit_task", "close_task", "merge_tasks", "move_task", "assign_task", "delete_task",
+                                              "list_proposals", "review_proposals", "update_note", "add_note", "delete_note", "create_binder",
+                                              "edit_binder", "propose_note_edit", "move_item"]))
+        XCTAssertTrue(ManagerTools.writes.isDisjoint(with: ManagerTools.own))
     }
 
     func testTheLaunchUsesBindersToolsAlone() throws {
@@ -40,7 +44,7 @@ final class ManagerTests: XCTestCase {
         XCTAssertEqual(args.first, "-p")
         XCTAssertEqual(args[args.firstIndex(of: "--permission-mode")! + 1], "dontAsk", "never the agent's auto mode: it asks nothing and gets only what's allowed")
         XCTAssertTrue(args.contains("--strict-mcp-config"))
-        XCTAssertEqual(args[args.firstIndex(of: "--allowedTools")! + 1], "mcp__binders")
+        XCTAssertEqual(args[args.firstIndex(of: "--allowedTools")! + 1], "mcp__binders_manager", "its own server's name, never one of yours")
         for tool in ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"] { XCTAssertTrue(args.contains(tool), tool) }
         XCTAssertFalse(args.contains("--worktree"))
         XCTAssertEqual(args[args.firstIndex(of: "--model")! + 1], "sonnet")
@@ -49,13 +53,37 @@ final class ManagerTests: XCTestCase {
         XCTAssertTrue(launch.prompt.hasPrefix(ManagerPrompt.marker))
         XCTAssertTrue(launch.prompt.contains(request.uuidString))
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(args[args.firstIndex(of: "--mcp-config")! + 1].utf8)) as? [String: Any])
-        let env = try XCTUnwrap((((config["mcpServers"] as? [String: Any])?["binders"]) as? [String: Any])?["env"] as? [String: String])
+        let env = try XCTUnwrap((((config["mcpServers"] as? [String: Any])?[ManagerLaunch.server]) as? [String: Any])?["env"] as? [String: String])
         XCTAssertEqual(MCPConfinement.read(env), .manager(request: request), "its server is the Manager's for this request")
         let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(args[args.firstIndex(of: "--settings")! + 1].utf8)) as? [String: Any])
         let network = (((settings["sandbox"] as? [String: Any])?["network"]) as? [String: Any])?["allowedDomains"] as? [String]
         XCTAssertEqual(network, [], "no web")
         XCTAssertNil(settings["hooks"], "no card to report on")
         XCTAssertNil(AgentPrompts.worthKeeping(launch.prompt), "writing capture leaves it out")
+    }
+
+    func testUnderAManagedClaudeCodeAHookKeepsItToTheManagersTools() throws {
+        let wake = ClaudeCodeWake(repository: "/Users/me/code/app", permissionMode: "auto")
+        let launch = ManagerLaunch.make(request: UUID(), boardName: "Claude Code", wake: wake, binders: "/Applications/Binders.app/Contents/MacOS/Binders",
+                                        dataFolder: "/Users/me/Library/Application Support/Binders", home: "/Users/me", session: UUID(),
+                                        directory: "/tmp/binders-manager", strictMCP: false)
+        let args = launch.arguments
+        XCTAssertFalse(args.contains("--strict-mcp-config"), "a managed Claude Code refuses it")
+        XCTAssertEqual(args[args.firstIndex(of: "--allowedTools")! + 1], "mcp__binders_manager")
+        let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(args[args.firstIndex(of: "--settings")! + 1].utf8)) as? [String: Any])
+        let pre = try XCTUnwrap(((settings["hooks"] as? [String: Any])?["PreToolUse"]) as? [[String: Any]])
+        XCTAssertEqual(pre.first?["matcher"] as? String, "mcp__.*")
+        let command = try XCTUnwrap(((pre.first?["hooks"] as? [[String: Any]])?.first)?["command"] as? String)
+        XCTAssertTrue(command.hasSuffix("--agent-hook \(ClaudeCodeToolGuard.managerHook)"), command)
+
+        func asking(_ tool: String) -> Data { Data(#"{"tool_name":"\#(tool)"}"#.utf8) }
+        XCTAssertNil(ClaudeCodeToolGuard.managerRefusal(asking("mcp__binders_manager__reply")))
+        XCTAssertNil(ClaudeCodeToolGuard.managerRefusal(asking("mcp__binders_manager__edit_task")))
+        XCTAssertNotNil(ClaudeCodeToolGuard.managerRefusal(asking("mcp__binders_manager__claim_task")), "not one of the Manager's")
+        XCTAssertNotNil(ClaudeCodeToolGuard.managerRefusal(asking("mcp__binders__edit_task")), "nor a server of yours named binders, unconfined")
+        XCTAssertNotNil(ClaudeCodeToolGuard.managerRefusal(asking("mcp__github__create_issue")), "not another server's")
+        XCTAssertNotNil(ClaudeCodeToolGuard.managerRefusal(Data("nonsense".utf8)))
+        XCTAssertNotNil(ClaudeCodeToolGuard.refusal(asking("mcp__binders__edit_task")), "a card run's hook stays as it was")
     }
 
     func testAPassageEditAppliesWhileItsThereOnce() {

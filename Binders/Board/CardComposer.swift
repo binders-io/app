@@ -17,6 +17,8 @@ struct CardComposer: View {
     let trayUp: Bool
     let close: () -> Void
     @State private var fieldHeight: CGFloat = 32
+    /// The least width the line under the field takes.
+    static let lineMinWidth: CGFloat = 120
     @State private var focused = false
 
     var body: some View {
@@ -77,6 +79,9 @@ struct CardComposer: View {
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(BindersTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
+                // Never measured at no width at all, where it wraps a word a line and the composer stands taller than the
+                // window: the Agents page then slid under the title bar.
+                .frame(minWidth: CardComposer.lineMinWidth, alignment: .leading)
         } icon: {
             Image(systemName: glyph)
                 .font(.system(size: 10, weight: .semibold))

@@ -453,7 +453,7 @@ extension SelfTest {
         // An agent's own server, BINDERS_TOOLS=board without BINDERS_RUN, as before: the board's tools.
         let own = await mcpReplies(["BINDERS_TOOLS": "board", "BINDERS_AGENT": "Codex · repo", "BINDERS_DATA_DIR": data.path, "PATH": "/usr/bin:/bin"])
         let ownTools = Set(((((own.first { ($0["id"] as? Int) == 2 })?["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
-        check(ownTools == MCPServer.boardTools, "an agent's own server still offers the board's tools: \(ownTools.sorted())")
+        check(ownTools == MCPServer.boardTools.union(AgentChatTools.all), "an agent's own server still offers the board's tools, and its chats': \(ownTools.sorted())")
 
         // 8. Blocked, with why.
         let halfway = await run(opencodeAgent, mode: "unfinished", title: "Write the notes") { id in

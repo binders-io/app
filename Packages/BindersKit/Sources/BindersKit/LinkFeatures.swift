@@ -16,6 +16,14 @@ public enum LinkFeatures {
     public static let managerMethod = "binders/manager"
     public static let managerListMethod = "binders/manager-requests"
     public static let managerActMethod = "binders/manager-act"
+    /// A Mac with chats with your agents (lane AC1): `binders/chats` lists them (one agent's, with `agent`), `binders/chat`
+    /// gives one with its messages and what its run has written so far, `binders/chat-send` sends your message (a new chat
+    /// without `chat`), and `binders/chat-act` stops its run. `binders/changed` says "chats" when any of it changes.
+    public static let chats = "agentChats"
+    public static let chatListMethod = "binders/chats"
+    public static let chatMethod = "binders/chat"
+    public static let chatSendMethod = "binders/chat-send"
+    public static let chatActMethod = "binders/chat-act"
     /// A Mac that takes `binders/warm` loads its model when the phone hears someone start talking, so the write-up
     /// doesn't wait for it.
     public static let warm = "warm"
