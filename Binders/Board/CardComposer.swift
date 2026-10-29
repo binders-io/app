@@ -363,6 +363,8 @@ extension CommentReach {
             case .reason: return "Binders sends your words to \(short(agent)), and the card goes back to work\(tail)."
             case nil: return "Binders sends your comment to \(short(agent))\(tail)."
             }
+        case .live(let agent):
+            return "\(short(agent)) is at work in a run Binders started, and takes your words now: they go straight into its session."
         case .afterRun(let agent, .commented):
             return "\(short(agent)) is in a run Binders started. Binders sends it your comment when the run ends, if the card is still in progress."
         case .afterRun(let agent, _):
@@ -445,7 +447,7 @@ extension CommentReach {
     /// the speech bubble when they stay on the card.
     var glyph: String {
         switch self {
-        case .wakes, .sendsWithWakeNow: "paperplane"
+        case .wakes, .sendsWithWakeNow, .live: "paperplane"
         case .afterRun, .startingRun: "clock"
         default: "text.bubble"
         }
@@ -467,7 +469,7 @@ extension CommentReach {
                                    help: "\(sends.map { "Send to \($0)" } ?? "Answer") (⌘↩)")]
         case nil:
             switch self {
-            case .wakes(let agent, _, _):
+            case .wakes(let agent, _, _), .live(let agent):
                 return [ComposerButton(title: "Send to \(agent.shortAgentName)", prominent: true, wakesNow: false, help: "Send to \(agent.shortAgentName) (⌘↩)")]
             case .sendsWithWakeNow(let agent, _):
                 let who = agent.shortAgentName

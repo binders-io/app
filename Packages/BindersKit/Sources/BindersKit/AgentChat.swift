@@ -120,6 +120,15 @@ public enum AgentChatLaunch {
     /// The chat's worktree and its branch: "binders-chat-" and the first 8 characters of its id.
     public static func worktreeName(for chat: UUID) -> String { "binders-chat-" + String(chat.uuidString.prefix(8)).lowercased() }
 
+    /// The chat's runs' logs among the names in Binders' logs folder, oldest first: "chat-<8>-<stamp>.jsonl".
+    public static func logs(_ names: [String], chat: UUID) -> [String] {
+        let prefix = "chat-" + String(chat.uuidString.prefix(8)).lowercased() + "-"
+        return names.filter { name in
+            name.hasPrefix(prefix) && name.hasSuffix(".jsonl")
+                && name.dropFirst(prefix.count).dropLast(".jsonl".count).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        }.sorted()
+    }
+
     /// Where `claude --worktree` makes it.
     public static func worktree(repository: String, chat: UUID) -> String {
         var repository = repository

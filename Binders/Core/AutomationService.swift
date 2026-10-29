@@ -317,6 +317,22 @@ final class AutomationService {
     nonisolated static func launch(_ path: String, _ arguments: [String], stdin: String?, environment: [String: String]?, directory: URL?,
                                    log: URL, errors: URL? = nil, limit: TimeInterval, interruptFirst: Bool = false,
                                    exited: @escaping @Sendable (Int32) -> Void) throws -> Process {
+        try start(path, arguments, stdin: stdin, keepingInput: false, environment: environment, directory: directory, log: log, errors: errors,
+                  limit: limit, interruptFirst: interruptFirst, exited: exited).process
+    }
+
+    /// `launch`, with its standard input kept open and handed back, for a run that takes your words while it works
+    /// (`AgentLiveInput`): nothing is written to it here, and it closes when the writer is closed or Binders quits.
+    nonisolated static func launchKeepingInput(_ path: String, _ arguments: [String], environment: [String: String]?, directory: URL?, log: URL,
+                                               limit: TimeInterval, exited: @escaping @Sendable (Int32) -> Void) throws -> (process: Process, input: FileHandle) {
+        let started = try start(path, arguments, stdin: nil, keepingInput: true, environment: environment, directory: directory, log: log, errors: nil,
+                                limit: limit, interruptFirst: false, exited: exited)
+        return (started.process, started.input)
+    }
+
+    nonisolated private static func start(_ path: String, _ arguments: [String], stdin: String?, keepingInput: Bool, environment: [String: String]?,
+                                          directory: URL?, log: URL, errors: URL?, limit: TimeInterval, interruptFirst: Bool,
+                                          exited: @escaping @Sendable (Int32) -> Void) throws -> (process: Process, input: FileHandle) {
         // A child that stops reading its input mustn't take Binders with it.
         signal(SIGPIPE, SIG_IGN)
         try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -343,9 +359,11 @@ final class AutomationService {
             exited(finished.terminationStatus)
         }
         try process.run()
-        DispatchQueue.global(qos: .utility).async {
-            if let stdin { try? input.fileHandleForWriting.write(contentsOf: Data(stdin.utf8)) }
-            try? input.fileHandleForWriting.close()
+        if !keepingInput {
+            DispatchQueue.global(qos: .utility).async {
+                if let stdin { try? input.fileHandleForWriting.write(contentsOf: Data(stdin.utf8)) }
+                try? input.fileHandleForWriting.close()
+            }
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + limit) {
             guard process.isRunning else { return }
@@ -353,7 +371,7 @@ final class AutomationService {
             process.interrupt()
             DispatchQueue.global().asyncAfter(deadline: .now() + 10) { if process.isRunning { process.terminate() } }
         }
-        return process
+        return (process, input.fileHandleForWriting)
     }
 
     /// The names of the user's Shortcuts, for the editor's menu.

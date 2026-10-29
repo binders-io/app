@@ -82,7 +82,7 @@ struct AgentSessionBlock: View {
                     .font(.callout)
                     .lineLimit(4)
             }
-        case .plan:
+        case .plan, .asked:
             EmptyView()
         }
     }

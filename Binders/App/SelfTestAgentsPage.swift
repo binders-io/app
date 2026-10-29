@@ -134,7 +134,64 @@ extension SelfTest {
         while manager.request(second.id)?.isOver != true, Date() < end { try? await Task.sleep(for: .milliseconds(100)) }
         check(manager.request(first.id)?.status == .answered && manager.request(second.id)?.status == .answered, "the Manager answered both")
 
-        // Drawn: the Manager, an agent, a conversation; at the window's smallest and a usual size, light and dark.
+        // A chat with an agent that checks the board itself, answered in Markdown (lane AC1).
+        var chatID: UUID?
+        if case .success(let chat) = controller.chats.send("What's waiting on me today?", to: claude.name, via: "mac") {
+            chatID = chat.id
+            _ = controller.chats.reply("""
+                Two things wait on you:
+
+                **Waiting on you**
+                • *Update the download link to 0.11.1*: ready in Review, check `site/index.html`.
+                • *Why does the board clip at 1100 pt?*: I asked whether Done can fold.
+
+                1. Check the download link
+                2. Answer about Done
+                """, chat: chat.id, by: claude.name)
+            _ = controller.chats.send("Fold Done into a narrow strip.", to: claude.name, chat: chat.id, via: "iphone")
+        }
+        check(chatID.flatMap { controller.chats.chat($0) }?.status == .waiting, "a chat with it waits for it to check the board")
+
+        // Its sessions: each card it works on or worked on, and its chats, the newest first; the one running shows first.
+        controller.agents.drawing(working: [working.id], outcomes: [:])
+        func everyCard() -> [TaskCard] { board.cards(in: nil).sorted { $0.updatedAt > $1.updatedAt } }
+        let sessions = AgentWorkSessions.of(claude.name, cards: everyCard(), controller: controller)
+        let expected: Set<AgentWorkSession.Kind> = Set([.card(working.id), .card(review.id), .card(done.id)] + (chatID.map { [.chat($0)] } ?? []))
+        check(Set(sessions.map(\.kind)) == expected, "an agent's sessions are its cards and its chats: \(sessions.map(\.title))")
+        check(sessions.first?.running == true && zip(sessions.dropFirst(), sessions.dropFirst(2)).allSatisfy { $0.updatedAt >= $1.updatedAt },
+              "the one running first, then the newest")
+        check(AgentWorkSessions.preferred(sessions)?.kind == .card(working.id),
+              "the one running is the one it shows: \(AgentWorkSessions.preferred(sessions)?.title ?? "none")")
+        check(sessions.first { $0.kind == .card(review.id) }?.state == "needs you" && sessions.first { $0.kind == .card(done.id) }?.state == "done",
+              "each says where it is")
+        check(AgentWorkSessions.of(pennant.name, cards: everyCard(), controller: controller).map(\.kind) == [.card(sent.id)], "and only its own")
+
+        // The terminal: the card's run, read from its log as Claude Code's terminal shows it.
+        let terminal = AgentTerminalLogs()
+        terminal.follow([log], tool: .claude)
+        try? await Task.sleep(for: .milliseconds(1_500))
+        let shown = AgentTerminal.blocks(terminal.runs(yours: [(Date(timeIntervalSince1970: 0), "Can it fold Done into a narrower strip?")]).runs)
+        let tools = shown.compactMap { if case .tool(let tool) = $0.kind { tool } else { nil } }
+        check(tools.contains { $0.name == "Bash" && $0.argument == "swift test --filter BoardTests" && $0.output == ["Executed 24 tests, with 0 failures"] },
+              "a command is Bash(…) with what came back under it: \(tools.map { "\($0.name)(\($0.argument))" })")
+        check(tools.contains { $0.name == "Read" && $0.summary == "Read 1 line" }, "a read says how much it read")
+        check(tools.contains { $0.name == "Update" && $0.diff.contains("+ .frame(minWidth: column == .done ? 120 : 260)") && $0.diff.contains("- .frame(minWidth: 260)")
+                  && $0.summary == "Updated Binders/Board/BoardColumnsView.swift with 2 additions and 1 removal" },
+              "an edit is Update(…) with its lines, taken out and put in")
+        check(shown.contains { $0.kind == .you("Can it fold Done into a narrower strip?") }, "your words before the run show as yours")
+        check(shown.contains { if case .said(let text) = $0.kind { text.hasPrefix("On it.") } else { false } }, "what it said shows")
+        check(shown.contains { if case .plan(let items) = $0.kind { items.count == 4 } else { false } }, "and its plan")
+        check(tools.last?.status == .running, "the edit going now is shown going")
+        let many = (1...45).map { "line \($0)" }
+        check(AgentTerminal.fold(many).shown.count == AgentTerminal.foldAfter && AgentTerminal.fold(many).hidden == 25, "long output folds after 20 lines")
+        terminal.stop()
+
+        // Live: a stand-in for claude in the throwaway folder that takes stream-json on its input (it says --input-format),
+        // echoes each message back as Claude Code does, answers each with a result, and ends when its input closes.
+        await liveInputSelfTest(check: check, controller: controller, binder: app)
+
+        // Drawn: the Manager, then an agent; a session's terminal, live; a chat; a card meant for an agent with no runs; and
+        // one with nothing yet; at the window's smallest and a usual size, light and dark.
         func draw(_ pick: AgentsPick, _ name: String, size: NSSize, dark: Bool, then later: AgentsPick? = nil) async {
             // Picked as a click picks it: in the hub's navigation.
             let navigation = HubNavigation()
@@ -169,36 +226,18 @@ extension SelfTest {
             }
             window.close()
         }
-        // A chat with an agent that checks the board itself, answered in Markdown (lane AC1).
-        var chatID: UUID?
-        if case .success(let chat) = controller.chats.send("What's waiting on me today?", to: claude.name, via: "mac") {
-            chatID = chat.id
-            _ = controller.chats.reply("""
-                Two things wait on you:
-
-                **Waiting on you**
-                • *Update the download link to 0.11.1*: ready in Review, check `site/index.html`.
-                • *Why does the board clip at 1100 pt?*: I asked whether Done can fold.
-
-                1. Check the download link
-                2. Answer about Done
-
-                ```
-                open site/index.html
-                ```
-                """, chat: chat.id, by: claude.name)
-            _ = controller.chats.send("Fold Done into a narrow strip.", to: claude.name, chat: chat.id, via: "iphone")
-        }
-        check(chatID.flatMap { controller.chats.chat($0) }?.status == .waiting, "a chat with it waits for it to check the board")
+        let scribe = AgentProfile(name: "Scribe", wake: .webhook(url: "https://hooks.example.com/scribe"))
+        registry.upsert(scribe)
         await draw(.manager, "agents-manager", size: NSSize(width: 1280, height: 800), dark: false, then: .agent(claude.id))
+        await draw(.card(working.id), "agents-terminal", size: NSSize(width: 1280, height: 800), dark: false)
+        await draw(.card(working.id), "agents-terminal-dark", size: NSSize(width: 1280, height: 800), dark: true)
+        await draw(.card(working.id), "agents-terminal-smallest", size: HubWindowController.smallestSize, dark: true)
         if let chatID {
             await draw(.chat(chatID), "agents-chat", size: NSSize(width: 1280, height: 800), dark: false)
             await draw(.chat(chatID), "agents-chat-dark", size: HubWindowController.smallestSize, dark: true)
         }
-        await draw(.agent(claude.id), "agents-agent", size: NSSize(width: 1280, height: 800), dark: false)
-        await draw(.card(working.id), "agents-conversation", size: NSSize(width: 1280, height: 800), dark: false)
-        await draw(.card(working.id), "agents-conversation-dark", size: NSSize(width: 1280, height: 800), dark: true)
-        await draw(.agent(pennant.id), "agents-agent-smallest", size: HubWindowController.smallestSize, dark: true)
+        await draw(.agent(pennant.id), "agents-agent", size: NSSize(width: 1280, height: 800), dark: false)
+        await draw(.agent(scribe.id), "agents-empty", size: NSSize(width: 1280, height: 800), dark: true)
 
         print(failures == 0 ? "AGENTS_PAGE_OK" : "AGENTS_PAGE_FAILED \(failures)")
         return failures == 0 ? 0 : 1
