@@ -193,6 +193,19 @@ doesn't have.
   in which another model approves its commands, or `--dangerously-skip-permissions`, and refuses a command agent
   ("A Command…") that runs `agy --mode auto`. The card's end line has the command to look in on the run
   (`cd <worktree> && agy --conversation <id>`).
+- **Work in the folder itself**, for Claude Code and each of these tools: for a folder that isn't a git repository, such
+  as a workspace holding several. Each run starts in the folder as it is, with no worktree: it changes your files there
+  directly, Binders commits nothing (the card's end line says the changes are there, uncommitted), and one card runs in
+  the folder at a time. Codex is started with `--skip-git-repo-check` there; its sandbox writes only to that folder. One
+  agent then serves every repository in the folder.
+- **Open a pull request when it finishes** (off unless you turn it on, per agent). The run still can't push: Binders
+  pushes the branch and opens the pull request with your own git sign-in and GitHub's `gh`, never the repository's
+  default branch or a `main`, `master`, `trunk`, `develop`, `production` or `release`, never forced, and not when the
+  branch has nothing beyond the default. The card gets the pull request's link. Claude Code, and Codex in the folder
+  itself, commit on a branch of their own and call `open_pull_request` (`id`, `repository` relative to the folder they
+  work in, `title`, `body`, `draft`), offered only to such a run; in the folder itself they make a branch in each
+  repository they change and call it for each. The other tools in a worktree get theirs from Binders after its commit on
+  the card's branch. OpenCode, Copilot and Antigravity in the folder itself can't make a branch, so they open none.
 - No run but Antigravity's (above) can read Binders' data, logs or team folder, `~/.ssh` or your other keys and sign-ins (`~/.gnupg`, `~/.netrc`,
   `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.aws`, `~/.azure`, `~/.config/gcloud`, `~/.kube`, `~/.docker`,
   `~/.config/gh`), or the coding tools' own sign-ins, sessions and histories: all of `~/.codex`, OpenCode's
@@ -414,25 +427,30 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | /Applications/Binders.ap
 
 ## Talking to your agents
 
-The Agents page in the sidebar is where you talk to them. On the left are the Manager and each agent, saying what it's
-doing (working, a card that needs you, idle, off), and under the one you pick, its conversations: each is a card it holds
-or one you meant for it, the finished ones under Earlier. On the right is what it holds and what's meant for it, with a
-box to message it, or the conversation you picked, as the card's own window shows it, with the same composer and what
-waits on you.
+The Agents page in the sidebar is where you talk to them. On the left are the Manager and each agent, one row each,
+saying what it's doing ("Working on …", "Needs you", "Idle", "Off"). Picking an agent opens its workspace: what it is and
+where it works, Stop while a run goes, **Open in Terminal**, and a strip of its sessions: each card it works on (a card's
+runs, one after another, are one session) and each chat, the running one first. Below is the session's terminal, dark in
+both themes and in Claude Code's own idiom: your words after `›`, what it says after `⏺`, each tool it uses as
+`Bash(…)`, `Read(…)` or `Update(…)` with its output under `⎿` (folded after 20 lines) and an edit's lines in red and
+green, its plan, and how the run ended ("Done in 3m 12s · $0.42"). It reads every run of the session from Binders' own
+logs and follows the one going. What waits on you (a question, an approval) sits above it.
 
-A message starts a conversation as a card: its first line is the title and the whole message the details, meant for the
-agent on a board it takes cards from (you choose which when it takes several), in Ready, and Binders hands it over as Give
-to does. One that checks the board itself picks it up there. What you write on an open conversation is a comment on its
-card, which reaches the agent as comments always do. The Manager has its own conversation, its requests and replies.
+The prompt line at the bottom talks to that session. A Claude Code run that's going takes your words at once: Binders
+starts Claude Code's card runs and chats with `--input-format stream-json`, keeps its input open while it works, sends
+the prompt and each message you write as a message of the session, and closes it once every message has its answer, so
+the run then ends as before. Your words are also kept on the card. A run that's over carries on the same session with
+your words (`claude --resume`); the other tools get them when their run ends, as a comment on the card. **Open in
+Terminal** opens Terminal on the session with its own command to look in (`claude --resume <id>`, `codex resume …`), from
+what Binders wrote on the card, and is off while a run goes, as two at once would clash.
 
-Claude Code and an agent that checks the board itself also chat: picked, the agent opens a chat, a conversation of its
-own that is never a card, and its chats are listed under it beside its cards. Claude Code answers in a session Binders
-starts for the chat in a worktree of its own (`.claude/worktrees/binders-chat-<8 characters>`), with its permission mode,
-sandbox and web, and Binders' board tools as the agent; each message carries the session on (`--resume`), what it writes
-shows while it works, and its last word is its reply. An agent that checks the board itself reads your messages with
-`list_messages` (the messages it hasn't read, by chat, with the last few before them, marked read as it reads them) and
-answers with `reply_message` (`chat`, `text`), only in its own chats; these two are offered on an agent's own Binders
-server alone. Scripts, web hooks, shortcuts and the other coding tools keep cards. Replies are drawn as Markdown.
+A message to an agent with no session yet starts one: a chat for Claude Code and an agent that checks the board itself,
+otherwise a card meant for it, in Ready, which Binders hands over as Give to does. Claude Code answers a chat in a session
+Binders starts for it in a worktree of its own (`.claude/worktrees/binders-chat-<8 characters>`), with its permission
+mode, sandbox and web, and Binders' board tools as the agent. An agent that checks the board itself reads your messages
+with `list_messages` (the messages it hasn't read, by chat, with the last few before them, marked read as it reads them)
+and answers with `reply_message` (`chat`, `text`), only in its own chats; these two are offered on an agent's own Binders
+server alone. Replies are drawn as Markdown. The card's own window still shows its conversation in full.
 
 Binders for iPhone has the same in its Agents tab (under Everything before iOS 26): the Manager's conversation, with
 Stop, Undo, Reply and its suggested note edits, and each agent's chats, or for one that doesn't chat its work with a box
@@ -488,3 +506,15 @@ all back: a deleted card is made again, a deleted note comes back with its id, D
 a note it changed goes back while nobody changed it since. Undo can't stop an agent it started. Requests, their
 changes and the suggestions are kept in manager.json in the data folder (the last 200).
 
+
+
+On a Mac whose Claude Code an organization manages, Binders reads the organization's settings from each place Claude
+Code does: `/Library/Application Support/ClaudeCode/managed-settings.json` and its `managed-settings.d` drop-ins, and a
+configuration profile in `/Library/Managed Preferences` (`com.anthropic.claudecode`). Settings an organization sends from
+its server leave no file, so a run that stops before it starts, for a reason Binders doesn't know, starts once more
+without the limit to Binders' tools (a hook then keeps it to the Manager's), and later ones start that way for a week. A
+run whose Binders tools didn't come up is stopped at once and says so; one that hasn't started after 3 minutes is stopped
+with what Claude Code printed. A request that fails says why in plain words where Binders knows them (settings waiting
+for your approval in a terminal, not signed in, Claude Code older than Binders needs), and offers **Ask Again** and **Show
+Its Log**, Claude Code's own output for it in Finder. Claude Code's error given as its result is never taken as the
+Manager's answer.
