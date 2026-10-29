@@ -21,6 +21,12 @@ final class ManagerService {
     /// The run going now asked for Binders' tools alone (`ManagerLaunch.make`'s `strictMCP`).
     @ObservationIgnored private var runStrict = false
     @ObservationIgnored private var stopping = false
+    /// Requests started again without the limit to Binders' tools after a run with it didn't get going: once each.
+    @ObservationIgnored private var triedLoose: Set<UUID> = []
+    /// Why Binders stopped the run going now before it ended on its own, for the request.
+    @ObservationIgnored private var cutShort: String?
+    /// Watches a Claude Code run's start, to stop it at once when Binders' tools didn't come up in it.
+    @ObservationIgnored private var startWatch: Task<Void, Never>?
     /// The model a local Manager runs on (lane MG2): Distill's in Settings → AI, or the one it names; in the lane you're
     /// waiting on for what you ask, behind it for a scheduled tidy. Self-tests put a stand-in here.
     @ObservationIgnored var localModel: @MainActor (LocalModelWake, ManagerRequest.From) -> LLMClient? = { wake, from in
@@ -126,14 +132,18 @@ final class ManagerService {
             finish(id, status: .failed, why: "The Manager is \(agent.name) now, not \(askedOf), which you asked. Ask again, so your iPhone can ask you about \(agent.name) first.")
             return startNext()
         }
-        // Whether this run asks for Binders' tools alone, as it starts: a refusal of that starts it again once.
-        runStrict = agent.wake.kind == "claudeCode" && AgentDispatcher.asksOnlyBinders
         let exited: @MainActor (Int32, URL) -> Void = { [weak self] status, log in self?.ended(id, status: status, log: log) }
         let woken: Result<any ManagerRunning, ManagerWakeFailure>
+        cutShort = nil
         if case .localModel(let wake) = agent.wake {
+            runStrict = false
             woken = dispatcher.wakeLocalManager(agent, request: id, client: localModel(wake, file.requests[index].from), pump: localPump, exited: exited)
         } else {
-            woken = dispatcher.wakeManager(agent, request: id, exited: exited).map { $0 }
+            // Whether this run asks for Binders' tools alone, as it starts: a refusal of that starts it again once, without.
+            let claude = dispatcher.wakeManager(agent, request: id, strict: triedLoose.contains(id) ? false : nil, exited: exited)
+            runStrict = (try? claude.get())?.strict ?? false
+            if case .success(let run) = claude { watchStart(id, run: run) }
+            woken = claude.map { $0.process }
         }
         runningLocal = agent.wake.kind == "localModel"
         switch woken {
@@ -147,6 +157,61 @@ final class ManagerService {
         case .failure(let failure):
             finish(id, status: .failed, why: failure.why)
             startNext()
+        }
+    }
+
+    /// Keeps an eye on a Claude Code run's start: when Binders' tools were kept out of it or didn't come up, it can't
+    /// even read what you asked, so Binders stops it at once and says why, rather than leave it to answer without them.
+    /// When it hasn't started after a few minutes, Binders stops it and says what Claude Code printed.
+    private func watchStart(_ id: UUID, run: ManagerClaudeRun) {
+        startWatch?.cancel()
+        let log = run.log
+        startWatch = Task { [weak self] in
+            let began = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.runningID == id, let process = self.process, process.isRunning else { return }
+                let output = await Task.detached { AgentDispatcher.startAndEnd(of: log) }.value
+                if ClaudeCodeManaged.started(in: output) {
+                    let server = ManagerLaunch.server
+                    if ClaudeCodeManaged.finding(in: output, server: server) == .keptOut {
+                        self.cutShort = ClaudeCodeManaged.managerKeptOutLine
+                    } else if let trouble = ClaudeCodeManaged.serverTrouble(in: output, server: server) {
+                        self.cutShort = ClaudeCodeManaged.managerToolsLine(trouble)
+                    } else {
+                        return
+                    }
+                    process.terminate()
+                    return
+                }
+                if Date().timeIntervalSince(began) > Self.startLimit {
+                    let printed = AgentDispatcher.lastError(in: log).map { " It printed: “\(AgentRunReport.trimmed($0, limit: 240))”" } ?? ""
+                    self.cutShort = ClaudeCodeManaged.startupProblem(in: output)
+                        ?? "Claude Code didn't start within \(Int(Self.startLimit / 60)) minutes, so Binders stopped it.\(printed)"
+                    process.terminate()
+                    return
+                }
+            }
+        }
+    }
+
+    /// The longest a Claude Code run of the Manager may take to start.
+    static let startLimit: TimeInterval = 3 * 60
+
+    /// The newest log of a request's runs, if it has one: what Claude Code printed, to see why one failed.
+    func log(of id: UUID) -> URL? {
+        let prefix = "manager-\(id.uuidString.prefix(8).lowercased())-"
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: AgentDispatcher.logs.path)) ?? []
+        return names.filter { $0.hasPrefix(prefix) }.max().map { AgentDispatcher.logs.appendingPathComponent($0) }
+    }
+
+    /// Asks a failed request again, as a new one.
+    func again(_ id: UUID) {
+        guard let request = request(id), request.status == .failed else { return }
+        if request.kind == .tidy {
+            tidy(binder: request.binder, from: .mac)
+        } else {
+            ask(request.text, thread: request.thread == request.id ? nil : request.thread, from: .mac)
         }
     }
 
@@ -165,38 +230,79 @@ final class ManagerService {
         guard runningID == id else { return }
         runningID = nil
         process = nil
+        startWatch?.cancel()
+        startWatch = nil
         let stoppedByYou = stopping
         stopping = false
+        let cut = cutShort
+        cutShort = nil
+        let output = runningLocal ? "" : AgentDispatcher.startAndEnd(of: log)
         // This Mac's Claude Code, managed by an organization, refused a run limited to Binders' tools: once, it starts again
         // without that limit (`AgentDispatcher.asksOnlyBinders` is false from now, so it can't be refused so again), with a
         // hook keeping it to the Manager's tools.
-        let managed = runningLocal || stoppedByYou ? nil : ClaudeCodeManaged.finding(in: AgentDispatcher.startAndEnd(of: log), server: ManagerLaunch.server)
+        let managed = runningLocal || stoppedByYou ? nil : ClaudeCodeManaged.finding(in: output, server: ManagerLaunch.server)
         let wasStrict = runStrict
         runStrict = false
-        if managed == .refusedOnlyBinders, wasStrict, let index = file.requests.firstIndex(where: { $0.id == id }),
-           !file.requests[index].isOver, file.requests[index].changes.isEmpty {
-            AppDefaults.store.set(Date(), forKey: AgentDispatcher.refusedOnlyBindersKey)
-            file.requests[index].status = .waiting
-            save()
-            return startNext()
+        let startup = runningLocal || stoppedByYou ? nil : ClaudeCodeManaged.startupProblem(in: output)
+        if wasStrict, !stoppedByYou, cut == nil, let index = file.requests.firstIndex(where: { $0.id == id }),
+           !file.requests[index].isOver, file.requests[index].changes.isEmpty, file.requests[index].reply == nil {
+            if managed == .refusedOnlyBinders {
+                AppDefaults.store.set(Date(), forKey: AgentDispatcher.refusedOnlyBindersKey)
+                file.requests[index].status = .waiting
+                save()
+                return startNext()
+            }
+            // It stopped before it started, for a reason Binders doesn't know: an organization's settings from its server
+            // leave no file to see, and may refuse the limit in other words. Once, it starts again without the limit.
+            if status != 0, startup == nil, !ClaudeCodeManaged.started(in: output), !triedLoose.contains(id), !AgentDispatcher.managedHooksOnly {
+                triedLoose.insert(id)
+                // As after a refusal Binders knows: later runs start without the limit for a while too.
+                AppDefaults.store.set(Date(), forKey: AgentDispatcher.refusedOnlyBindersKey)
+                file.requests[index].status = .waiting
+                save()
+                return startNext()
+            }
         }
+        triedLoose.remove(id)
         if let request = request(id), !request.isOver {
+            let result = AgentDispatcher.lastResult(in: log).text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resultFailed = !runningLocal && AgentDispatcher.resultIsError(in: log)
             if stoppedByYou {
                 finish(id, status: .stopped, why: "You stopped it.")
+            } else if let cut, request.reply == nil {
+                finish(id, status: .failed, why: cut)
             } else if managed == .keptOut, request.reply == nil {
                 finish(id, status: .failed, why: ClaudeCodeManaged.managerKeptOutLine)
+            } else if let startup, request.reply == nil {
+                finish(id, status: .failed, why: startup)
             } else if runningLocal, status != 0 {
                 // A local run says why it failed in its own words.
-                finish(id, status: .failed, why: AgentDispatcher.lastResult(in: log).text ?? "Its run stopped (exit \(status)).")
-            } else if request.reply == nil, status == 0, let said = AgentDispatcher.lastResult(in: log).text?.trimmingCharacters(in: .whitespacesAndNewlines), !said.isEmpty {
+                finish(id, status: .failed, why: result ?? "Its run stopped (exit \(status)).")
+            } else if request.reply == nil, status == 0, !resultFailed, let said = result, !said.isEmpty {
                 // It finished without calling reply: what it said last is its answer.
                 answer(id, said)
+            } else if request.reply == nil {
+                // An error it gave as its result (not signed in, say) is Claude Code's, not the Manager's words.
+                let known = resultFailed ? result.flatMap(ClaudeCodeManaged.startupProblem) : nil
+                finish(id, status: .failed, why: known ?? Self.failure(status: status, result: result, printed: runningLocal ? nil : AgentDispatcher.lastError(in: log)))
             } else {
-                let error = AgentDispatcher.lastResult(in: log).text.map { " It said: " + AgentRunReport.trimmed($0, limit: 300) } ?? ""
-                finish(id, status: .failed, why: (status == 0 ? "Its run ended without a reply." : "Its run stopped (exit \(status)).") + error)
+                // It replied, then stopped: the reply stands.
+                finish(id, status: .answered, why: nil)
             }
         }
         startNext()
+    }
+
+    /// Why a run that ended without a reply failed, in words for the request: how it ended, and what it said or printed.
+    static func failure(status: Int32, result: String?, printed: String?) -> String {
+        let how = switch status {
+        case 0: "Its run ended without a reply."
+        case 15: "It ran past \(Int(AgentDispatcher.managerLimit / 60)) minutes, so Binders stopped it."
+        default: "Its run stopped (exit \(status))."
+        }
+        if let result, !result.isEmpty { return how + " It said: " + AgentRunReport.trimmed(result, limit: 300) }
+        if let printed, !printed.isEmpty { return how + " Claude Code printed: “" + AgentRunReport.trimmed(printed, limit: 300) + "”" }
+        return how
     }
 
     private func finish(_ id: UUID, status: ManagerRequest.Status, why: String?) {

@@ -196,6 +196,13 @@ struct ManagerChat: View {
                     if request.status == .answered {
                         Button("Reply") { thread = request.id }
                     }
+                    if request.status == .failed {
+                        Button("Ask Again") { manager.again(request.id) }
+                        if let log = manager.log(of: request.id) {
+                            Button("Show Its Log") { NSWorkspace.shared.activateFileViewerSelecting([log]) }
+                                .help("What Claude Code printed for this request, in Finder")
+                        }
+                    }
                 }
                 .controlSize(.small)
             }

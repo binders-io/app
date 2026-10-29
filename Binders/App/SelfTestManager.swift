@@ -62,6 +62,32 @@ extension SelfTest {
                 fi
               done
             fi
+            # Settings from an organization's server: no file to see, and a refusal of the limit in words of its own.
+            if [ -f "$here/manager-server-managed" ]; then
+              for a in "$@"; do
+                if [ "$a" = "--strict-mcp-config" ]; then
+                  touch "$here/manager-refused-otherwise"
+                  echo "Error: your organization's settings don't allow this run" >&2
+                  exit 1
+                fi
+              done
+            fi
+            # Waiting for you to approve the organization's settings, which it can't ask here.
+            if [ -f "$here/manager-unapproved" ]; then
+              echo "Settings from your organization carries settings not yet approved in the managed-settings dialog; it is not applied until they are" >&2
+              exit 1
+            fi
+            # Not signed in: an error as its result.
+            if [ -f "$here/manager-signed-out" ]; then
+              printf '{"type":"result","is_error":true,"result":"API Error: 401 Invalid API key · Please run /login"}\n'
+              exit 1
+            fi
+            # Binders' tools didn't come up in the run: it would go on without them, until stopped.
+            if [ -f "$here/manager-tools-failed" ]; then
+              printf '{"type":"system","subtype":"init","mcp_servers":[{"name":"binders_manager","status":"failed"}]}\n'
+              sleep 30
+              exit 0
+            fi
             n=0
             while [ ! -f "$here/manager-go" ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n+1)); done
             rm -f "$here/manager-go"
@@ -270,6 +296,60 @@ extension SelfTest {
         await until { manager.request(managed.id)?.isOver == true }
         check(manager.request(managed.id)?.status == .answered, "and it answers")
         try? files.removeItem(at: folder.appendingPathComponent("manager-managed"))
+        AppDefaults.store.removeObject(forKey: AgentDispatcher.refusedOnlyBindersKey)
+
+        // Managed from the organization's server: no file says so, and the refusal of the limit is in other words. Once, it
+        // starts again without the limit, and answers.
+        files.createFile(atPath: folder.appendingPathComponent("manager-server-managed").path, contents: Data())
+        try? files.removeItem(at: folder.appendingPathComponent("manager-args.txt"))
+        let serverManaged = manager.ask("Anything stuck?", from: .mac)
+        await until { files.fileExists(atPath: folder.appendingPathComponent("manager-refused-otherwise").path) && read("manager-args.txt").contains("pre-tool-manager") }
+        check(manager.runningID == serverManaged.id && !read("manager-args.txt").contains("--strict-mcp-config"),
+              "refused in words Binders doesn't know before it started, it starts again once without the limit (\(manager.request(serverManaged.id)?.why ?? ""))")
+        letItEnd()
+        await until { manager.request(serverManaged.id)?.isOver == true }
+        check(manager.request(serverManaged.id)?.status == .answered, "and it answers")
+        try? files.removeItem(at: folder.appendingPathComponent("manager-server-managed"))
+
+        // Claude Code waits for you to approve your organization's settings: said plainly, with what to do.
+        files.createFile(atPath: folder.appendingPathComponent("manager-unapproved").path, contents: Data())
+        let unapproved = manager.ask("What's due?", from: .mac)
+        await until { manager.request(unapproved.id)?.isOver == true }
+        check(manager.request(unapproved.id)?.why == ClaudeCodeManaged.approveLine, "unapproved settings: it says to approve them in Terminal (\(manager.request(unapproved.id)?.why ?? ""))")
+        check(manager.log(of: unapproved.id) != nil, "a failed request's log can be shown")
+        try? files.removeItem(at: folder.appendingPathComponent("manager-unapproved"))
+
+        // Not signed in: Claude Code's error result isn't taken as the Manager's answer.
+        files.createFile(atPath: folder.appendingPathComponent("manager-signed-out").path, contents: Data())
+        let signedOut = manager.ask("What's due?", from: .mac)
+        await until { manager.request(signedOut.id)?.isOver == true }
+        check(manager.request(signedOut.id)?.status == .failed && manager.request(signedOut.id)?.why == ClaudeCodeManaged.signInLine,
+              "signed out: it fails and says to sign in, never answering with the error (\(manager.request(signedOut.id)?.why ?? ""))")
+        try? files.removeItem(at: folder.appendingPathComponent("manager-signed-out"))
+        // Ask Again makes a new request of the same words.
+        let count = manager.requests.count
+        manager.again(signedOut.id)
+        check(manager.requests.count == count + 1 && manager.requests.last?.text == "What's due?", "Ask Again asks it anew")
+        letItEnd()
+        if let last = manager.requests.last { await until { manager.request(last.id)?.isOver == true } }
+
+        // Binders' tools didn't come up in the run: stopped at once, saying so, rather than left to answer without them.
+        files.createFile(atPath: folder.appendingPathComponent("manager-tools-failed").path, contents: Data())
+        let noTools = manager.ask("Tidy Personal", from: .mac)
+        let asked = Date()
+        await until { manager.request(noTools.id)?.isOver == true }
+        check(manager.request(noTools.id)?.status == .failed && manager.request(noTools.id)?.why?.contains("didn't start") == true && Date().timeIntervalSince(asked) < 20,
+              "without its tools, the run is stopped at once and says why (\(manager.request(noTools.id)?.why ?? ""))")
+        try? files.removeItem(at: folder.appendingPathComponent("manager-tools-failed"))
+
+        // A configuration profile (MDM) that turns hooks off counts as managing Claude Code, and as keeping Binders' hook out.
+        let profiles = URL(fileURLWithPath: AgentPlaces.managedPreferencesFolder, isDirectory: true)
+        try? files.createDirectory(at: profiles, withIntermediateDirectories: true)
+        let profile = profiles.appendingPathComponent(ClaudeCodeManaged.preferencesDomain + ".plist")
+        try? PropertyListSerialization.data(fromPropertyList: ["disableAllHooks": true], format: .xml, options: 0).write(to: profile)
+        check(AgentDispatcher.claudeCodeIsManaged && AgentDispatcher.managedHooksOnly, "a profile's settings are read, as Claude Code reads them")
+        try? files.removeItem(at: profile)
+        check(!AgentDispatcher.managedHooksOnly, "and gone with it")
         AppDefaults.store.removeObject(forKey: AgentDispatcher.refusedOnlyBindersKey)
 
         // From the iPhone, asked of the Manager you were asked about: given to another agent since, it doesn't run there.

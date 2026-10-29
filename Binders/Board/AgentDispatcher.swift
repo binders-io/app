@@ -1069,19 +1069,20 @@ final class AgentDispatcher {
         return true
     }
 
-    /// Whether an organization manages this Mac's Claude Code: its managed MCP config or settings are here, or a run was
-    /// refused for being limited to Binders' tools.
+    /// Whether an organization manages this Mac's Claude Code: its managed MCP config or settings are here (a file, its
+    /// drop-ins or a configuration profile), or a run was refused for being limited to Binders' tools.
     static var claudeCodeIsManaged: Bool {
-        [ClaudeCodeManaged.mcpFile, ClaudeCodeManaged.settingsFile].contains { FileManager.default.fileExists(atPath: (managedFolder as NSString).appendingPathComponent($0)) }
-            || !asksOnlyBinders
+        FileManager.default.fileExists(atPath: (managedFolder as NSString).appendingPathComponent(ClaudeCodeManaged.mcpFile))
+            || !AgentPlaces.managedClaudeSettings.isEmpty || !asksOnlyBinders
     }
 
     /// The start and the end of a run's log: what Claude Code printed as it started (where a managed Claude Code says what
     /// it refused or left out), and how the run ended.
-    static func startAndEnd(of log: URL) -> String {
+    nonisolated static func startAndEnd(of log: URL) -> String {
         guard let handle = try? FileHandle(forReadingFrom: log) else { return "" }
         defer { try? handle.close() }
-        let start = (try? handle.read(upToCount: 64 * 1024)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        // The start event lists every tool, server and skill the run has: with an organization's many, it runs long.
+        let start = (try? handle.read(upToCount: 2 * 1024 * 1024)).map { String(decoding: $0, as: UTF8.self) } ?? ""
         return start + "\n" + (CLIRuns.tail(log, bytes: 64 * 1024) ?? "")
     }
 
@@ -1093,6 +1094,16 @@ final class AgentDispatcher {
             return (object["result"] as? String, object["total_cost_usd"] as? Double, object["num_turns"] as? Int)
         }
         return (nil, nil, nil)
+    }
+
+    /// Whether a Claude run's last result is an error (`is_error`), such as an API error it printed as its result.
+    static func resultIsError(in log: URL) -> Bool {
+        guard let tail = CLIRuns.tail(log, bytes: 256 * 1024) else { return false }
+        for line in tail.split(separator: "\n").reversed() {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], object["type"] as? String == "result" else { continue }
+            return object["is_error"] as? Bool == true
+        }
+        return false
     }
 
     /// What the card says when a run in auto mode stopped before it took the card.

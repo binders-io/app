@@ -13,7 +13,7 @@ extension AgentDispatcher {
         // Not limited to Binders' tools, only the hook keeps it to Binders' board tools: an organization that runs its own
         // hooks alone would leave it out.
         if !strict, Self.managedHooksOnly {
-            return .failure(.init("Claude Code on this Mac has settings from your organization that run only its own hooks, so Binders can't keep a chat to its tools. Give \(agent.name) a card instead, or ask your admin."))
+            return .failure(.init("Claude Code on this Mac has settings from your organization that run only its own hooks, or none, so Binders can't keep a chat to its tools. Give \(agent.name) a card instead, or ask your admin."))
         }
         var wake = wake
         wake.repository = (wake.repository as NSString).expandingTildeInPath

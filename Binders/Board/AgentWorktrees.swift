@@ -41,6 +41,16 @@ enum AgentPlaces {
         AppPaths.isDemo ? root.path + ClaudeCodeManaged.folder : ClaudeCodeManaged.folder
     }
 
+    /// Where a configuration profile puts them (`ClaudeCodeManaged.preferencesFolder`); under the root in a throwaway folder.
+    static var managedPreferencesFolder: String {
+        AppPaths.isDemo ? root.path + ClaudeCodeManaged.preferencesFolder : ClaudeCodeManaged.preferencesFolder
+    }
+
+    /// The organization's settings files for Claude Code on this Mac (`ClaudeCodeManaged.settingsFiles`).
+    static var managedClaudeSettings: [URL] {
+        ClaudeCodeManaged.settingsFiles(folder: managedClaudeFolder, preferences: managedPreferencesFolder)
+    }
+
     /// Makes a folder (and its parents under the root) 0700, whoever made it first.
     @discardableResult
     static func ensure(_ folder: URL) -> URL {

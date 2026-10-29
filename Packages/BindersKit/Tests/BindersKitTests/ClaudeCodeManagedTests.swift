@@ -118,4 +118,45 @@ final class ClaudeCodeManagedTests: XCTestCase {
                       && ClaudeCodeManaged.keptOutLine.contains("command agent"), "what to do")
         XCTAssertEqual(ClaudeCodeManaged.folder, "/Library/Application Support/ClaudeCode")
     }
+    // MARK: The Manager on a managed Mac
+
+    func testSettingsFilesAreFoundWhereverAnOrganizationPutsThem() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("managed-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("ClaudeCode", isDirectory: true), profiles = root.appendingPathComponent("Managed Preferences", isDirectory: true)
+        XCTAssertEqual(ClaudeCodeManaged.settingsFiles(folder: folder.path, preferences: profiles.path, user: "sam"), [], "nothing there, nothing managed")
+        let dropIns = folder.appendingPathComponent(ClaudeCodeManaged.dropInFolder, isDirectory: true)
+        try FileManager.default.createDirectory(at: dropIns, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("sam"), withIntermediateDirectories: true)
+        try Data(#"{"permissions":{}}"#.utf8).write(to: dropIns.appendingPathComponent("10-base.json"))
+        try Data("x".utf8).write(to: dropIns.appendingPathComponent("notes.txt"))
+        let profile = try PropertyListSerialization.data(fromPropertyList: ["allowManagedHooksOnly": true], format: .xml, options: 0)
+        try profile.write(to: profiles.appendingPathComponent("sam/\(ClaudeCodeManaged.preferencesDomain).plist"))
+        let files = ClaudeCodeManaged.settingsFiles(folder: folder.path, preferences: profiles.path, user: "sam")
+        XCTAssertEqual(files.map(\.lastPathComponent), ["10-base.json", "com.anthropic.claudecode.plist"], "a drop-in and the profile, not other files")
+        XCTAssertTrue(ClaudeCodeManaged.turnsOn("allowManagedHooksOnly", in: files), "read from the profile's property list")
+        XCTAssertFalse(ClaudeCodeManaged.turnsOn("disableAllHooks", in: files))
+    }
+
+    func testARunsStartSaysWhetherBindersToolsCameUp() {
+        let started = #"{"type":"system","subtype":"init","mcp_servers":[{"name":"binders_manager","status":"failed"},{"name":"other","status":"connected"}]}"#
+        XCTAssertTrue(ClaudeCodeManaged.started(in: "warming up\n" + started))
+        XCTAssertFalse(ClaudeCodeManaged.started(in: "Error: something\n"))
+        XCTAssertEqual(ClaudeCodeManaged.serverTrouble(in: started, server: "binders_manager"), "failed")
+        XCTAssertNil(ClaudeCodeManaged.serverTrouble(in: started.replacingOccurrences(of: "\"failed\"", with: "\"connected\""), server: "binders_manager"))
+        XCTAssertNil(ClaudeCodeManaged.serverTrouble(in: started.replacingOccurrences(of: "\"failed\"", with: "\"pending\""), server: "binders_manager"),
+                     "still coming up is not trouble")
+        XCTAssertNil(ClaudeCodeManaged.serverTrouble(in: started, server: "binders"), "another server's word is not ours")
+    }
+
+    func testWhatClaudeCodePrintedWhenItDidntStartIsSaidPlainly() {
+        XCTAssertEqual(ClaudeCodeManaged.startupProblem(in: "Your organization's settings carries settings not yet approved in the managed-settings dialog; it is not applied until they are"),
+                       ClaudeCodeManaged.approveLine)
+        XCTAssertEqual(ClaudeCodeManaged.startupProblem(in: "Invalid API key · Please run /login"), ClaudeCodeManaged.signInLine)
+        XCTAssertTrue(ClaudeCodeManaged.startupProblem(in: "Claude Code didn't start: your organization's policy hasn't loaded yet")?.contains("couldn't load your organization's settings") == true)
+        XCTAssertTrue(ClaudeCodeManaged.startupProblem(in: "error: unknown option '--permission-prompts'")?.contains("claude update") == true)
+        XCTAssertNil(ClaudeCodeManaged.startupProblem(in: #"{"type":"result","result":"Please run /login"}"#), "the run's own words never count")
+        XCTAssertNil(ClaudeCodeManaged.startupProblem(in: "something else went wrong"))
+        XCTAssertTrue(ClaudeCodeManaged.managerKeptOutLine.contains(ManagerLaunch.server), "it names the Manager's server, which the admin has to allow")
+    }
 }
