@@ -149,6 +149,13 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
     public var allowedDomains: [String]?
     /// The program, when it isn't the one on the login shell's PATH. Set outside Binders, shown in Settings.
     public var executable: String?
+    /// "Work in the folder itself", as Claude Code's (`ClaudeCodeWake.inFolder`): each run starts in `repository` as it
+    /// is, with no worktree, so the folder needn't be a git repository (a workspace holding several, say). It changes your
+    /// files there directly, Binders commits nothing, and one card runs in the folder at a time. Nil means off.
+    public var inFolder: Bool?
+
+    /// Whether each run works in the folder itself, with no worktree: only when you turned it on.
+    public var worksInFolder: Bool { inFolder == true }
 
     /// The modes Binders starts these tools in. Neither turns their checks off.
     public static let modes = ["acceptEdits", "plan"]
@@ -166,17 +173,18 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
     public var editsFiles: Bool { safeMode == "acceptEdits" }
 
     public init(tool: CLIAgent, repository: String, permissionMode: String = Self.newAgentMode, model: String? = nil,
-                allowedDomains: [String]? = nil, executable: String? = nil) {
+                allowedDomains: [String]? = nil, executable: String? = nil, inFolder: Bool? = nil) {
         self.tool = tool
         self.repository = repository
         self.permissionMode = permissionMode
         self.model = model
         self.allowedDomains = allowedDomains
         self.executable = executable
+        self.inFolder = inFolder
     }
 
     private enum CodingKeys: String, CodingKey {
-        case tool, repository, permissionMode, model, allowedDomains, executable
+        case tool, repository, permissionMode, model, allowedDomains, executable, inFolder
     }
 
     /// The tool and the repository are needed, and a tool this build doesn't know fails, so the agent isn't read. A
@@ -189,6 +197,7 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
         model = try container.decodeIfPresent(String.self, forKey: .model)
         allowedDomains = try container.decodeIfPresent([String].self, forKey: .allowedDomains)
         executable = try container.decodeIfPresent(String.self, forKey: .executable)
+        inFolder = try container.decodeIfPresent(Bool.self, forKey: .inFolder)
     }
 
     /// The model it's started with: a name, never another flag, and nothing that turns checks off. Nil leaves it to the tool.

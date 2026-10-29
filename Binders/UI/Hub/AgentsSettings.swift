@@ -749,7 +749,7 @@ struct AgentEditor: View {
     /// what Binders lets it do.
     @ViewBuilder
     private func cliFields(_ tool: CLIAgent) -> some View {
-        LabeledContent("Repository") {
+        LabeledContent(cli.worksInFolder ? "Folder" : "Repository") {
             HStack {
                 Text(cli.repository.isEmpty ? "None chosen" : (cli.repository as NSString).abbreviatingWithTildeInPath)
                     .foregroundStyle(cli.repository.isEmpty ? .secondary : .primary).lineLimit(1).truncationMode(.middle)
@@ -774,6 +774,11 @@ struct AgentEditor: View {
                 }
             }
         }
+        // Off unless you turn it on: nil keeps an agents-cli.json from before as it was.
+        Toggle("Work in the folder itself",
+               isOn: Binding(get: { cli.worksInFolder }, set: { cli.inFolder = $0 ? true : nil }))
+        Text("For a folder that isn't a git repository, such as a workspace holding several. Each run starts in the folder as it is, with no worktree: it changes your files there directly, with no branch or commit of its own, and one card runs there at a time. Its other limits below still apply.")
+            .font(.caption).foregroundStyle(.secondary)
         // Antigravity can't be held to reading only: it edits files or doesn't run. One saved as Reads Only shows it, so
         // changing it is a choice you can see.
         Picker("Permissions", selection: $cli.permissionMode) {
@@ -782,7 +787,7 @@ struct AgentEditor: View {
         StackedField(label: "Model", text: Binding(get: { cli.model ?? "" }, set: { cli.model = $0.trimmed.isEmpty ? nil : $0.trimmed }),
                      prompt: tool.needsModel ? "provider/model, such as anthropic/claude-sonnet-4-5" : tool == .antigravity ? "Its default; agy models lists the others" : "Its default",
                      probe: "field.agent.cliModel")
-        Text(Self.footer(tool)).font(.caption).foregroundStyle(.secondary)
+        Text(Self.footer(tool, inFolder: cli.worksInFolder)).font(.caption).foregroundStyle(.secondary)
     }
 
     /// The modes the picker offers a tool, with the one it has when that's another.
@@ -792,7 +797,8 @@ struct AgentEditor: View {
     }
 
     /// What Binders lets each tool do, in plain words.
-    static func footer(_ tool: CLIAgent) -> String {
+    static func footer(_ tool: CLIAgent, inFolder: Bool = false) -> String {
+        if inFolder { return folderFooter(tool) }
         let end = "When it stops, Binders commits what it changed on the card's branch and puts what it said last on the card. A run that stops before it's finished leaves the card in Blocked, with why."
         switch tool {
         case .codex:
@@ -803,6 +809,21 @@ struct AgentEditor: View {
             return "GitHub Copilot CLI \(tool.checkedVersion) has no sandbox, so Binders lets it do less. It reads and edits files in a git worktree Binders makes for the card and uses Binders' tools for that card. It runs no commands, reaches nothing on the web, and can't hand the card to another Copilot agent or start a language server. It runs with a Copilot settings folder of Binders' own, ~/.binders/copilot, so your own Copilot MCP servers, plugins and hooks stay out. Binders sets that folder back to safe settings before each run. It uses your Copilot sign-in from the Keychain or gh. " + end
         case .antigravity:
             return "Started by Binders, Antigravity runs on its own in a git worktree Binders makes for the card, with its terminal sandbox on. It reads and edits files there without asking. Its commands run in the sandbox, and only the ones your Antigravity settings allow: no one is there to approve any other, so it doesn't run, and the card says what was refused. It reaches nothing on the network, and it uses Binders' tools for that card only. Your own Antigravity hooks, plugins and MCP servers load with it, as Binders can't turn them off for a run. Binders can't change your Antigravity settings either, so it reads two of them before each run and won't start Antigravity when they'd let it act outside its worktree without asking: toolPermission set to always-proceed, or allow rules for files outside the worktree, the web or other MCP servers. A run needs mcp(binders/*) in permissions.allow, as it refuses any MCP tool no rule allows. It can't be held to reading only, so it always edits files, and Binders won't start it in a worktree whose .agents folder has hooks, MCP servers or plugins. It runs under your Antigravity sign-in; sign in by running agy once in Terminal. " + end
+        }
+    }
+
+    /// The same for a run in the folder itself: no worktree, nothing committed.
+    static func folderFooter(_ tool: CLIAgent) -> String {
+        let end = "It changes your files in the folder directly and Binders commits nothing, so look over what it changed yourself. When it stops, what it said last goes on the card; a run that stops before it's finished leaves the card in Blocked, with why."
+        switch tool {
+        case .codex:
+            return "Started by Binders, Codex runs on its own in the folder itself, in Codex's own sandbox: it edits files only there, in its own temp folder and in /tmp. Its commands can't read your keys and sign-ins, Binders' data folder or your team folder, and they reach nothing on the network. It doesn't load your Codex settings, only Binders' tools for that card, under your own Codex sign-in. " + end
+        case .opencode:
+            return "OpenCode has no sandbox, so Binders lets it do less: it reads and edits files in the folder itself and uses Binders' tools for that card, runs no commands and reaches nothing on the web. Binders won't start it in a folder with a link to somewhere outside it, since its file tools would follow the link. It uses your own OpenCode sign-ins and sends cards to the provider of the model you choose here. " + end
+        case .copilot:
+            return "Started by Binders, GitHub Copilot CLI reads and edits files in the folder itself and uses Binders' tools for that card; it runs no commands. It runs under your own Copilot sign-in. " + end
+        case .antigravity:
+            return "Started by Binders, Antigravity edits files in the folder itself and uses only Binders' tools for that card. Binders adds its server for the run in the folder's .agents folder and takes it out when the run ends. " + end
         }
     }
 

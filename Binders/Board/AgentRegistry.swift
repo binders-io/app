@@ -381,9 +381,11 @@ final class AgentRegistry {
             let tool = wake.tool
             let repository = (wake.repository as NSString).expandingTildeInPath
             var folder: ObjCBool = false
+            // Working in the folder itself, any folder will do; otherwise it needs a repository for the worktree.
             guard !checkingRepository || FileManager.default.fileExists(atPath: repository, isDirectory: &folder) && folder.boolValue
-                    && FileManager.default.fileExists(atPath: (repository as NSString).appendingPathComponent(".git")) else {
-                return "Choose a folder with a git repository in it: \(tool.name) works there, in a worktree Binders makes for each card."
+                    && (wake.worksInFolder || FileManager.default.fileExists(atPath: (repository as NSString).appendingPathComponent(".git"))) else {
+                return wake.worksInFolder ? "Choose a folder: \(tool.name) works there."
+                    : "Choose a folder with a git repository in it: \(tool.name) works there, in a worktree Binders makes for each card. For a folder that isn't one, turn on Work in the Folder Itself."
             }
             if let program = wake.executable {
                 // The tool itself, wherever it's installed. It's never put into a shell, so its folders' names don't matter.

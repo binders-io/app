@@ -196,7 +196,7 @@ public enum CLIAgentLaunches {
     /// The prompt for a CLI run: Binders commits, and it says what the run can do.
     static func prompt(_ run: CLIAgentRun) -> String {
         AgentRunPrompt.text(card: run.card, reason: run.reason, draftsFirst: run.draftsFirst, commits: .binders,
-                            reach: AgentRunPrompt.reach(run.wake.tool, editsFiles: run.wake.editsFiles))
+                            reach: AgentRunPrompt.reach(run.wake.tool, editsFiles: run.wake.editsFiles), inFolder: run.wake.worksInFolder)
     }
 
     // MARK: Small parts
@@ -279,6 +279,8 @@ public enum CodexLaunch {
         filesystem = filesystem.filter { !$0.0.isEmpty && seen.insert($0.0).inserted }
 
         var arguments = ["exec", "--json", "--cd", worktree, "--ignore-user-config", "--ignore-rules", "--strict-config"]
+        // In the folder itself, which needn't be a git repository: Codex refuses one that isn't, unless told.
+        if run.wake.worksInFolder { arguments.append("--skip-git-repo-check") }
         for feature in disabledFeatures { arguments += ["--disable", feature] }
         func set(_ key: String, _ value: String) { arguments += ["-c", "\(key)=\(value)"] }
         set("approvals_reviewer", toml("user"))
@@ -375,7 +377,7 @@ public enum OpenCodeLaunch {
                               environment: CLIAgentLaunches.environment(base: run.base, home: run.home, path: run.path, temporary: run.temporary,
                                                                         throwawayData: run.throwawayData, extra: extra),
                               files: [:], session: nil, lookIn: nil,
-                              mode: run.wake.editsFiles ? "edits files in its worktree, no commands" : "reads only, no commands")
+                              mode: run.wake.editsFiles ? "edits files in its \(run.wake.worksInFolder ? "folder" : "worktree"), no commands" : "reads only, no commands")
     }
 
     /// The run's config, in OPENCODE_CONFIG_CONTENT: its rules in the order OpenCode reads them, where the last match
@@ -403,7 +405,7 @@ public enum OpenCodeLaunch {
         let environment = CLIAgentLaunches.serverValues(run).map { (key: $0.0, value: OrderedJSON.string($0.1)) }
         top.append(("mcp", .object([("binders", .object([("type", .string("local")), ("command", .array([.string(run.binders), .string("--mcp")])),
                                                          ("environment", .object(environment)), ("enabled", .bool(true))]))])))
-        top.append(("agent", .object([(agent, .object([("description", .string("Works on one Binders card in its own git worktree.")),
+        top.append(("agent", .object([(agent, .object([("description", .string(run.wake.worksInFolder ? "Works on one Binders card in its folder." : "Works on one Binders card in its own git worktree.")),
                                                        ("mode", .string("primary")), ("steps", .int(150)), ("permission", .object(permission))]))])))
         return .object(top)
     }
@@ -451,7 +453,7 @@ public enum CopilotLaunch {
                                                                         throwawayData: run.throwawayData, extra: extra),
                               files: [file: OrderedJSON.object([("mcpServers", .object([("binders", server)]))]).text()],
                               session: session, lookIn: lookIn(session: session, worktree: worktree, copilotHome: run.copilotHome, home: run.home),
-                              mode: run.wake.editsFiles ? "edits files in its worktree, no commands" : "reads only, no commands")
+                              mode: run.wake.editsFiles ? "edits files in its \(run.wake.worksInFolder ? "folder" : "worktree"), no commands" : "reads only, no commands")
     }
 
     /// The command that looks in on the run, in its worktree, with Binders' settings folder for Copilot.

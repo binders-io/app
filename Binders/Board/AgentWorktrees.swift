@@ -260,7 +260,8 @@ enum AgentWorktrees {
         // Paths in it as it names them; a link is listed, never gone into.
         guard let walk = FileManager.default.enumerator(atPath: root) else { return nil }
         while let relative = walk.nextObject() as? String {
-            if relative == ".git" {
+            // Git's own folders, at any depth: a workspace run in the folder itself holds several repositories.
+            if (relative as NSString).lastPathComponent == ".git" {
                 walk.skipDescendants()
                 continue
             }

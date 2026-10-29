@@ -843,6 +843,30 @@ extension SelfTest {
         check(cliSaysPaused == false && !registry.paused, "paused here and resumed in Mac 0.8.0: resumed, as agents-cli.json never holds the pause")
         registry.setPaused(false)
 
+        // 17, in the folder itself: a workspace that holds several repositories and isn't one. No worktree, no branch, no
+        // commit; it changes the files there, and one card runs there at a time.
+        let workspace = data.appendingPathComponent("workspace", isDirectory: true)
+        try? manager.createDirectory(at: workspace.appendingPathComponent("service-a"), withIntermediateDirectories: true)
+        try? "# Workspace\n".write(to: workspace.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        var folderAgent = agent(.codex, name: "Codex · workspace", repository: workspace.path)
+        check(registry.problem(with: folderAgent)?.contains("turn on Work in the Folder Itself") == true, "a folder that isn't a repository asks for Work in the Folder Itself")
+        if case .cliAgent(var wake) = folderAgent.wake {
+            wake.inFolder = true
+            folderAgent.wake = .cliAgent(wake)
+        }
+        check(registry.upsert(folderAgent) == nil, "with it on, any folder will do: \(registry.problem(with: folderAgent) ?? "")")
+        let worktreesBefore = AgentWorktrees.records().count
+        let inFolder = await run(folderAgent, mode: "edit", title: "Change two services")
+        check(AgentPlaces.real(stubbed(.codex, "cwd.txt")) == AgentPlaces.real(workspace.path), "it started in the folder itself: \(stubbed(.codex, "cwd.txt"))")
+        check(stubbed(.codex, "argv.bin").split(separator: "\0").contains("--skip-git-repo-check"), "Codex may run there though it isn't a repository")
+        check(events(inFolder).contains { $0.kind == .woke && $0.text.contains(", the folder itself") && $0.text.contains("Binders commits nothing") },
+              "the receipt says it works in the folder itself and nothing is committed")
+        check(notes(inFolder).last?.contains("uncommitted") == true && AgentWorktrees.records().count == worktreesBefore,
+              "its end says the changes are there uncommitted, and no worktree was made: \(notes(inFolder).last ?? "")")
+        check(((try? String(contentsOf: workspace.appendingPathComponent("README.md"), encoding: .utf8)) ?? "").contains("A line the stand-in added."),
+              "what it changed is in the folder")
+        registry.remove(folderAgent.id)
+
         // 18. Never the real tools.
         let real = AgentProfile(name: "Codex · real", wake: .cliAgent(CLIAgentWake(tool: .codex, repository: repoPath)), preset: "codex", wakesPerHour: 30)
         check(registry.upsert(real) == nil, "a Codex agent on your PATH is saved")

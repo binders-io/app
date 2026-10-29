@@ -482,4 +482,33 @@ final class CLIAgentLaunchTests: XCTestCase {
         XCTAssertEqual(CLIAgentLaunches.pastable("/Volumes/Work Disk/x", home: home), "'/Volumes/Work Disk/x'")
         XCTAssertEqual(CLIAgentLaunches.card12(card), "3f2504e04f89")
     }
+    // MARK: In the folder itself
+
+    func testInTheFolderItselfCodexMayRunOutsideARepositoryAndThePromptSaysWhereItIs() throws {
+        var folderRun = run(.codex, worktree: "/Users/sam/code/workspace")
+        folderRun.wake.repository = "/Users/sam/code/workspace"
+        folderRun.wake.inFolder = true
+        let inFolder = try launch(folderRun), inWorktree = try launch(run(.codex))
+        XCTAssertTrue(inFolder.arguments.contains("--skip-git-repo-check"), "a workspace of several repositories isn't one itself")
+        XCTAssertFalse(inWorktree.arguments.contains("--skip-git-repo-check"), "a worktree is a repository: Codex's check stays on")
+        XCTAssertEqual(inFolder.directory, "/Users/sam/code/workspace")
+        XCTAssertTrue(inFolder.stdin.contains("the user's own folder") && inFolder.stdin.contains("Binders commits nothing"))
+        XCTAssertFalse(inFolder.stdin.contains("git worktree made for this card"))
+        XCTAssertTrue(inWorktree.stdin.contains("git worktree made for this card"))
+        var opencode = run(.opencode, worktree: "/Users/sam/code/workspace")
+        opencode.wake.inFolder = true
+        XCTAssertTrue(try launch(opencode).mode.contains("in its folder"))
+    }
+
+    func testTheFolderSettingIsKeptAndAFolderRecordIsNoWorktree() throws {
+        let wake = CLIAgentWake(tool: .opencode, repository: "/Users/sam/code/workspace", model: "anthropic/claude-sonnet-4-5", inFolder: true)
+        let read = try JSONDecoder().decode(CLIAgentWake.self, from: JSONEncoder().encode(wake))
+        XCTAssertTrue(read.worksInFolder)
+        let before = try JSONDecoder().decode(CLIAgentWake.self, from: Data(#"{"tool":"codex","repository":"/Users/sam/code/app","permissionMode":"acceptEdits"}"#.utf8))
+        XCTAssertFalse(before.worksInFolder, "an agent saved before reads as working in a worktree")
+        let record = AgentWorktreeRecord.folder("/Users/sam/code/workspace", card: card, tool: .codex)
+        XCTAssertTrue(record.isFolder && record.branch.isEmpty && record.path == "/Users/sam/code/workspace")
+        let reread = try JSONDecoder().decode(AgentWorktreeRecord.self, from: JSONEncoder().encode(record))
+        XCTAssertTrue(reread.isFolder, "a run's record carries it across a quit")
+    }
 }

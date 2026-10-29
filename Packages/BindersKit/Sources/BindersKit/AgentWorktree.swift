@@ -26,6 +26,20 @@ public struct AgentWorktreeRecord: Codable, Equatable, Sendable {
     public var ready: Bool
     public var made: Date
 
+    /// A run in the folder itself (`CLIAgentWake.inFolder`): no worktree, no branch, nothing to commit; never in
+    /// worktrees.json. Nil for a worktree.
+    public var inFolder: Bool?
+
+    /// Whether this is the folder itself rather than a worktree Binders made.
+    public var isFolder: Bool { inFolder == true }
+
+    /// The record for a run in the folder itself.
+    public static func folder(_ path: String, card: UUID, tool: CLIAgent, made: Date = Date()) -> AgentWorktreeRecord {
+        var record = AgentWorktreeRecord(card: card, tool: tool, repository: path, commonDir: "", path: path, branch: "", gitDir: "", ready: true, made: made)
+        record.inFolder = true
+        return record
+    }
+
     public init(card: UUID, tool: CLIAgent, repository: String, commonDir: String, path: String, branch: String, gitDir: String, ready: Bool, made: Date) {
         self.card = card
         self.tool = tool

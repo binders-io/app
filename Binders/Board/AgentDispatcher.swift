@@ -621,6 +621,14 @@ final class AgentDispatcher {
             }
             return wakeClaude(agent, wake, card: card, reason: reason)
         case .cliAgent(let wake):
+            // In the folder itself, one card at a time, whichever agent works there.
+            let folder = (wake.repository as NSString).expandingTildeInPath
+            if wake.worksInFolder, let other = inFolderRuns.first(where: { $0.key != card.id && $0.value == folder && (runs[$0.key] != nil || starting.contains($0.key)) })?.key {
+                let line = "\(agent.name) is working in \((folder as NSString).abbreviatingWithTildeInPath) on another card (\(String(other.uuidString.prefix(8)).lowercased())). It works in the folder itself, so one card runs there at a time: Wake Now when that one's done."
+                record(card.id, ok: false, line)
+                return .notWoken(line)
+            }
+            if wake.worksInFolder { inFolderRuns[card.id] = folder } else { inFolderRuns[card.id] = nil }
             wakeCLI(agent, wake, card: card, reason: reason)
             return .woke
         case .localModel:
@@ -683,7 +691,7 @@ final class AgentDispatcher {
         wake.executable = wake.executable.map { ($0 as NSString).expandingTildeInPath }
         let repository = wake.repository
         // In the folder itself, one card at a time: two runs would change the same files.
-        if wake.worksInFolder, let other = inFolderRuns.first(where: { $0.key != id && $0.value == repository && runs[$0.key] != nil })?.key {
+        if wake.worksInFolder, let other = inFolderRuns.first(where: { $0.key != id && $0.value == repository && (runs[$0.key] != nil || starting.contains($0.key)) })?.key {
             let line = "\(agent.name) is working in \((repository as NSString).abbreviatingWithTildeInPath) on another card (\(String(other.uuidString.prefix(8)).lowercased())). It works in the folder itself, so one card runs there at a time: Wake Now when that one's done."
             record(id, ok: false, line)
             return .notWoken(line)
@@ -1190,13 +1198,25 @@ extension AgentDispatcher {
         if tool == .copilot, let problem = CLIProgram.prepareCopilotHome() { return .failure(AgentWorktrees.Failure(problem)) }
         // Your Antigravity settings, which Binders can't set for a run: checked before any worktree is made for it.
         if tool == .antigravity {
-            let path = AgentWorktree.path(root: AgentPlaces.root.path, repository: AgentPlaces.real(wake.repository), card: card, tool: tool)
+            let path = wake.worksInFolder ? wake.repository : AgentWorktree.path(root: AgentPlaces.root.path, repository: AgentPlaces.real(wake.repository), card: card, tool: tool)
             if let problem = AntigravityFiles.settingsProblem(worktree: path, team: team) { return .failure(AgentWorktrees.Failure(problem)) }
         }
         // The run's own temp folder, for git too.
         AgentPlaces.ensure(temporary)
         if tool == .codex { AgentPlaces.ensure(temporary.appendingPathComponent("zsh", isDirectory: true)) }
-        switch await AgentWorktrees.prepare(repository: wake.repository, card: card, tool: tool, path: program.searchPath, temporary: temporary.path) {
+        let place: Swift.Result<AgentWorktreeRecord, AgentWorktrees.Failure>
+        if wake.worksInFolder {
+            // The folder itself, as it is: no worktree, and it needn't be a git repository.
+            var isFolder: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: wake.repository, isDirectory: &isFolder), isFolder.boolValue else {
+                try? FileManager.default.removeItem(at: temporary)
+                return .failure(AgentWorktrees.Failure("\(AgentWorktrees.display(wake.repository)) isn't there any more. Nothing was started."))
+            }
+            place = .success(.folder(AgentPlaces.real(wake.repository), card: card, tool: tool))
+        } else {
+            place = await AgentWorktrees.prepare(repository: wake.repository, card: card, tool: tool, path: program.searchPath, temporary: temporary.path)
+        }
+        switch place {
         case .success(let worktree):
             // OpenCode checks a path by its text, then follows any link in it: a link in the worktree to somewhere outside
             // it would take its file tools there, past the only check it has.
@@ -1307,7 +1327,12 @@ extension AgentDispatcher {
         var parts = [tool == .opencode ? [mode, wake.launchModel].compactMap { $0 }.joined(separator: ", ") : mode]
         if let note = tool.versionNote(version) { parts.append(note) }
         parts.append(describe(reason))
-        let start = "Started \(tool.name) in \(AgentWorktrees.display(worktree.path)) (\(parts.joined(separator: "; ")))."
+        let start = "Started \(tool.name) in \(AgentWorktrees.display(worktree.path))\(worktree.isFolder ? ", the folder itself" : "") (\(parts.joined(separator: "; ")))."
+        if worktree.isFolder {
+            // No branch: what it changes stays in your folder as it leaves it.
+            let after = tool == .copilot ? " To look in: \(lookIn ?? "")" : tool == .antigravity ? " When it stops, Binders adds the command that carries on its conversation." : " When it stops, Binders adds the command that resumes its session."
+            return start + " It changes your files there directly; Binders commits nothing." + after
+        }
         switch tool {
         case .codex:
             return start + " When it stops, Binders commits its changes on \(worktree.branch) and adds the command that resumes its session."
@@ -1388,8 +1413,9 @@ extension AgentDispatcher {
             // The run carries its worktree's record, so the commit never depends on worktrees.json alone; one lost from there
             // is put back, so the next wake finds the worktree as Binders made it.
             let carried = runRecord.worktreeRecord.flatMap { $0.path == runRecord.worktree && $0.card == id && $0.tool == tool ? $0 : nil }
-            if recorded == nil, let carried { AgentWorktrees.restore(carried) }
-            let worktree = recorded ?? carried
+            if recorded == nil, let carried, !carried.isFolder { AgentWorktrees.restore(carried) }
+            // In the folder itself, what it changed stays as it left it: Binders commits nothing there.
+            let worktree = (recorded ?? carried).flatMap { $0.isFolder ? nil : $0 }
             let path = AppPaths.isDemo ? "" : await CLIProgram.loginPath() ?? ""
             let committed: AgentWorktrees.Committed
             if let worktree {
@@ -1478,6 +1504,8 @@ extension AgentDispatcher {
         let tool = runRecord.tool
         var line: String
         switch committed {
+        case _ where runRecord.worktreeRecord?.isFolder == true:
+            line = "\(tool.name) worked in \(AgentWorktrees.display(runRecord.worktree)) itself: what it changed is there as it left it, uncommitted."
         case .committed(let sha, let files):
             line = "Committed \(tool.name)'s changes on \(AgentWorktree.branch(card: runRecord.card, tool: tool)): \(sha), \(files == 1 ? "1 file" : "\(files) files")."
         case .nothing:
