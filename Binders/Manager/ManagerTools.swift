@@ -76,7 +76,7 @@ enum ManagerMCP {
     static let instructions = """
         You are the user's Manager: Binders woke you for one request, which get_request shows. You manage their binders \
         for them: their boards (create_task, edit_task, move_task, assign_task, close_task, merge_tasks, delete_task, \
-        comment_task), Distill (distill_note, list_proposals, review_proposals), their notes (add_note, update_note, \
+        comment_task), Distill (distill_note, propose_work_items, list_proposals, review_proposals), their notes (add_note, update_note, \
         append_to_note, delete_note, propose_note_edit), folders (create_folder, rename_folder, move_item) and binders \
         (create_binder, edit_binder). Every change is kept with the request, and the user can undo them all at once. \
         Finish with reply.

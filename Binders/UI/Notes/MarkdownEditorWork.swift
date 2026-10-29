@@ -5,6 +5,8 @@ import BindersKit
 // card's state colour, and their line a small chip at its end, drawn by the editor in room made after the line's last
 // character (its kern), like the checkboxes and pictures: nothing goes into the text, so copying, Find, dictation and the
 // saved Markdown never see it. A card whose words can't be found (or that has none) is counted on its section's heading.
+// A work item still waiting for review in the Distill list is marked the same way, more quietly: a faint tint with a dotted
+// underline in the accent, and a "Proposed" chip that opens the list at it.
 
 /// What the editor marks in a Distill note: its cards, each with the note's words it came from, its section, and where
 /// it is on the board; and how to open one.
@@ -28,8 +30,10 @@ struct NoteWork: Equatable {
     /// Only the cards: what's drawn.
     static func == (a: NoteWork, b: NoteWork) -> Bool { a.cards == b.cards }
 
-    /// The card's state colour, as the Work panel's badges wear it (`WorkItemRow.color`); closed cards are grey.
+    /// The card's state colour, as the Work panel's badges wear it (`WorkItemRow.color`); closed cards are grey, and work
+    /// items waiting for review the accent's text colour.
     static func color(_ card: Card) -> NSColor {
+        if card.chip.proposed { return BindersTheme.NS.accentText }
         if card.chip.closed { return BindersTheme.NS.muted }
         switch card.state {
         case .done: return BindersTheme.NS.done
@@ -40,6 +44,7 @@ struct NoteWork: Equatable {
     }
 
     static func symbol(_ card: Card) -> String {
+        if card.chip.proposed { return BindersTheme.modelSymbol }
         if card.chip.closed { return "xmark.circle" }
         switch card.state {
         // The outline: in one colour, the filled tick reads as a dot.
@@ -55,7 +60,9 @@ struct NoteWork: Equatable {
     static func help(_ cards: [Card], chip: Bool = true) -> String {
         let lines = cards.map { "“\($0.title)”\n\($0.detail)" }
         guard chip else { return lines.joined(separator: "\n\n") }
-        return (lines + [cards.count == 1 ? "Click to open the card." : "Click to choose a card to open."]).joined(separator: "\n\n")
+        let click = cards.count > 1 ? "Click to choose one to open."
+            : cards.first?.chip.proposed == true ? "Click to review it in the Distill list." : "Click to open the card."
+        return (lines + [click]).joined(separator: "\n\n")
     }
 }
 
@@ -79,10 +86,14 @@ extension NSAttributedString.Key {
     static let workChip = NSAttributedString.Key("io.binders.markdown.workChip")
 }
 
-/// The tint behind a card's words.
+/// The tint behind a card's words; for a work item waiting for review, a dotted line under them too.
 final class WorkTint: NSObject {
     let color: NSColor
-    init(color: NSColor) { self.color = color }
+    let underline: NSColor?
+    init(color: NSColor, underline: NSColor? = nil) {
+        self.color = color
+        self.underline = underline
+    }
 }
 
 /// A chip at the end of a line: what it says, its symbol and colour, faint when its cards are finished, and the cards a
@@ -236,7 +247,10 @@ extension MarkdownTextView {
                 guard let card = byID[mark.card] else { continue }
                 let target = NSIntersectionRange(NSIntersectionRange(mark.range, range), whole)
                 guard target.length > 0 else { continue }
-                storage.addAttribute(.workMark, value: WorkTint(color: NoteWork.color(card).withAlpha(card.chip.finished ? 0.07 : 0.17)), range: target)
+                let color = NoteWork.color(card)
+                let tint = card.chip.proposed ? WorkTint(color: color.withAlpha(0.07), underline: color.withAlpha(0.6))
+                    : WorkTint(color: color.withAlpha(card.chip.finished ? 0.07 : 0.17))
+                storage.addAttribute(.workMark, value: tint, range: target)
                 // Hovering the words says which card they became, where nothing else has a word to say there.
                 let help = NoteWork.help([card], chip: false)
                 storage.enumerateAttribute(.toolTip, in: target) { value, run, _ in
@@ -249,7 +263,8 @@ extension MarkdownTextView {
         }
         for heading in placement.headings where touches(heading.line) {
             let cards = heading.cards.compactMap { byID[$0] }
-            addChip(for: cards, text: DistillMarks.headingChip(cards.count), at: heading.line, in: range, heading: true)
+            let proposed = cards.filter(\.chip.proposed).count
+            addChip(for: cards, text: DistillMarks.headingChip(cards.count - proposed, proposed: proposed), at: heading.line, in: range, heading: true)
         }
     }
 
@@ -262,7 +277,11 @@ extension MarkdownTextView {
         guard let anchor = workChipAnchor(in: line), NSLocationInRange(anchor.location, range) else { return }
         let finished = cards.allSatisfy(\.chip.finished)
         let symbol: String, color: NSColor
-        if heading || cards.count > 1 {
+        if cards.allSatisfy(\.chip.proposed) {
+            // Work items waiting for review, and nothing on the board yet.
+            symbol = BindersTheme.modelSymbol
+            color = BindersTheme.NS.accentText
+        } else if heading || cards.count > 1 {
             symbol = "square.stack.3d.down.right"
             // The card that most needs someone sets the colour: one waiting on you, then one in progress.
             let lead = cards.first { $0.state == .waitsOnYou && !$0.chip.finished } ?? cards.first { $0.state == .inProgress && !$0.chip.finished }
@@ -402,12 +421,23 @@ extension MarkdownLayoutManager {
             enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, _ in
                 rects.append(rect)
             }
-            tint.color.setFill()
             for (index, rect) in rects.enumerated() {
                 var box = rect.offsetBy(dx: origin.x, dy: origin.y)
                 box.size.height = max(2, box.height - spacing)
                 if index == rects.count - 1, let chip { box.size.width = max(2, box.width - chip.room) }
+                tint.color.setFill()
                 NSBezierPath(roundedRect: box.insetBy(dx: -1.5, dy: 0), xRadius: 3, yRadius: 3).fill()
+                if let underline = tint.underline {
+                    // A dotted line just under the words: proposed, not yet on the board.
+                    let line = NSBezierPath()
+                    line.move(to: NSPoint(x: box.minX, y: box.maxY - 1))
+                    line.line(to: NSPoint(x: box.maxX, y: box.maxY - 1))
+                    line.lineWidth = 1.5
+                    line.lineCapStyle = .round
+                    line.setLineDash([0.1, 3.5], count: 2, phase: 0)
+                    underline.setStroke()
+                    line.stroke()
+                }
             }
         }
     }

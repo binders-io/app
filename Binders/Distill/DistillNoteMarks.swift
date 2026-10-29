@@ -5,7 +5,8 @@ import BindersKit
 /// quote and section, its column, the state the Work panel gives it, who has it or is meant to, and its last update. Done
 /// and closed cards go faint; items left out in the review have no card, so they show nothing. Lane DS6: any note's cards,
 /// Distill on or not: those made with Put on Board from words in it are marked there; one made from the whole note, or put
-/// in its group by hand, shows after the note's title.
+/// in its group by hand, shows after the note's title. The work items still waiting for review in its Distill list are
+/// marked too, quietly, as proposed: a click opens the list at the item.
 @MainActor
 enum DistillNoteMarks {
     /// "Show Work in the Note" on the Work bar, remembered on this Mac; on unless turned off.
@@ -20,24 +21,48 @@ enum DistillNoteMarks {
     /// whenever its note changes, as you type.
     private static var kept: [UUID: (key: [Int], work: NoteWork)] = [:]
 
-    /// The note's cards, for its editor; nil for a note without any, or with Show Work in the Note off. Reads the board's
-    /// revision, so a view that calls it is redrawn when a card moves.
-    static func work(for note: NoteItem, controller: DictationController, shown: Bool = Self.shown, now: Date = Date()) -> NoteWork? {
+    /// The note's cards, and its work items waiting for review, for its editor; nil for a note without any, or with Show
+    /// Work in the Note off. Reads the board's revision and the distills', so a view that calls it is redrawn when a card
+    /// moves or an item is proposed. `popout`: the note's own window, whose Distill list a proposed item opens.
+    static func work(for note: NoteItem, controller: DictationController, shown: Bool = Self.shown, popout: Bool = false, now: Date = Date()) -> NoteWork? {
         let revision = controller.distill.boardRevision
+        let distills = DistillStore.shared.revision
         guard shown, note.distill || DistillBoard.hasCards(note.id) else { return nil }
-        let key = [revision, Int(now.timeIntervalSince1970 / 60)]
+        let key = [revision, distills, note.distill ? 1 : 0, Int(now.timeIntervalSince1970 / 60)]
         var work: NoteWork
         if let kept = kept[note.id], kept.key == key {
             work = kept.work
         } else {
-            work = NoteWork(cards: cards(of: note.id, now: now))
+            work = NoteWork(cards: cards(of: note.id, now: now) + (note.distill ? proposed(in: note.id) : []))
             kept[note.id] = (key, work)
         }
-        work.open = { [weak controller] id in
-            guard let card = controller?.board.card(id) else { return }
-            CardWindows.shared.open(card)
+        let id = note.id
+        work.open = { [weak controller] opened in
+            guard let controller else { return }
+            if let card = controller.board.card(opened) {
+                CardWindows.shared.open(card)
+                return
+            }
+            // A work item waiting for review: the Distill list, at its row.
+            controller.distill.list(for: id).selected = opened
+            DistillActions.open(id, popout: popout)
         }
         return work.cards.isEmpty ? nil : work
+    }
+
+    /// The work items waiting for review in the note's proposals, as the editor marks them: at the words each came from,
+    /// in the "proposed" colour, by who read them.
+    static func proposed(in note: UUID) -> [NoteWork.Card] {
+        var seen: Set<UUID> = []
+        return DistillStore.shared.file(for: note).distills.filter { $0.status == .proposed }.flatMap { record in
+            record.waiting.filter { seen.insert($0.id).inserted }.map { item in
+                var detail = ["Proposed by \(record.readByLine)", "Waits for your review"]
+                if let who = item.meantFor { detail.append("for \(who == BoardActor.you.name ? "you" : who.shortAgentName)") }
+                return NoteWork.Card(id: item.id, title: item.title, quote: item.quote, section: item.section,
+                                     chip: .proposal(id: item.id.uuidString, title: item.title), state: .notStarted,
+                                     detail: detail.joined(separator: " · "))
+            }
+        }
     }
 
     /// Every card of the note, as the editor marks it.

@@ -523,7 +523,7 @@ private struct PopoutNoteView: View {
         return MarkdownNoteEditor(text: $note.text, fontSize: 14, placeholder: "Write, or hold fn to dictate.", inset: NSSize(width: 14, height: 10),
                                   compactToolbar: true, links: LinkTargets.forNote(note), focused: focused,
                                   accessories: Store.shared.canSave ? accessories : nil, paper: true, headingTip: tip,
-                                  work: controller.flatMap { DistillNoteMarks.work(for: note, controller: $0, shown: showWork) }, putOnBoard: put,
+                                  work: controller.flatMap { DistillNoteMarks.work(for: note, controller: $0, shown: showWork, popout: true) }, putOnBoard: put,
                                   distill: distill)
     }
 

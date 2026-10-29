@@ -509,8 +509,10 @@ public enum DistillRun {
     /// parts may be asked `concurrent` at a time (a server that answers more than one; 1 for a model in Binders), their
     /// results made one in the note's order. `only`: the sections to read, the rest having been read before (Distill
     /// Again), each part cut from those alone. `onPart`: each part's reading as it's done.
+    /// `captured`: the work already captured from the note, by any reader, which every part's question lists so the model
+    /// doesn't propose it again (`DistillPrompt.capturedLine`); a part holds that much less where the context bounds it.
     public static func read(title: String, text: String, budget: DistillBudget, who: DistillTakers? = nil, format: DistillFormat = .v1,
-                            concurrent: Int = 1, only: [DistillSections.Section]? = nil,
+                            concurrent: Int = 1, only: [DistillSections.Section]? = nil, captured: [DistillPrompt.Captured] = [],
                             onPart: (@Sendable (PartOutcome) async -> Void)? = nil,
                             ask: @escaping @Sendable (Ask) async throws -> String) async throws -> Outcome {
         let headings = DistillSections.sections(of: text).compactMap(\.heading)
@@ -519,12 +521,12 @@ public enum DistillRun {
         var budget = budget
         var tries = 0
         while true {
-            let header = title.count + DistillPrompt.headingsLine(headings).count + listed
+            let header = title.count + DistillPrompt.headingsLine(headings).count + listed + (DistillPrompt.capturedLine(captured)?.count ?? 0)
             let capacity = budget.capacity(header: header)
             let parts = only.map { DistillParts.plan(sections: $0, capacity: capacity) } ?? DistillParts.plan(text, capacity: capacity)
             do {
                 return try await readParts(parts, title: title, headings: headings, budget: budget, capacity: capacity, who: who, format: format,
-                                           concurrent: max(1, concurrent), partial: only != nil, onPart: onPart, ask: ask)
+                                           concurrent: max(1, concurrent), partial: only != nil, captured: captured, onPart: onPart, ask: ask)
             } catch let tooLong as TooLong where tries < 2 {
                 tries += 1
                 var smaller = tooLong.contextTokens.map { DistillBudget.forContext($0, format: format) } ?? budget.halved
@@ -547,7 +549,7 @@ public enum DistillRun {
     }
 
     private static func readParts(_ parts: [DistillParts.Part], title: String, headings: [String], budget: DistillBudget, capacity: Int,
-                                  who: DistillTakers?, format: DistillFormat, concurrent: Int, partial: Bool,
+                                  who: DistillTakers?, format: DistillFormat, concurrent: Int, partial: Bool, captured: [DistillPrompt.Captured],
                                   onPart: (@Sendable (PartOutcome) async -> Void)?,
                                   ask: @escaping @Sendable (Ask) async throws -> String) async throws -> Outcome {
         var outcomes: [PartOutcome?] = Array(repeating: nil, count: parts.count)
@@ -565,7 +567,7 @@ public enum DistillRun {
                 let part = parts[index]
                 let found = outcomes.compactMap { $0?.items }.reduce(0, +)
                 let question = question(part, title: title, headings: headings, budget: budget, who: who, format: format, items: items,
-                                        found: found, partial: partial)
+                                        found: found, partial: partial, captured: captured)
                 group.addTask { try await readPart(part, index: index, question: question, ask: ask) }
             }
             while next < min(concurrent, parts.count) { launch() }
@@ -609,19 +611,19 @@ public enum DistillRun {
 
     /// A part's question, its first try's.
     private static func question(_ part: DistillParts.Part, title: String, headings: [String], budget: DistillBudget, who: DistillTakers?,
-                                 format: DistillFormat, items: Int, found: Int, partial: Bool) -> Ask {
+                                 format: DistillFormat, items: Int, found: Int, partial: Bool, captured: [DistillPrompt.Captured]) -> Ask {
         switch format {
         case .v1:
-            let user = part.count == 1 && !partial ? DistillPrompt.user(title: title, sections: headings, text: part.text, items: items)
-                : DistillPrompt.part(title: title, sections: headings, part: part, earlier: [], items: items)
+            let user = part.count == 1 && !partial ? DistillPrompt.user(title: title, sections: headings, text: part.text, items: items, captured: captured)
+                : DistillPrompt.part(title: title, sections: headings, part: part, earlier: [], items: items, captured: captured)
             return Ask(user: user, maxTokens: budget.streamTokens, replyTokens: budget.replyTokens, part: part.number, parts: part.count, attempt: 1,
                        headings: headings, who: who, maxItems: items, itemsBefore: found, format: .v1)
         case .v2:
             let lines = DistillLines(part.text)
-            let user = DistillPrompt.partV2(title: title, sections: headings, part: part, lines: lines, items: items, partial: partial)
+            let user = DistillPrompt.partV2(title: title, sections: headings, part: part, lines: lines, items: items, partial: partial, captured: captured)
             return Ask(user: user, maxTokens: budget.streamTokens, replyTokens: budget.replyTokens, part: part.number, parts: part.count, attempt: 1,
                        headings: headings, who: who, maxItems: items, itemsBefore: found, format: .v2,
-                       prefix: DistillPrompt.prefix(title: title, sections: headings), lines: lines)
+                       prefix: DistillPrompt.prefix(title: title, sections: headings, captured: captured), lines: lines)
         }
     }
 

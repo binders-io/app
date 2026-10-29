@@ -117,9 +117,9 @@ final class DistillAgainTests: XCTestCase {
                     DistillItem(title: "Write the help page", section: "Storage"),
                     DistillItem(title: "Show an offline banner", section: "Storage")]
         let added = DistillAgain.additions(read: read, earlier: earlier)
-        XCTAssertEqual(added.items.map(\.title), ["Write the help page", "Show an offline banner"],
-                       "a new item in a section that's the same stays; the same item in the same section goes")
-        XCTAssertEqual(added.leftOut, 1)
+        XCTAssertEqual(added.items.map(\.title), ["Write the help page"],
+                       "a new item in a section that's the same stays; the same item goes, in its own section or another")
+        XCTAssertEqual(added.leftOut, 2)
     }
 
     func testASectionTheLastReadingCutShortOffersWhatItHeldBack() {

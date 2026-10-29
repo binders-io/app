@@ -451,23 +451,38 @@ public enum DistillMarks {
         public var state: DistillProgress.State?
         public var who: String?
         public var closed: Bool
+        /// Not a card yet: a work item read from the note that waits for review in its Distill list. Its id is the item's.
+        public var proposed: Bool
 
-        public init(id: String, title: String, column: String, state: DistillProgress.State?, who: String?, closed: Bool = false) {
+        public init(id: String, title: String, column: String, state: DistillProgress.State?, who: String?, closed: Bool = false, proposed: Bool = false) {
             self.id = id
             self.title = title
             self.column = column
             self.state = state
             self.who = who
             self.closed = closed
+            self.proposed = proposed
+        }
+
+        /// A work item waiting for review, as its chip says it.
+        public static func proposal(id: String, title: String) -> ChipCard {
+            ChipCard(id: id, title: title, column: BoardColumn.backlog.rawValue, state: nil, who: nil, proposed: true)
         }
 
         /// Done, or closed: its mark goes faint.
-        public var finished: Bool { closed || column == BoardColumn.done.rawValue }
+        public var finished: Bool { !proposed && (closed || column == BoardColumn.done.rawValue) }
     }
 
     /// What a line's chip says: for one card, where it is ("Ready · Echo", "In progress · Claude Code", "Done", "Closed");
-    /// for more, how many and how many are done ("3 cards · 1 done").
+    /// for more, how many and how many are done ("3 cards · 1 done"). A work item waiting for review is "Proposed", and
+    /// counted apart ("2 proposed", "1 card · 1 proposed").
     public static func chip(_ cards: [ChipCard]) -> String {
+        let proposed = cards.filter(\.proposed).count
+        if proposed > 0 {
+            guard proposed < cards.count else { return proposed == 1 ? "Proposed" : "\(proposed) proposed" }
+            let placed = cards.filter { !$0.proposed }
+            return chip(placed) + " · \(proposed) proposed"
+        }
         guard cards.count != 1 else {
             let card = cards[0]
             if card.closed { return "Closed" }
@@ -481,8 +496,37 @@ public enum DistillMarks {
         return count(cards.count) + (done == 0 ? "" : done == cards.count ? " · all done" : " · \(done) done")
     }
 
-    /// What a heading's chip says: how many cards its section has.
-    public static func headingChip(_ cards: Int) -> String { count(cards) }
+    /// What a heading's chip says: how many cards its section has, and how many work items wait for review there.
+    public static func headingChip(_ cards: Int, proposed: Int = 0) -> String {
+        guard proposed > 0 else { return count(cards) }
+        return cards == 0 ? "\(proposed) proposed" : count(cards) + " · \(proposed) proposed"
+    }
 
     static func count(_ cards: Int) -> String { cards == 1 ? "1 card" : "\(cards) cards" }
+}
+
+extension DistillReading.Result {
+    /// Items whose section matched none of the note's headings, or that named none, given the "## " section their quote is
+    /// in, where the note has the quote as written or loosely (`DistillQuote.find`): an agent that wrote "Payment" for
+    /// "Payment form" still has its item under its heading, so it's compared with the items from there and marked there.
+    /// An item whose quote is in the note's opening stays as it is.
+    public mutating func recoverSections(from text: String) {
+        guard items.contains(where: { $0.section == nil && $0.quote != nil }) else { return }
+        let regions = DistillMarks.regions(of: text)
+        for index in items.indices where items[index].section == nil {
+            guard let quote = items[index].quote, let heading = DistillQuote.section(of: quote, in: text, regions: regions) else { continue }
+            items[index].section = heading
+            items[index].unknownSection = nil
+        }
+    }
+}
+
+extension DistillQuote {
+    /// The "## " heading of the section a quote is in, where the note has it as written or loosely; nil when it isn't
+    /// found, or it's in the note's opening.
+    public static func section(of quote: String, in text: String, regions given: [DistillMarks.Region]? = nil) -> String? {
+        let regions = given ?? DistillMarks.regions(of: text)
+        guard let found = find(quote, section: nil, in: text, regions: regions), found.how != .words else { return nil }
+        return regions.first { NSLocationInRange(found.range.location, $0.body) }?.heading
+    }
 }

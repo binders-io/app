@@ -143,8 +143,12 @@ extension SelfTest {
         run.check(reader.asks.count == asksBefore + 1 && last.contains("## Order summary") && !last.contains("## Payment form")
                   && last.contains("the rest of the note was read before"), "v2: Distill Again sends only the changed section")
         let first = reader.asks.first?.user.count ?? 0
-        print("MEASURE: Distill Again sent \(last.count) characters in 1 ask; the first reading sent \(first)")
-        run.check(last.count * 2 < first, "v2: far less than the whole note: \(last.count) of \(first) characters")
+        // What's captured already is listed on top of the note's lines: the note itself is what's measured.
+        let captured = last.components(separatedBy: "\n").first { $0.hasPrefix("Already captured from this note") }
+        run.check(captured != nil, "v2: Distill Again lists what's captured already: \(captured?.prefix(120) ?? "nothing")")
+        let sent = last.count - (captured.map { $0.count + 2 } ?? 0)
+        print("MEASURE: Distill Again sent \(sent) characters of the note in 1 ask (\(last.count) with what's captured); the first reading sent \(first)")
+        run.check(sent * 2 < first, "v2: far less than the whole note: \(sent) of \(first) characters")
         run.check(again.items.isEmpty && again.updates.contains { $0.kind == .brief && $0.card == cards[5].id },
                   "v2: the summary's card is offered its section as it is now, nothing proposed twice")
 

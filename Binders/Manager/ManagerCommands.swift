@@ -86,7 +86,7 @@ enum ManagerCommands {
         case "create_binder":
             guard let made = result.id.flatMap(UUID.init(uuidString:)), !before.binders.contains(made), let binder = store.binder(made) else { return }
             manager.record(ManagerChange(kind: .madeBinder, id: made, line: "Made the binder “\(binder.name)”"), for: id)
-        case "distill_note":
+        case "distill_note", "propose_work_items":
             guard let note = UUID(uuidString: request.fields["id"] ?? "") else { return }
             manager.record(ManagerChange(kind: .distilled, id: note, line: "Distilled “\(store.note(note)?.title ?? "a note")”: its work items wait for you"), for: id)
         default:
