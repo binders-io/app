@@ -305,7 +305,7 @@ struct QuickSwitcher: View {
         func command(_ title: String, _ symbol: String, _ subtitle: String = "", run: @escaping @MainActor () -> Void) -> SwitcherItem {
             SwitcherItem(id: "x:\(title)", title: title, subtitle: subtitle, symbol: symbol, run: run)
         }
-        // New notes go in the folder you're in, when the page shows one of this binder's.
+        // New notes go in the folder chosen on the binder page, when it shows this binder.
         let filedIn = Self.place(binder: binder.name, folders: Store.shared.folderNames(navigation.folderShown(for: binder.id)))
         let meeting = MeetingService.newPlace()
         var items = [

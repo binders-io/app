@@ -92,7 +92,7 @@ struct BinderPage: View {
                     .fixedSize()
                     .disabled(binder.isTeamCopy)
                     .help("Colour")
-                    Text(folderID == nil ? "Binder" : "Folder").font(.callout).foregroundStyle(BindersTheme.muted)
+                    Text("Binder").font(.callout).foregroundStyle(BindersTheme.muted)
                 }
                 HStack(alignment: .center, spacing: 12) {
                     if binder.isTeamCopy {
@@ -132,7 +132,12 @@ struct BinderPage: View {
                             .help("Its notes and meetings sync to the team, including ones you add later, with the files attached to those notes. Captures, notes from what you said to yourself, to-dos, cards and the audio Binders records stay on this Mac.")
                     }
                     Menu {
-                        Button(folderID == nil ? "New Folder…" : "New Folder Here…") { FolderPrompts.shared.create(in: binder.id, parent: folderID) }
+                        Button(FolderPrompts.newFolderTitle(in: folderID)) { FolderPrompts.shared.create(in: binder.id, parent: folderID) }
+                        if !Store.shared.folders(in: binder.id).isEmpty {
+                            Button("Expand All Folders") { FolderExpansion.shared.expandAll(in: binder.id) }
+                            Button("Collapse All Folders") { FolderExpansion.shared.collapseAll(in: binder.id) }
+                                .disabled(!FolderExpansion.shared.hasOpen(in: binder.id))
+                        }
                         if !binder.isTeamCopy {
                             Button("Tidy into Folders…") {
                                 guard Store.shared.allowsSave() else { return }
@@ -167,11 +172,6 @@ struct BinderPage: View {
                 // What goes in it, for sorting new cards: not for General, which is never offered, nor a teammate's copy.
                 if !binder.isDefault, !binder.isTeamCopy {
                     WhatGoesHereField(binder: binder, editing: $describing)
-                }
-                // Inside a folder: where you are, a path to click back up.
-                if folderID != nil {
-                    FolderPathBar(binder: binder, folderID: folderID) { navigation.folderID = $0 }
-                        .padding(.top, 2)
                 }
                 if let tidied {
                     HStack(spacing: 8) {
@@ -227,8 +227,8 @@ struct BinderPage: View {
         }
         .onChange(of: navigation.pendingBinderTab) { consumePendingTab() }
         .onChange(of: navigation.pendingTidy) { consumePendingTidy() }
-        // Into a folder from the sidebar or the path: its notes, unless a page that shows folders is open.
-        .onChange(of: navigation.folderID) { _, now in
+        // A folder shown from the sidebar, or just made: its notes, unless a page that shows folders is open.
+        .onChange(of: navigation.folderToShow) { _, now in
             if now != nil, tab == .overview || tab == .board { tab = .notes }
         }
         .sheet(isPresented: $tidying) {

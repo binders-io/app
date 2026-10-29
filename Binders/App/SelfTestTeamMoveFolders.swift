@@ -31,7 +31,7 @@ extension SelfTest {
             let known = Set(folders.map(\.id))
             var listing = MovedListing(folders: known)
             for place in [UUID?](arrayLiteral: nil) + folders.map({ Optional($0.id) }) {
-                // NotesView.here: in this binder, and in this folder (a folder that isn't the binder's reads as the top).
+                // NotesView's tree (FolderTree.outline): in this binder, under this folder (a folder that isn't the binder's reads as the top).
                 let here = notes.filter { $0.binderID == binder && $0.folderID.flatMap { known.contains($0) ? $0 : nil } == place }
                 listing.places[place] = Set(here.map(\.id))
                 listing.empty.formUnion(here.filter { $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.id))

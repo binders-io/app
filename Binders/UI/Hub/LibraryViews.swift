@@ -325,8 +325,12 @@ struct NotesView: View {
     @Environment(\.undoManager) private var undoManager
     @ReducedMotion private var reduceMotion
     @Query private var notes: [NoteItem]
-    /// The binder's folders, for the ones in the folder you're in and for which notes are where.
+    /// The binder's folders, drawn as a tree with the notes in them.
     @Query private var folders: [FolderRecord]
+    /// Which folders are open, here and in the sidebar.
+    @State private var expansion = FolderExpansion.shared
+    /// A row to scroll to: a note just opened, or a folder shown from the sidebar.
+    @State private var scrollTarget: String?
     /// The notes chosen in the list: one, which opens beside it, or several (⌘-click, ⇧-click, ⌘A), to move or delete
     /// together.
     @State private var selection: Set<UUID> = []
@@ -342,28 +346,76 @@ struct NotesView: View {
     /// Show only notes with this status, or this #tag.
     @State private var statusFilter: String?
     @State private var tagFilter: String?
+    /// A drag over the list's title, which takes it to the top of the binder.
+    @State private var topTargeted = false
     let binderID: UUID?
-    /// The folder you're in, in that binder; nil at its top.
+    /// Where new notes go in that binder (HubNavigation.folderID); nil at its top.
     let folderID: UUID?
     /// For self-tests: the notes to select as the list opens, as ⌘-click would.
     @MainActor static var selectOnOpen: Set<UUID>?
+    /// For self-tests: told what the list shows each time it draws, row by row.
+    @MainActor static var drawn: (([OutlineEntry<NoteItem>]) -> Void)?
 
     /// The one note selected, open beside the list; nil for none or several.
     private var single: UUID? { selection.count == 1 ? selection.first : nil }
 
-    /// The notes selected, in the list's order.
+    /// The notes selected, newest first.
     private var chosen: [NoteItem] { shown.filter { selection.contains($0.id) } }
 
-    /// The notes in the folder you're in (at the top, those in no folder of the binder's), or every note when this isn't
-    /// one binder's list.
+    /// The notes in the binder, in all its folders, or every note when this isn't one binder's list.
     private var here: [NoteItem] {
         guard let binderID else { return notes }
-        let known = Set(folders.map(\.id))
         // Its binder checked too: a note just moved to another binder leaves at once, before the list is read again.
-        return notes.filter { note in note.binderID == binderID && note.folderID.flatMap { known.contains($0) ? $0 : nil } == folderID }
+        return notes.filter { $0.binderID == binderID }
     }
 
     private var shown: [NoteItem] { filtered(here) }
+
+    /// While a status or tag filter is on, the list shows the notes it lets through without their folders, each saying
+    /// where it is.
+    private var flat: Bool { binderID == nil || statusFilter != nil || tagFilter != nil }
+
+    /// The folder a note shows in: its own, when it's one of the binder's; else the top.
+    private func folder(of note: NoteItem) -> UUID? {
+        note.folderID.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+    }
+
+    /// The list's rows: the binder's folders as a tree, the notes in each under it while it's open, and those at the top
+    /// after the folders; or, filtered, the notes alone.
+    private func entries(_ shown: [NoteItem]) -> [OutlineEntry<NoteItem>] {
+        guard !flat else { return shown.map { .item($0, depth: 0) } }
+        return OutlineEntry.tree(folders: folders, items: shown, folderOf: { $0.folderID }, open: expansion.folders)
+    }
+
+    /// Opens the folders the notes are in, so they show, and scrolls to the first.
+    private func reveal(_ ids: Set<UUID>) {
+        guard let binderID, !ids.isEmpty else { return }
+        for id in ids {
+            guard let note = notes.first(where: { $0.id == id }) ?? Store.shared.note(id), note.binderID == binderID else { continue }
+            expansion.reveal(note.folderID, in: binderID, itself: true, sidebar: false)
+        }
+        let first = shown.first { ids.contains($0.id) }?.id ?? ids.first
+        scrollTarget = first.map(OutlineEntry<NoteItem>.rowID(item:))
+    }
+
+    /// A folder clicked: open or closed in place, and where new notes go.
+    private func choose(_ folder: FolderRecord) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { expansion.toggle(folder.id) }
+        navigation.folderID = folder.id
+    }
+
+    /// A folder shown from the sidebar, or just made: scrolled to.
+    private func showFolder() {
+        guard let id = navigation.folderToShow, folders.contains(where: { $0.id == id }) else { return }
+        scrollTarget = OutlineEntry<NoteItem>.rowID(folder: id)
+        navigation.folderToShow = nil
+    }
+
+    /// The folder several notes are all in, or, from different folders, where new notes go.
+    private func sharedFolder(of moving: [NoteItem]) -> (folder: UUID?, together: Bool) {
+        let places = Set(moving.map(folder(of:)))
+        return places.count == 1 ? (places.first ?? nil, true) : (folderID, false)
+    }
 
     /// The notes here that the status and tag filters let through.
     private func filtered(_ here: [NoteItem]) -> [NoteItem] {
@@ -372,24 +424,13 @@ struct NotesView: View {
         }
     }
 
-    /// The folders in the folder you're in, by name, with how many notes each holds.
-    private var subfolders: [(folder: FolderRecord, notes: Int)] {
-        guard binderID != nil else { return [] }
-        let nodes = FolderTree.untangled(folders.map(\.node))
-        let parents = Dictionary(nodes.map { ($0.id, $0.parentID) }, uniquingKeysWith: { first, _ in first })
-        let counts = notes.reduce(into: [UUID: Int]()) { counts, note in if let id = note.folderID { counts[id, default: 0] += 1 } }
-        return folders.filter { (parents[$0.id] ?? nil) == folderID }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            .map { ($0, counts[$0.id] ?? 0) }
-    }
-
     /// The tags in these notes, most used first.
     private var tags: [String] {
         let counts = notes.flatMap { NoteTagCache.tags(of: $0) }.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         return counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(30).map(\.key)
     }
 
-    /// The notes in one binder, in the folder you're in, or every note when `binderID` is nil.
+    /// The notes in one binder, as a tree of its folders, or every note when `binderID` is nil.
     init(binderID: UUID? = nil, folderID: UUID? = nil) {
         self.binderID = binderID
         self.folderID = folderID
@@ -407,24 +448,26 @@ struct NotesView: View {
             .onAppear {
                 navigation.currentNoteID = single
                 consumePendingNote()
-                if let ids = Self.selectOnOpen { selection = ids }
+                if let ids = Self.selectOnOpen {
+                    selection = ids
+                    reveal(ids)
+                }
+                showFolder()
             }
             .onChange(of: navigation.pendingNoteID) { consumePendingNote() }
-            // Gone to the folder of a note asked for: it opens there. Into another folder: the note open from the last one
-            // closes, as it isn't in this list.
-            .onChange(of: folderID) {
-                if navigation.pendingNoteID != nil {
-                    consumePendingNote()
-                } else {
-                    selection = selection.filter { id in here.contains { $0.id == id } }
-                }
+            .onChange(of: navigation.folderToShow) { showFolder() }
+            .onChange(of: NoteTrash.shared.restoredNotes) { _, ids in
+                guard !ids.isEmpty else { return }
+                selection = ids
+                reveal(ids)
             }
-            .onChange(of: NoteTrash.shared.restoredNotes) { _, ids in if !ids.isEmpty { selection = ids } }
             // Not on appearing: then it would see the selection from before a new note's, and the new note would open
             // without the cursor in it.
             .onChange(of: selection) { _, _ in
                 if single != focusID { focusID = nil }
                 navigation.currentNoteID = single
+                // New notes go where the note you chose is.
+                if binderID != nil, let note = notes.first(where: { $0.id == single }), note.binderID == binderID { navigation.folderID = folder(of: note) }
             }
             .onDisappear { navigation.currentNoteID = nil }
             .onReceive(NotificationCenter.default.publisher(for: TeamSyncService.itemsWillBeRemoved)) { notification in
@@ -433,30 +476,20 @@ struct NotesView: View {
             }
     }
 
-    /// In the folder you're in, or the one its template names.
+    /// In the folder new notes go in, or the one its template names; its folder opens, so it shows.
     private func newNote(from template: NoteTemplate?) {
         guard Store.shared.allowsSave() else { return }
         let binder = Store.shared.binder(binderID ?? AppSettings.shared.currentBinderID) ?? Store.shared.defaultBinder()
         let note = TemplateStore.newNote(from: template, in: binder, folder: binder.id == binderID ? folderID : nil)
-        // One its template filed elsewhere opens there, so it shows in the list.
-        if binderID != nil, Store.shared.shownFolder(note.folderID, in: binder.id) != folderID {
-            navigation.folderID = Store.shared.shownFolder(note.folderID, in: binder.id)
-        }
         focusID = note.id
         selection = [note.id]
+        reveal([note.id])
     }
 
     private func consumePendingNote() {
         guard let pending = navigation.pendingNoteID else { return }
-        // A note opened from a link or a search shows in its own folder.
-        if binderID != nil, let note = notes.first(where: { $0.id == pending }) {
-            let known = Set(folders.map(\.id))
-            let its = note.folderID.flatMap { known.contains($0) ? $0 : nil }
-            if its != folderID {
-                navigation.folderID = its
-                return
-            }
-        }
+        // A note opened from a link or a search shows in its folder, opened for it, and scrolled to.
+        reveal([pending])
         if navigation.pendingNoteIsNew { focusID = pending }
         navigation.pendingNoteIsNew = false
         // A card's words in it, from the card (lane DS4), or a heading or block.
@@ -469,6 +502,13 @@ struct NotesView: View {
         navigation.pendingNoteQuote = nil
         selection = [pending]
         navigation.pendingNoteID = nil
+    }
+
+    /// "New note in Platform › Pipelines. The arrow starts one from a template."
+    private var newNoteHelp: String {
+        let names = Store.shared.folderNames(folderID)
+        let place = names.isEmpty ? "" : " in " + names.joined(separator: " › ")
+        return "New note\(place). The arrow starts one from a template."
     }
 
     /// The notes list's width: narrower on a narrow page, so the note beside it keeps its room.
@@ -484,13 +524,20 @@ struct NotesView: View {
         // Worked out once each time the list draws (lane DB10), rather than once for each place that shows them.
         let here = self.here
         let shown = filtered(here)
-        let subfolders = self.subfolders
+        let entries = self.entries(shown)
         let chosen = shown.filter { selection.contains($0.id) }
+        // Room for the folders' arrows only when there are folders.
+        let indented = !flat && !folders.isEmpty
+        let index = FolderTree.index(FolderTree.untangled(folders.map(\.node)))
+        Self.drawn?(entries)
         return HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("Notes").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
                     Spacer()
+                    if let binderID, !folders.isEmpty {
+                        CollapseFoldersButton(binderID: binderID)
+                    }
                     Menu {
                         Section("Status") {
                             Button("Any") { statusFilter = nil }
@@ -522,7 +569,7 @@ struct NotesView: View {
                         }
                         Divider()
                         if let binderID {
-                            Button(folderID == nil ? "New Folder…" : "New Folder Here…") { FolderPrompts.shared.create(in: binderID, parent: folderID) }
+                            Button(FolderPrompts.newFolderTitle(in: folderID)) { FolderPrompts.shared.create(in: binderID, parent: folderID) }
                             Divider()
                         }
                         if let note = notes.first(where: { $0.id == single }) {
@@ -548,11 +595,18 @@ struct NotesView: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     .quietControl()
-                    .help("New note. The arrow starts one from a template.")
+                    .help(newNoteHelp)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 24)
                 .padding(.bottom, 8)
+                // What's dropped on the list's title goes to the top of the binder.
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(topTargeted ? AnyShapeStyle(TintFill().opacity(0.18)) : AnyShapeStyle(Color.clear))
+                    .padding(.horizontal, 8).padding(.top, 16))
+                .dropDestination(for: String.self) { items, _ in
+                    guard let binderID else { return false }
+                    return DraggedItem.drop(items, into: nil, binder: binderID, undoManager: undoManager)
+                } isTargeted: { topTargeted = $0 && binderID != nil }
                 if statusFilter != nil || tagFilter != nil {
                     HStack(spacing: 6) {
                         if let statusFilter { filterChip(statusFilter) { self.statusFilter = nil } }
@@ -562,31 +616,42 @@ struct NotesView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
                 }
+                ScrollViewReader { proxy in
                 List(selection: $selection) {
-                    // The folders in the folder you're in: click to go in, drop a note on one to move it in.
-                    if !subfolders.isEmpty {
-                        Section {
-                            ForEach(subfolders, id: \.folder.id) { entry in
-                                FolderListRow(folder: entry.folder, count: entry.notes) { navigation.folderID = entry.folder.id }
-                            }
+                    // The folders as a tree: click one to open or close it where it is; drop a note on one to move it in.
+                    ForEach(entries) { entry in
+                        switch entry {
+                        case .folder(let folder, let depth, let count, let open):
+                            FolderTreeRow(folder: folder, depth: depth, count: count, open: open, current: folder.id == folderID) { choose(folder) }
+                        case .empty(let folder, let depth):
+                            OutlineEmptyRow(folder: folder, depth: depth, text: "No notes")
+                        case .item(let note, let depth):
+                            NoteRow(note: note, place: flat ? FolderTree.chain(to: folder(of: note), in: index).map(\.name) : [])
+                                .padding(.leading, indented ? OutlineIndent.item(depth) : 0)
+                                .tag(note.id)
+                                // Onto a folder, here or in the sidebar, or onto a binder: with every note selected beside it.
+                                .draggable(dragged(note))
+                                // Two fingers to the left on the trackpad.
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) { requestDelete([note]) } label: { Label("Delete", systemImage: "trash") }
+                                }
                         }
-                    }
-                    ForEach(shown) { note in
-                        NoteRow(note: note)
-                            .tag(note.id)
-                            // Onto a folder, here or in the sidebar, or onto a binder: with every note selected beside it.
-                            .draggable(dragged(note))
-                            // Two fingers to the left on the trackpad.
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) { requestDelete([note]) } label: { Label("Delete", systemImage: "trash") }
-                            }
                     }
                 }
                 .scrollContentBackground(.hidden)
+                .onChange(of: scrollTarget, initial: true) { _, target in
+                    guard let target else { return }
+                    // Once the folders just opened are in the list.
+                    DispatchQueue.main.async {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+                        scrollTarget = nil
+                    }
+                }
+                }
                 .overlay {
-                    if binderID != nil, folderID != nil, here.isEmpty, subfolders.isEmpty {
-                        ContentUnavailableView("Nothing in this folder yet", systemImage: "folder",
-                                               description: Text("New notes you make here go in it. Drag notes onto it, or use Move to on a note."))
+                    if binderID != nil, flat, shown.isEmpty, !here.isEmpty {
+                        ContentUnavailableView("No notes match", systemImage: "line.3.horizontal.decrease.circle",
+                                               description: Text("Clear the filter to see every note."))
                     }
                 }
                 // ⌫ or ⌦ on the selected notes, or right-click. Undo puts a note back; a team note, or several, ask first.
@@ -695,7 +760,7 @@ struct NotesView: View {
 
     /// The note below these in the list, or above them at the end, so deleting several in a row is ⌫ ⏎ ⌫ ⏎.
     private func neighbour(of going: [NoteItem]) -> NoteItem? {
-        let list = shown
+        let list = OutlineEntry.items(in: entries(shown))
         let ids = Set(going.map(\.id))
         guard let last = list.lastIndex(where: { ids.contains($0.id) }) else { return nil }
         if let below = list[(last + 1)...].first(where: { !ids.contains($0.id) }) { return below }
@@ -780,7 +845,7 @@ struct NotesView: View {
         said(outcome, of: moving, place: binder.name)
     }
 
-    /// "Moved 4 notes to Work › DevOps." and why any stayed. Notes that left this list leave the selection.
+    /// "Moved 4 notes to Work › DevOps." and why any stayed. Notes that left this binder leave the selection.
     private func said(_ outcome: NoteMoves.Outcome, of moving: [NoteItem], place: String) {
         selection = selection.filter { id in here.contains { $0.id == id } }
         let why = outcome.stayed.count > 1 ? "\(outcome.stayed.count) are teammates' notes, which stay in their binders." : outcome.stayed.first?.why
@@ -790,7 +855,8 @@ struct NotesView: View {
 
     /// The menu items for several notes at once, in the list's menu.
     private func severalItems(_ moving: [NoteItem]) -> some View {
-        SeveralMenuItems(count: moving.count, noun: "Notes", binderID: binderID, folderID: folderID,
+        let place = sharedFolder(of: moving)
+        return SeveralMenuItems(count: moving.count, noun: "Notes", binderID: binderID, folderID: place.folder, together: place.together,
                          toFolder: { target in if let binderID { move(moving, toFolder: target, in: binderID) } },
                          toBinder: { move(moving, to: $0) }, delete: { requestDelete(moving) })
     }
@@ -809,7 +875,7 @@ struct NotesView: View {
                          : "\(fromSpeech) were made from what you said: they stay on this Mac, even in a shared binder.")
         }
         return SeveralSelectedPanel(heading: "\(moving.count) notes selected", titles: moving.map(\.title), rules: rules, probe: "notes.several") {
-            SeveralButtons(count: moving.count, noun: "notes", binderID: binderID, folderID: folderID,
+            SeveralButtons(count: moving.count, noun: "notes", binderID: binderID, folderID: sharedFolder(of: moving).folder, together: sharedFolder(of: moving).together,
                            toFolder: { target in if let binderID { move(moving, toFolder: target, in: binderID) } },
                            toBinder: { move(moving, to: $0) }, delete: { requestDelete(moving) })
         }
@@ -865,10 +931,13 @@ struct PanelEdge: View {
 /// A note in the notes list. A view of its own, so typing in one note redraws its row and leaves the others.
 private struct NoteRow: View {
     let note: NoteItem
+    /// Where it is, while the list shows no folders.
+    var place: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(note.title).lineLimit(1)
+            OutlinePlace(names: place)
             HStack(spacing: 4) {
                 if note.isTeamCopy {
                     Image(systemName: "person.2.fill")

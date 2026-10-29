@@ -246,8 +246,14 @@ struct MeetingsView: View {
     @Environment(\.undoManager) private var undoManager
     @ReducedMotion private var reduceMotion
     @Query private var meetings: [MeetingRecord]
-    /// The binder's folders, for the ones in the folder you're in and for which meetings are where.
+    /// The binder's folders, drawn as a tree with the meetings in them.
     @Query private var folders: [FolderRecord]
+    /// Which folders are open, here and in the sidebar.
+    @State private var expansion = FolderExpansion.shared
+    /// A row to scroll to: one just opened, or a folder shown from the sidebar.
+    @State private var scrollTarget: String?
+    /// A drag over the list's title, which takes it to the top of the binder.
+    @State private var topTargeted = false
     /// The ones chosen in the list: one, which opens beside it, or several (⌘-click, ⇧-click, ⌘A), to move or delete
     /// together.
     @State private var selection: Set<UUID> = []
@@ -260,12 +266,14 @@ struct MeetingsView: View {
     let binderID: UUID?
     /// The iPhone's conversations instead of meetings.
     let showsConversations: Bool
-    /// The folder you're in, in that binder; nil at its top.
+    /// Where new ones go in that binder (HubNavigation.folderID); nil at its top.
     let folderID: UUID?
     /// For self-tests: the ones to select as the list opens, as ⌘-click would.
     @MainActor static var selectOnOpen: Set<UUID>?
+    /// For self-tests: told what the list shows each time it draws, row by row.
+    @MainActor static var drawn: (([OutlineEntry<MeetingRecord>]) -> Void)?
 
-    /// The meetings in one binder, in the folder you're in, or every meeting when `binderID` is nil; or the
+    /// The meetings in one binder, as a tree of its folders, or every meeting when `binderID` is nil; or the
     /// conversations the iPhone heard.
     init(binderID: UUID? = nil, conversations: Bool = false, folderID: UUID? = nil) {
         self.binderID = binderID
@@ -291,25 +299,56 @@ struct MeetingsView: View {
     /// What the list holds, in words.
     private var noun: (one: String, many: String) { showsConversations ? ("capture", "captures") : ("meeting", "meetings") }
 
-    /// The meetings in the folder you're in (at the top, those in no folder of the binder's).
+    /// The meetings in the binder, in all its folders.
     private var here: [MeetingRecord] {
         guard let binderID else { return meetings }
-        let known = Set(folders.map(\.id))
         // Its binder checked too: one just moved to another binder leaves at once, before the list is read again.
-        return meetings.filter { meeting in meeting.binderID == binderID && meeting.folderID.flatMap { known.contains($0) ? $0 : nil } == folderID }
+        return meetings.filter { $0.binderID == binderID }
     }
 
-    /// The folders in the folder you're in, with how many of this list's kind each holds.
-    private var subfolders: [(folder: FolderRecord, count: Int)] {
-        guard binderID != nil else { return [] }
-        let nodes = FolderTree.untangled(folders.map(\.node))
-        let parents = Dictionary(nodes.map { ($0.id, $0.parentID) }, uniquingKeysWith: { first, _ in first })
-        let counts = meetings.reduce(into: [UUID: Int]()) { counts, meeting in
-            if let id = meeting.folderID, meeting.status != "trivial" { counts[id, default: 0] += 1 }
+    /// While searching, the list shows what matches without its folders, each saying where it is.
+    private var flat: Bool { binderID == nil || !search.trimmed.isEmpty }
+
+    /// The folder one shows in: its own, when it's one of the binder's; else the top.
+    private func folder(of meeting: MeetingRecord) -> UUID? {
+        meeting.folderID.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+    }
+
+    /// The list's rows: the binder's folders as a tree, what's in each under it while it's open, and what's at the top
+    /// after the folders; or, searched, what matches alone.
+    private func entries(_ shown: [MeetingRecord]) -> [OutlineEntry<MeetingRecord>] {
+        guard !flat else { return shown.map { .item($0, depth: 0) } }
+        return OutlineEntry.tree(folders: folders, items: shown, folderOf: { $0.folderID }, open: expansion.folders)
+    }
+
+    /// Opens the folders they're in, so they show, and scrolls to the first.
+    private func reveal(_ ids: Set<UUID>) {
+        guard let binderID, !ids.isEmpty else { return }
+        for id in ids {
+            guard let record = meetings.first(where: { $0.id == id }) ?? Store.shared.meeting(id), record.binderID == binderID else { continue }
+            expansion.reveal(record.folderID, in: binderID, itself: true, sidebar: false)
         }
-        return folders.filter { (parents[$0.id] ?? nil) == folderID }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            .map { ($0, counts[$0.id] ?? 0) }
+        let first = filtered.first { ids.contains($0.id) }?.id ?? ids.first
+        scrollTarget = first.map(OutlineEntry<MeetingRecord>.rowID(item:))
+    }
+
+    /// A folder clicked: open or closed in place, and where new ones go.
+    private func choose(_ folder: FolderRecord) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { expansion.toggle(folder.id) }
+        navigation.folderID = folder.id
+    }
+
+    /// A folder shown from the sidebar, or just made: scrolled to.
+    private func showFolder() {
+        guard let id = navigation.folderToShow, folders.contains(where: { $0.id == id }) else { return }
+        scrollTarget = OutlineEntry<MeetingRecord>.rowID(folder: id)
+        navigation.folderToShow = nil
+    }
+
+    /// The folder several are all in, or, from different folders, where new ones go.
+    private func sharedFolder(of picked: [MeetingRecord]) -> (folder: UUID?, together: Bool) {
+        let places = Set(picked.map(folder(of:)))
+        return places.count == 1 ? (places.first ?? nil, true) : (folderID, false)
     }
 
     private var shown: [MeetingRecord] { showsTrivial ? here : here.filter { $0.status != "trivial" } }
@@ -345,6 +384,7 @@ struct MeetingsView: View {
                 if let record = await service.importRecording(url) {
                     fileHere(record.id)
                     selection = [record.id]
+                    reveal([record.id])
                 }
             }
         }
@@ -360,6 +400,7 @@ struct MeetingsView: View {
                     if let record = await service.importRecording(url) {
                         fileHere(record.id)
                         selection = [record.id]
+                        reveal([record.id])
                     }
                 }
             }
@@ -368,17 +409,21 @@ struct MeetingsView: View {
         .onAppear {
             if let ids = Self.selectOnOpen {
                 selection = ids
+                reveal(ids)
             } else if !takePending(), selection.isEmpty {
-                let first = showsConversations ? shown.first?.id : (service.recordingMeetingID ?? shown.first?.id)
-                selection = first.map { [$0] } ?? []
+                // The newest one that shows: at the top, or in an open folder.
+                let first = showsConversations ? nil : service.recordingMeetingID
+                selection = (first ?? OutlineEntry.items(in: entries(shown)).first?.id).map { [$0] } ?? []
             }
+            showFolder()
         }
         .onChange(of: navigation.pendingMeetingID) { _ = takePending() }
-        // Gone to the folder of a meeting asked for: it opens there. Into another folder: its first.
-        .onChange(of: folderID) {
-            guard !takePending() else { return }
-            let kept = selection.filter { id in here.contains { $0.id == id } }
-            selection = kept.isEmpty ? (shown.first.map { [$0.id] } ?? []) : kept
+        .onChange(of: navigation.folderToShow) { showFolder() }
+        // New ones go where the one you chose is.
+        .onChange(of: selection) {
+            if binderID != nil, let id = single, let record = meetings.first(where: { $0.id == id }), record.binderID == binderID {
+                navigation.folderID = folder(of: record)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: TeamSyncService.itemsWillBeRemoved)) { notification in
             // A teammate stopped sharing a selected meeting: let it go before sync deletes it.
@@ -400,7 +445,7 @@ struct MeetingsView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 if showsConversations {
-                    Text("Captures").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
+                    title("Captures")
                     Text("Heard by All-day capture on your iPhone or this Mac. From the iPhone, only the text came here, and it's never shared with your team.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -419,13 +464,14 @@ struct MeetingsView: View {
                             .help("Captures with nothing worth keeping are hidden, and deleted a week after they were heard.")
                     }
                 } else {
-                    Text("Meetings").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
+                    title("Meetings")
                     Button {
                         Task {
                             await service.toggle()
                             if let id = service.recordingMeetingID {
                                 fileHere(id)
                                 selection = [id]
+                                reveal([id])
                             }
                         }
                     } label: {
@@ -444,31 +490,47 @@ struct MeetingsView: View {
                     .help("Transcribe an audio or video file into a new meeting. You can also drop a file anywhere on this page.")
                 }
                 TextField("Search", text: $search).textFieldStyle(.roundedBorder)
+                let filtered = self.filtered
+                let entries = self.entries(filtered)
+                let indented = !flat && !folders.isEmpty
+                let index = FolderTree.index(FolderTree.untangled(folders.map(\.node)))
+                let _ = Self.drawn?(entries)
+                ScrollViewReader { proxy in
                 List(selection: $selection) {
-                    // The folders in the folder you're in: click to go in, drop a meeting on one to move it in.
-                    if !subfolders.isEmpty, search.trimmed.isEmpty {
-                        Section {
-                            ForEach(subfolders, id: \.folder.id) { entry in
-                                FolderListRow(folder: entry.folder, count: entry.count) { navigation.folderID = entry.folder.id }
-                            }
+                    // The folders as a tree: click one to open or close it where it is; drop a meeting on one to move it in.
+                    ForEach(entries) { entry in
+                        switch entry {
+                        case .folder(let folder, let depth, let count, let open):
+                            FolderTreeRow(folder: folder, depth: depth, count: count, open: open, current: folder.id == folderID) { choose(folder) }
+                        case .empty(let folder, let depth):
+                            OutlineEmptyRow(folder: folder, depth: depth, text: showsConversations ? "No captures" : "No meetings")
+                        case .item(let meeting, let depth):
+                            MeetingRow(meeting: meeting, busy: service.busyMeetingIDs.contains(meeting.id),
+                                       // A teammate's being recorded on their Mac shows as recording too (lane DB4).
+                                       recording: service.recordingMeetingID == meeting.id || (meeting.isTeamCopy && meeting.status == "recording"),
+                                       showsSharing: settings.teamFolderPath != nil,
+                                       place: flat ? FolderTree.chain(to: folder(of: meeting), in: index).map(\.name) : [])
+                                .padding(.leading, indented ? OutlineIndent.item(depth) : 0)
+                                .tag(meeting.id)
+                                // Onto a folder, here or in the sidebar, or onto a binder: with every one selected beside it.
+                                .draggableItems(dragged(meeting))
                         }
-                    }
-                    ForEach(filtered) { meeting in
-                        MeetingRow(meeting: meeting, busy: service.busyMeetingIDs.contains(meeting.id),
-                                   // A teammate's being recorded on their Mac shows as recording too (lane DB4).
-                                   recording: service.recordingMeetingID == meeting.id || (meeting.isTeamCopy && meeting.status == "recording"),
-                                   showsSharing: settings.teamFolderPath != nil)
-                            .tag(meeting.id)
-                            // Onto a folder, here or in the sidebar, or onto a binder: with every one selected beside it.
-                            .draggableItems(dragged(meeting))
                     }
                 }
                 .listStyle(.inset)
                 .scrollContentBackground(.hidden)
+                .onChange(of: scrollTarget, initial: true) { _, target in
+                    guard let target else { return }
+                    // Once the folders just opened are in the list.
+                    DispatchQueue.main.async {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+                        scrollTarget = nil
+                    }
+                }
+                }
                 .overlay {
-                    if binderID != nil, folderID != nil, here.isEmpty, subfolders.isEmpty {
-                        ContentUnavailableView(showsConversations ? "No captures in this folder" : "No meetings in this folder", systemImage: "folder",
-                                               description: Text("Drag one onto the folder, or choose Move to Folder in its menu."))
+                    if flat, filtered.isEmpty, !search.trimmed.isEmpty {
+                        ContentUnavailableView.search(text: search.trimmed)
                     }
                 }
                 // ⌫ or ⌦ on the selected ones, or Delete… in the menu: one question for all of them.
@@ -552,25 +614,34 @@ struct MeetingsView: View {
         }
     }
 
-    /// A meeting recorded or imported from inside a folder goes in it.
+    /// The list's title, with Collapse All beside it. What's dropped on it goes to the top of the binder.
+    private func title(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Text(text).font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
+            Spacer(minLength: 0)
+            if let binderID, !folders.isEmpty { CollapseFoldersButton(binderID: binderID) }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(topTargeted ? AnyShapeStyle(TintFill().opacity(0.18)) : AnyShapeStyle(Color.clear)))
+        .padding(.horizontal, -4)
+        .dropDestination(for: String.self) { items, _ in
+            guard let binderID else { return false }
+            return DraggedItem.drop(items, into: nil, binder: binderID, undoManager: undoManager)
+        } isTargeted: { topTargeted = $0 && binderID != nil }
+    }
+
+    /// A meeting recorded or imported with a folder chosen goes in it.
     private func fileHere(_ id: UUID) {
         guard let folderID, let record = meetings.first(where: { $0.id == id }) ?? Store.shared.meeting(id),
               record.binderID == binderID, record.folderID == nil else { return }
         try? Store.shared.move(record, toFolder: folderID)
     }
 
-    /// Opens the meeting or conversation something asked for, when it's one of this list's; the other list takes the rest.
+    /// Opens the meeting or conversation something asked for, when it's one of this list's, its folder open and scrolled
+    /// to; the other list takes the rest.
     private func takePending() -> Bool {
         guard let pending = navigation.pendingMeetingID else { return false }
-        // One in another folder of this binder opens in its own.
-        if binderID != nil, let record = meetings.first(where: { $0.id == pending }) {
-            let known = Set(folders.map(\.id))
-            let its = record.folderID.flatMap { known.contains($0) ? $0 : nil }
-            if its != folderID {
-                navigation.folderID = its
-                return true
-            }
-        }
         guard let record = meetings.first(where: { $0.id == pending }) else {
             // Asked for before the record arrived (just recorded): meetings take it, as they always have.
             if !showsConversations, Store.shared.binderID(ofMeeting: pending) == nil {
@@ -582,6 +653,7 @@ struct MeetingsView: View {
         }
         if record.status == "trivial" { showsTrivial = true }
         selection = [pending]
+        reveal([pending])
         navigation.pendingMeetingID = nil
         return true
     }
@@ -610,7 +682,7 @@ struct MeetingsView: View {
     }
 
     /// "Moved 4 meetings to Work › DevOps." and why any stayed; for captures put in a shared binder, whether the team has
-    /// them now. Those that left this list leave the selection.
+    /// them now. Those that left this binder leave the selection.
     private func said(_ outcome: MoveOutcome, of moving: [MeetingRecord], place: String, into binder: BinderRecord?) {
         selection = selection.filter { id in here.contains { $0.id == id } }
         let sharing = binder.flatMap { MeetingMoves.captureSharing(outcome.moved, in: $0) }
@@ -621,7 +693,8 @@ struct MeetingsView: View {
 
     /// The menu items for several at once, in the list's menu.
     private func severalItems(_ moving: [MeetingRecord]) -> some View {
-        SeveralMenuItems(count: moving.count, noun: noun.many.capitalized, binderID: binderID, folderID: folderID,
+        SeveralMenuItems(count: moving.count, noun: noun.many.capitalized, binderID: binderID, folderID: sharedFolder(of: moving).folder,
+                         together: sharedFolder(of: moving).together,
                          toFolder: { target in if let binderID { move(moving, toFolder: target, in: binderID) } },
                          toBinder: { move(moving, to: $0) }, delete: { requestDelete(moving) })
     }
@@ -629,7 +702,8 @@ struct MeetingsView: View {
     /// Beside the list with several selected: how many, what to do with them all, and what stays as it is.
     private func several(_ picked: [MeetingRecord]) -> some View {
         SeveralSelectedPanel(heading: "\(picked.count) \(noun.many) selected", titles: picked.map(\.title), rules: rules(for: picked), probe: "meetings.several") {
-            SeveralButtons(count: picked.count, noun: noun.many, binderID: binderID, folderID: folderID,
+            SeveralButtons(count: picked.count, noun: noun.many, binderID: binderID, folderID: sharedFolder(of: picked).folder,
+                           together: sharedFolder(of: picked).together,
                            toFolder: { target in if let binderID { move(picked, toFolder: target, in: binderID) } },
                            toBinder: { move(picked, to: $0) }, delete: { requestDelete(picked) })
         }
@@ -691,7 +765,7 @@ struct MeetingsView: View {
 
     /// The one below these in the list, or above them at the end.
     private func neighbour(of ids: Set<UUID>) -> MeetingRecord? {
-        let list = filtered
+        let list = OutlineEntry.items(in: entries(filtered))
         guard let last = list.lastIndex(where: { ids.contains($0.id) }) else { return nil }
         if let below = list[(last + 1)...].first(where: { !ids.contains($0.id) }) { return below }
         return list[..<last].last { !ids.contains($0.id) }
@@ -744,10 +818,13 @@ private struct MeetingRow: View {
     let busy: Bool
     let recording: Bool
     let showsSharing: Bool
+    /// Where it is, while the list shows no folders.
+    var place: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(meeting.title).lineLimit(2)
+            OutlinePlace(names: place)
             HStack(spacing: 6) {
                 Text(meeting.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
                 if meeting.duration > 0 { Text("· \(max(1, Int((meeting.duration / 60).rounded()))) min") }
