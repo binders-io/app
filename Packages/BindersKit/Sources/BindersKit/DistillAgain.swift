@@ -87,7 +87,10 @@ public enum DistillAgain {
     /// The plan: `read` is what the reader proposed now (each with its section's hash as now), `earlier` every item from
     /// before (placed, still proposed or put aside, and dropped ones, which are never proposed again) and the note's other
     /// cards (`Earlier.other`), `sections` the note's sections now.
-    public static func plan(read: [DistillItem], earlier: [Earlier], sections: [DistillSections.Section]) -> Plan {
+    /// `byAgent`: an agent read the whole note, answering "Distill with…". A section that's the same still gives what it
+    /// found there that repeats nothing from before: an agent reads with care where a model words the same work afresh,
+    /// and an earlier reading may have picked out only part of a section.
+    public static func plan(read: [DistillItem], earlier: [Earlier], sections: [DistillSections.Section], byAgent: Bool = false) -> Plan {
         var states: [String: SectionState] = [:]
         // Cards made from the note some other way, and an agent's pick of items, say nothing of how a section stands: Put
         // on Board from one line of a section never makes the rest of it "the same".
@@ -108,6 +111,8 @@ public enum DistillAgain {
         var refreshes: [Refresh] = []
         var leftOut = 0
         var matched: Set<UUID> = []
+        // What each item left out repeats, so a kept item's wait on it becomes a wait on that (`waits`).
+        var standIns: [UUID: UUID] = [:]
         /// Brings the card, or the waiting item, `earlier` stands for up to date with `item`; false when it's neither.
         func update(_ earlier: Earlier, with item: DistillItem, section: DistillSections.Section?) -> Bool {
             guard !earlier.other, !matched.contains(earlier.item) else { return false }
@@ -132,20 +137,23 @@ public enum DistillAgain {
             // Never the same item twice: one with the title of an item from before in the same section.
             if let same = before.first(where: { similarity($0.title, item.title) >= 0.99 }) {
                 if state == .changed { _ = update(same, with: item, section: section) }
+                standIns[item.id] = same.item
                 leftOut += 1
                 continue
             }
             // Lane BF2: much like an item from before anywhere in the note, or one kept already now, it's a repeat in other
             // words. A changed section's card it matches best is brought up to date below instead.
-            let repeated = earlier.contains { alike(item, $0) } || keep.contains { alike(item, $0) }
+            let repeating = earlier.first { alike(item, $0) }?.item ?? keep.first { alike(item, $0) }?.id
+            let repeated = repeating != nil
+            if let repeating { standIns[item.id] = repeating }
             if repeated, state != .changed {
                 leftOut += 1
                 continue
             }
             switch state {
             case .same:
-                // A section the last reading cut short offers what was held back.
-                if before.contains(where: \.heldBack) {
+                // A section the last reading cut short offers what was held back; an agent's reading, what it found.
+                if byAgent || before.contains(where: \.heldBack) {
                     keep.append(item)
                 } else {
                     leftOut += 1
@@ -158,6 +166,7 @@ public enum DistillAgain {
                 if let best = before.filter({ !matched.contains($0.item) && !$0.other && (($0.card != nil && !$0.finished) || ($0.waiting && $0.card == nil)) })
                     .map({ ($0, similarity($0.title, item.title)) }).filter({ $0.1 >= 0.5 }).max(by: { $0.1 < $1.1 })?.0,
                    update(best, with: item, section: section) {
+                    standIns[item.id] = best.item
                     leftOut += best.card == nil ? 1 : 0
                 } else if repeated {
                     leftOut += 1
@@ -174,14 +183,7 @@ public enum DistillAgain {
                 closes.append(DistillUpdate(kind: .close, card: card, item: item.item, section: item.section))
             }
         }
-        // Waits on items that were left out go with them.
-        let kept = Set(keep.map(\.id))
-        keep = keep.map { item in
-            var item = item
-            item.waitsFor = item.waitsFor.filter(kept.contains)
-            return item
-        }
-        return Plan(items: keep, updates: updates, closes: closes, refreshes: refreshes, leftOut: leftOut, sections: states)
+        return Plan(items: waits(keep, standIns: standIns), updates: updates, closes: closes, refreshes: refreshes, leftOut: leftOut, sections: states)
     }
 
     /// An agent's own proposal for a note distilled before: everything it proposes, but an item the same as one from
@@ -190,17 +192,33 @@ public enum DistillAgain {
     /// reading the note again (`plan`).
     public static func additions(read: [DistillItem], earlier: [Earlier]) -> (items: [DistillItem], leftOut: Int) {
         var keep: [DistillItem] = []
+        var standIns: [UUID: UUID] = [:]
         for item in read {
-            let same = earlier.contains { $0.section == item.section && similarity($0.title, item.title) >= 0.99 }
-            guard !same, !earlier.contains(where: { alike(item, $0) }), !keep.contains(where: { alike(item, $0) }) else { continue }
+            let same = earlier.first { $0.section == item.section && similarity($0.title, item.title) >= 0.99 }
+            if let repeating = same?.item ?? earlier.first(where: { alike(item, $0) })?.item ?? keep.first(where: { alike(item, $0) })?.id {
+                standIns[item.id] = repeating
+                continue
+            }
             keep.append(item)
         }
+        return (waits(keep, standIns: standIns), read.count - keep.count)
+    }
+
+    /// The kept items' waits: on a kept item as it was; on one left out as a repeat, on what it repeats (an item from
+    /// before, whose card is waited for once it's on the board, or the item kept in its place), so a card still waits for a
+    /// decision that's on the board already; on anything else, gone.
+    static func waits(_ keep: [DistillItem], standIns: [UUID: UUID]) -> [DistillItem] {
         let kept = Set(keep.map(\.id))
-        return (keep.map { item in
+        return keep.map { item in
             var item = item
-            item.waitsFor = item.waitsFor.filter(kept.contains)
+            var seen: Set<UUID> = []
+            item.waitsFor = item.waitsFor.compactMap { wait -> UUID? in
+                let target = kept.contains(wait) ? wait : standIns[wait]
+                guard let target, target != item.id, seen.insert(target).inserted else { return nil }
+                return target
+            }
             return item
-        }, read.count - keep.count)
+        }
     }
 
     /// Whether two items are the same work in other words: titles nearly the same; titles much alike with briefs alike

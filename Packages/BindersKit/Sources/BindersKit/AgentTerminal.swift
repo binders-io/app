@@ -44,6 +44,9 @@ public struct AgentTerminalTool: Equatable, Sendable {
     public var output: [String]
     /// An edit's lines, with "-" and "+".
     public var diff: [String]
+    /// Lines of what came back, and of the edit, left out of what a phone was sent (`AgentSessionLink.trimmed`).
+    public var more = 0
+    public var diffMore = 0
 
     public init(name: String, argument: String, status: AgentSessionStep.Status, summary: String? = nil, output: [String] = [], diff: [String] = []) {
         self.name = name

@@ -115,6 +115,26 @@ final class DistillCapturedTests: XCTestCase {
         XCTAssertEqual(plan.items.map(\.title), ["Validate card numbers while typing"], "a section the agent read, unchanged, gives nothing")
     }
 
+    func testAnAgentReadingTheWholeNoteStillGivesWhatsNewInASectionThatsTheSame() {
+        // An earlier reading took one item from Retry and its card is done; the section hasn't changed since.
+        let before = DistillAgain.Earlier(item: UUID(), title: "Offer Retry when the bank declines", section: "Retry",
+                                          sectionHash: hash("Retry", in: note), card: UUID(), finished: true)
+        let decision = DistillItem(title: "Retry declined payments once the bank says why", section: "Retry", sectionHash: hash("Retry", in: note))
+        var coding = DistillItem(title: "Log each decline's reason", section: "Retry", sectionHash: hash("Retry", in: note))
+        let repeatItem = DistillItem(title: "Offer a Retry when the bank declines", section: "Retry", sectionHash: hash("Retry", in: note))
+        coding.waitsFor = [repeatItem.id, decision.id]
+        let read = [repeatItem, decision, coding]
+        let model = DistillAgain.plan(read: read, earlier: [before], sections: sections(note))
+        XCTAssertEqual(model.sections["Retry"], .same)
+        XCTAssertEqual(model.items, [], "Binders' model reading again: a section that's the same gives nothing")
+        let agent = DistillAgain.plan(read: read, earlier: [before], sections: sections(note), byAgent: true)
+        XCTAssertEqual(agent.items.map(\.title), ["Retry declined payments once the bank says why", "Log each decline's reason"],
+                       "an agent's reading keeps what repeats nothing, and still leaves out the repeat")
+        XCTAssertEqual(agent.items.last?.waitsFor, [before.item, decision.id], "a wait on the repeat becomes a wait on what it repeats")
+        let added = DistillAgain.additions(read: read, earlier: [before])
+        XCTAssertEqual(added.items.last?.waitsFor, [before.item, decision.id], "and so for an agent's own proposal")
+    }
+
     func testAnAgentsPickOfItemsLeavesTheRestOfItsSectionToRead() {
         // Its own propose_work_items, one item from Payment form: a repeat of it goes, the rest of the section is read.
         let picked = DistillAgain.Earlier(item: UUID(), title: "Combine checkout into one page", section: "Payment form",

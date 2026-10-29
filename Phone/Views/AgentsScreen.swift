@@ -97,7 +97,7 @@ struct AgentsList: View {
 
     private var managerRow: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(Palette.agent).font(.title3).frame(width: 28)
+            AgentAvatarView(name: "The Manager", kind: .manager, size: 30)
             VStack(alignment: .leading, spacing: 3) {
                 Text("The Manager").font(.headline).foregroundStyle(Palette.ink)
                 if let feed {
@@ -123,8 +123,13 @@ struct AgentsList: View {
     private func row(_ agent: AgentList.Agent) -> some View {
         let answering = chats.first { $0.status == "running" && $0.agent == agent.name }
         let status: (words: String, tone: AgentWork.Tone) = answering.map { (words: "Answering “\($0.title)”", tone: AgentWork.Tone.working) } ?? AgentWork.status(of: agent.name, in: cards, paused: agents?.paused == true)
+        let activity: AgentAvatarView.Activity? = switch status.tone {
+        case .working: .working
+        case .needsYou: .needsYou
+        case .plain: nil
+        }
         return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "sparkles").foregroundStyle(Palette.agent).font(.title3).frame(width: 28)
+            AgentAvatarView(name: agent.name, kind: AgentAvatarView.kind(agent, name: agent.name), size: 30, activity: activity)
             VStack(alignment: .leading, spacing: 3) {
                 Text(agent.name).font(.headline).foregroundStyle(Palette.ink).lineLimit(1)
                 AgentStatusText(words: status.words, tone: status.tone)
@@ -625,7 +630,8 @@ private struct SuggestionSheet: View {
 
 // MARK: One agent
 
-/// One of your agents: a chat with it (lane AC1) when it can chat, from a Mac that has chats; otherwise its cards.
+/// One of your agents: its sessions as the Mac's Agents page shows them (lane AC2), from a Mac that has them; else a chat
+/// with it (lane AC1) when it can chat, from a Mac that has chats; otherwise its cards.
 struct AgentChatView: View {
     @Environment(MacConnection.self) private var connection
     let name: String
@@ -634,7 +640,9 @@ struct AgentChatView: View {
     var body: some View {
         let agent = agents?.agents.first { $0.name == name }
         Group {
-            if ChatLink.chats(agent, over: connection) {
+            if SessionLink.available(connection) {
+                AgentSessionsView(name: name)
+            } else if ChatLink.chats(agent, over: connection) {
                 ChatThreadView(agent: name)
             } else if agents != nil {
                 AgentCardsView(name: name)

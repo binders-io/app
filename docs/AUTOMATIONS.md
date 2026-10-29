@@ -444,6 +444,13 @@ your words (`claude --resume`); the other tools get them when their run ends, as
 Terminal** opens Terminal on the session with its own command to look in (`claude --resume <id>`, `codex resume …`), from
 what Binders wrote on the card, and is off while a run goes, as two at once would clash.
 
+Binders for iPhone 2.4 shows the same on its Agents tab, from a Mac with 0.13.0: pick an agent for its header, its
+sessions and the session's terminal, read on the Mac from the same logs (the newest 150 steps, long output cut, with a
+line saying how much more the Mac has), every 2 seconds while a run goes. What you write there goes as on the Mac:
+into a chat, or into a card's session, straight into a Claude Code run that takes it; the first time for an agent as
+it's set up now, the iPhone asks you first. A card that waits on you says so, with Open Card to answer or approve it.
+Stop ends the run. With an older Mac, the iPhone keeps the chat it had.
+
 A message to an agent with no session yet starts one: a chat for Claude Code and an agent that checks the board itself,
 otherwise a card meant for it, in Ready, which Binders hands over as Give to does. Claude Code answers a chat in a session
 Binders starts for it in a worktree of its own (`.claude/worktrees/binders-chat-<8 characters>`), with its permission

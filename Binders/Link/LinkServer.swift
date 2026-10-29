@@ -69,6 +69,8 @@ final class LinkServer {
     private(set) var boundPairingPort: UInt16?
 
     @ObservationIgnored private weak var controller: DictationController?
+    /// An agent's sessions, for the phone's Agents screen (lane AC2).
+    @ObservationIgnored let phoneSessions = PhoneSessions()
     @ObservationIgnored private let requestedPort: UInt16
     @ObservationIgnored private let requestedPairingPort: UInt16
     @ObservationIgnored private let devicesURL: URL
@@ -479,8 +481,8 @@ final class LinkServer {
         switch method {
         case "binders/dictation", ConversationPayload.method, MomentPayload.method: return .close
         // What you asked the Manager waits on the phone and comes again (lane MG1); a tap on Undo or Accept is said no to.
-        case LinkFeatures.managerMethod, LinkFeatures.chatSendMethod: return .close
-        case CaptureOutcome.actMethod, ConversationSuggestion.actMethod, LinkFeatures.managerActMethod: return .error(Store.refusedMessage)
+        case LinkFeatures.managerMethod, LinkFeatures.chatSendMethod, LinkFeatures.sessionSendMethod: return .close
+        case CaptureOutcome.actMethod, ConversationSuggestion.actMethod, LinkFeatures.managerActMethod, LinkFeatures.sessionActMethod: return .error(Store.refusedMessage)
         case "tools/call" where tool.map(answerTools.contains) == true: return .close
         default: return nil
         }
@@ -547,7 +549,8 @@ final class LinkServer {
     static let features = [ConversationPayload.feature, ConversationSuggestion.feature, LinkFeatures.warm, CaptureOutcome.feature, MomentPayload.feature,
                            LinkFeatures.dedupe, LinkFeatures.askProgress, LinkFeatures.approvals, MomentPayload.addsFeature, LinkFeatures.giveTo,
                            LinkFeatures.addresses, MomentPayload.agreedFeature, LinkFeatures.commentWakes, MomentPayload.autoFeature,
-                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager, LinkFeatures.chats]
+                           ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager, LinkFeatures.chats,
+                           LinkFeatures.sessions]
 
     /// What became of what the phone sent, for the ids it asks after (at most 50); ones this Mac doesn't know are left out.
     fileprivate func outcomes(_ ids: [String]) -> [[String: Any]] {
@@ -1287,6 +1290,14 @@ private final class LinkSession {
                     return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
                 }
             }
+            // An agent's sessions, as the Mac's Agents page shows them (lane AC2).
+            if [LinkFeatures.sessionListMethod, LinkFeatures.sessionMethod, LinkFeatures.sessionSendMethod, LinkFeatures.sessionActMethod].contains(method) {
+                do {
+                    return reply(MCPCore.success(id: id, result: try await server.sessions(method, params)))
+                } catch {
+                    return reply(MCPCore.failure(id: id, code: -32602, message: (error as? MCPCore.ToolFailure)?.message ?? error.localizedDescription))
+                }
+            }
             // The Manager (lane MG1): what you ask it, what it said and changed, and your Undo, Stop, Accept and Dismiss.
             if method == LinkFeatures.managerMethod || method == LinkFeatures.managerActMethod {
                 do {
@@ -1441,6 +1452,27 @@ extension LinkServer {
             guard params["action"] as? String == "stop" else { throw MCPCore.ToolFailure("A chat takes stop.") }
             chats.stop(id)
             return ["message": "Stopped."]
+        }
+    }
+
+    /// An agent's sessions, from your iPhone (lane AC2): the list (`agent`), one as its terminal (`kind` "card" or "chat",
+    /// `id`, `agent`), your words into a card's session (`card`, `text`, `agent`: the one the phone asked you about, `id`:
+    /// the phone's own for them), or Stop on a card's run (`card`, `action` "stop").
+    fileprivate func sessions(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
+        guard let controller else { throw MCPCore.ToolFailure("Binders is shutting down") }
+        func string(_ key: String) -> String { (params[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        switch method {
+        case LinkFeatures.sessionListMethod:
+            return AgentSessionLink.object(try phoneSessions.list(agent: string("agent"), controller: controller))
+        case LinkFeatures.sessionMethod:
+            let agent = string("agent")
+            return AgentSessionLink.object(try await phoneSessions.shown(kind: string("kind"), id: string("id"), agent: agent.isEmpty ? nil : agent, controller: controller))
+        case LinkFeatures.sessionSendMethod:
+            guard !string("agent").isEmpty else { throw MCPCore.ToolFailure("Say which agent it's for.") }
+            return ["message": try phoneSessions.send(params["text"] as? String ?? "", card: string("card"), agent: string("agent"),
+                                                      id: UUID(uuidString: string("id")), controller: controller)]
+        default:
+            return ["message": try phoneSessions.act(string("action"), card: string("card"), controller: controller)]
         }
     }
 

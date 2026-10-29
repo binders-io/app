@@ -60,6 +60,8 @@ extension SelfTest {
                                                  actor: BoardActor(name: claude.name, kind: .agent)))
             .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }?["agents"] as? [[String: Any]] ?? []
         check(asAgent.allSatisfy { $0["binders"] == nil }, "an agent hears names and kinds only")
+        check(entry(claude.name)?["avatar"] as? String == "claude" && entry(pennant.name)?["avatar"] as? String == "other",
+              "and what each wears on its Agents screen (lane AC2)")
 
         // Conversations: one it's working on with a reply, one waiting for you, one done; one a teammate's session holds.
         let working = board.create(title: "Why does the board clip at 1100 pt?", details: "On my 14-inch screen the last column is cut off.", binderID: app.id, by: .you)
@@ -185,6 +187,9 @@ extension SelfTest {
         let many = (1...45).map { "line \($0)" }
         check(AgentTerminal.fold(many).shown.count == AgentTerminal.foldAfter && AgentTerminal.fold(many).hidden == 25, "long output folds after 20 lines")
         terminal.stop()
+
+        await phoneSessionsSelfTest(check: check, controller: controller, agent: claude.name, other: pennant.name,
+                                    working: working, review: review, chat: chatID, sessions: sessions)
 
         // Live: a stand-in for claude in the throwaway folder that takes stream-json on its input (it says --input-format),
         // echoes each message back as Claude Code does, answers each with a result, and ends when its input closes.

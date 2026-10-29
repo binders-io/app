@@ -2337,6 +2337,28 @@ open reports/import.html
                 board.give(asked, to: claude.name, by: .you)
                 try? board.claim(asked, by: agent)
                 _ = try? board.ask(asked, question: "Should the link point at 0.12.0 or the latest release?", by: agent)
+                // A card the stand-in Claude Code worked on, with Binders' log of its run, for the terminal (lane AC2).
+                let live = BoardActor(name: "Claude Code · live", kind: .agent)
+                let folded = board.create(title: "Fold Done into a narrow strip", details: "Done takes a full column on a 14-inch screen.", binderID: first.id, by: .you)
+                board.give(folded, to: live.name, by: .you)
+                try? board.claim(folded, by: live)
+                _ = board.comment(folded, text: "Keep the count on the strip.", by: .you)
+                let logs = AgentPlaces.logs
+                try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+                let log = logs.appendingPathComponent("\(folded.id.uuidString.prefix(8).lowercased())-20261029T090000.jsonl")
+                try? ([
+                    #"{"type":"system","subtype":"init","session_id":"s1"}"#,
+                    #"{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"p1","name":"TodoWrite","input":{"todos":[{"content":"Read the board","status":"completed"},{"content":"Fold Done","activeForm":"Folding Done","status":"in_progress"},{"content":"Run the tests","status":"pending"}]}}]}}"#,
+                    #"{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"On it. I'll fold **Done** into a narrow strip that keeps its count."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/repo/Binders/Board/BoardColumnsView.swift"}}]}}"#,
+                    #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}}"#,
+                    #"{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/repo/Binders/Board/BoardColumnsView.swift","old_string":"a\n.frame(minWidth: 260)\nb","new_string":"a\n.frame(minWidth: column == .done ? 120 : 260)\n.animation(.snappy, value: folded)\nb"}}]}}"#,
+                    #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}"#,
+                    #"{"type":"assistant","message":{"id":"m4","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"swift test --filter BoardTests"}}]}}"#,
+                    #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"Test Suite 'BoardTests' started\nExecuted 24 tests, with 0 failures"}]}}"#,
+                    #"{"type":"assistant","message":{"id":"m5","content":[{"type":"text","text":"Done folds to 120 pt and keeps its count. Tests pass."}]}}"#,
+                    #"{"type":"result","subtype":"success","is_error":false,"duration_ms":192000,"total_cost_usd":0.42,"result":"Done folds to 120 pt and keeps its count."}"#,
+                ].joined(separator: "\n") + "\n").write(to: log, atomically: true, encoding: .utf8)
+                board.woke(folded, agent: live.name, text: "Started Claude Code in \(repository.path)/.claude/worktrees/fold-done (acceptEdits, ready). To look in: claude --resume 3f2a3c55-1111-4222-8333-944455556666 there.", log: log)
                 let manager = controller.manager
                 manager.localPump = {
                     let waiting = (try? FileManager.default.contentsOfDirectory(atPath: InboxCommands.directory.path)) ?? []

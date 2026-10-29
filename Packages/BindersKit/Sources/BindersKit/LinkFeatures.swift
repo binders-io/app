@@ -24,6 +24,15 @@ public enum LinkFeatures {
     public static let chatMethod = "binders/chat"
     public static let chatSendMethod = "binders/chat-send"
     public static let chatActMethod = "binders/chat-act"
+    /// A Mac that shows an agent's sessions on the phone as its Agents page does (lane AC2, `AgentSessionLink`):
+    /// `binders/sessions` lists one agent's cards and chats, `binders/session` gives one as its terminal, `binders/session-send`
+    /// sends your words into a card's session (`agent`, the one the phone asked you about: it reaches at most that one), and
+    /// `binders/session-act` stops a card's run. A phone shows the chat of lane AC1 to a Mac that doesn't list it.
+    public static let sessions = "agentSessions"
+    public static let sessionListMethod = "binders/sessions"
+    public static let sessionMethod = "binders/session"
+    public static let sessionSendMethod = "binders/session-send"
+    public static let sessionActMethod = "binders/session-act"
     /// A Mac that takes `binders/warm` loads its model when the phone hears someone start talking, so the write-up
     /// doesn't wait for it.
     public static let warm = "warm"

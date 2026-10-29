@@ -14,23 +14,8 @@ struct AgentAvatar: View {
     var size: CGFloat = 28
     var activity: Activity? = nil
 
-    /// What colour and letter it wears.
-    enum Kind: Equatable {
-        case claude, codex, opencode, copilot, antigravity, cursor, grok, manager, local, other
-
-        /// Its provider's icon in the asset catalog (Simple Icons, CC0), or nil for a letter.
-        var icon: String? {
-            switch self {
-            case .claude: "provider-claude"
-            case .codex: "provider-openai"
-            case .opencode: "provider-opencode"
-            case .copilot: "provider-copilot"
-            case .antigravity: "provider-gemini"
-            case .cursor: "provider-cursor"
-            default: nil
-            }
-        }
-    }
+    /// What colour and letter it wears (`AgentAvatarKind`, as the iPhone draws it too).
+    typealias Kind = AgentAvatarKind
 
     init(name: String, profile: AgentProfile?, size: CGFloat = 28, activity: Activity? = nil) {
         self.name = name
@@ -80,60 +65,22 @@ struct AgentAvatar: View {
     }
 
     static func kind(of profile: AgentProfile?, name: String) -> Kind {
-        if let profile {
-            switch profile.wake {
-            case .claudeCode: return .claude
-            case .cliAgent(let wake):
-                switch wake.tool {
-                case .codex: return .codex
-                case .opencode: return .opencode
-                case .copilot: return .copilot
-                case .antigravity: return .antigravity
-                }
-            case .localModel: return .local
-            default: break
-            }
-        }
-        let lowered = name.lowercased()
-        if lowered.contains("grok") { return .grok }
-        if lowered.contains("claude") { return .claude }
-        if lowered.contains("codex") { return .codex }
-        if lowered.contains("copilot") { return .copilot }
-        if lowered.contains("opencode") { return .opencode }
-        if lowered.contains("antigravity") { return .antigravity }
-        if lowered.contains("cursor") { return .cursor }
-        return .other
+        let tool: CLIAgent? = if case .cliAgent(let wake) = profile?.wake { wake.tool } else { nil }
+        return AgentAvatarKind.of(wakes: profile?.wake.kind, tool: tool, name: name)
     }
 
     /// Its first letter or digit, in capitals.
-    static func initial(_ name: String) -> String {
-        name.first { $0.isLetter || $0.isNumber }.map { String($0).uppercased() } ?? "•"
-    }
+    static func initial(_ name: String) -> String { AgentAvatarKind.initial(name) }
 
     /// The colours any agent may wear, by its name: vivid, and each tells from the others.
-    static let vivid: [UInt32] = [0x2BB5A0, 0xE0609A, 0x3D9BFF, 0x8B6CFF, 0xE5A13A, 0x5FBF4A, 0xF0705A, 0x29B6D9]
+    static let vivid = AgentAvatarKind.vivid
 
     /// One agent's colour (also for its line in the activity chart).
     static func color(_ kind: Kind, name: String) -> Color { colors(kind, name: name).fill }
 
     static func colors(_ kind: Kind, name: String) -> (fill: Color, letter: Color) {
-        func hex(_ value: UInt32) -> Color { Color(nsColor: BindersTheme.srgb(value)) }
-        switch kind {
-        case .claude: return (hex(0xD97757), .white)
-        case .codex: return (hex(0x10A37F), .white)
-        case .opencode: return (hex(0x5B6CF0), .white)
-        case .copilot: return (hex(0x8957E5), .white)
-        case .antigravity: return (hex(0x3D86F4), .white)
-        case .cursor: return (hex(0x26262A), .white)
-        case .grok: return (hex(0xF2F2F3), hex(0x111113))
-        case .manager: return (BindersTheme.accent, .white)
-        case .local: return (hex(0x6B7280), .white)
-        case .other:
-            // FNV-1a, so the same name wears the same colour in every launch.
-            var hash: UInt32 = 2_166_136_261
-            for byte in name.lowercased().utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-            return (hex(vivid[Int(hash % UInt32(vivid.count))]), .white)
-        }
+        guard let fill = kind.fill(name: name) else { return (BindersTheme.accent, .white) }
+        return (Color(nsColor: BindersTheme.srgb(fill.hex)), fill.darkLetter ? Color(nsColor: BindersTheme.srgb(0x111113)) : .white)
     }
 
     static func dot(_ activity: Activity) -> Color {

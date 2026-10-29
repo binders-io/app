@@ -184,6 +184,13 @@ final class DistillRecordsTests: XCTestCase {
         XCTAssertTrue(request.hasSuffix("# Checkout\n\nText"))
         XCTAssertEqual(DistillCards.requestTitle("Checkout"), "Distill “Checkout” into work items")
         let long = String(repeating: "x", count: DistillCards.noteLimit + 100)
-        XCTAssertTrue(DistillCards.requestDetails(noteText: long, note: note).hasSuffix("\n\n…"))
+        XCTAssertTrue(DistillCards.requestDetails(noteText: long, note: note).hasSuffix("\n\n…\n\n" + DistillCards.cutLine))
+        XCTAssertFalse(request.contains(DistillCards.cutLine), "a note that fits isn't said to go on")
+        // A card whose tie to its note didn't come with it is still known by its title and source.
+        let title = DistillCards.requestTitle("V0.18")
+        XCTAssertTrue(DistillCards.asksToDistill(title: title, sourceKind: "note", sourceTitle: "V0.18"))
+        XCTAssertFalse(DistillCards.asksToDistill(title: title, sourceKind: "capture", sourceTitle: "V0.18"))
+        XCTAssertFalse(DistillCards.asksToDistill(title: "Fix the login", sourceKind: "note", sourceTitle: "V0.18"))
+        XCTAssertFalse(DistillCards.asksToDistill(title: title, sourceKind: "note", sourceTitle: nil))
     }
 }

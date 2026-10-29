@@ -45,7 +45,7 @@ public struct AgentSessionEvent: Equatable, Sendable, Identifiable {
     }
 }
 
-public struct AgentSessionPlanItem: Equatable, Sendable {
+public struct AgentSessionPlanItem: Equatable, Sendable, Codable {
     public enum Status: String, Sendable { case pending, active, done }
     public var text: String
     public var status: Status

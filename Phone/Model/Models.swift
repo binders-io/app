@@ -146,6 +146,8 @@ struct AgentList: Codable, Equatable {
         let name: String
         /// How the Mac wakes it: claudeCode, command, webhook, shortcut or board.
         let wakes: String
+        /// What it wears on the Agents screen (`AgentAvatarKind`), as its Mac says. Nil from a Mac before lane AC2.
+        var avatar: String? = nil
         /// Where its cards go: "Anthropic", a web hook's host, a command's program, "Shortcuts on your Mac". Nil from a Mac
         /// before 0.8.1, as are the rest.
         var sendsTo: String? = nil

@@ -43,8 +43,13 @@ enum DistillTools {
         var found: (NoteItem, TaskCard?)?
         if !cardOnly, let note = Store.shared.note(uuid) {
             found = (note, nil)
-        } else if let card = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == uuid })))?.first,
-                  let from = card.distilledFrom, from.opensNote, let note = Store.shared.note(from.note) {
+        } else if let card = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == uuid })))?.first {
+            guard let noteID = opened(by: card) else {
+                throw MCPCore.ToolFailure(cardOnly ? "That card wasn't distilled from a note, and doesn't ask you to distill one." : "That card wasn't distilled from a note.")
+            }
+            guard let note = Store.shared.note(noteID) else {
+                throw MCPCore.ToolFailure("The note that card is from isn't on this Mac. It may have been deleted, or a teammate's note may not have arrived yet.")
+            }
             // Through the board alone, an agent reaches only the spec of a card it holds or is meant for.
             if cardOnly, let actor, actor.isAgent {
                 func same(_ name: String?) -> Bool { name.map { BoardRules.isNamed($0, as: actor.name) || BoardRules.isNamed(actor.name, as: $0) } ?? false }
@@ -55,7 +60,7 @@ enum DistillTools {
             found = (note, card)
         }
         guard let found else {
-            throw MCPCore.ToolFailure(cardOnly ? "That card wasn't distilled from a note." : "No note or distilled card with that id.")
+            throw MCPCore.ToolFailure(cardOnly ? "No card with that id. Give the id of the card you're working on." : "No note or distilled card with that id.")
         }
         if found.0.isTeamCopy, !reads.team {
             throw MCPCore.ToolFailure("Teammates' items aren't shared with this tool. The user can allow them in Binders' Settings → MCP.")
@@ -64,6 +69,14 @@ enum DistillTools {
             throw MCPCore.ToolFailure("That note was made from what the user said, which isn't shared with this tool. The user can allow captures in Binders' Settings → MCP.")
         }
         return found
+    }
+
+    /// The note a card opens to its agent: the one Distill made it from, or the one it asks to distill. A card asking to
+    /// distill a note whose tie to it isn't here (made on a shared board before build 48) is known by its title and source.
+    static func opened(by card: TaskCard) -> UUID? {
+        if let from = card.distilledFrom { return from.opensNote ? from.note : nil }
+        guard DistillCards.asksToDistill(title: card.title, sourceKind: card.sourceKind, sourceTitle: card.sourceTitle) else { return nil }
+        return card.sourceID.flatMap(UUID.init(uuidString:))
     }
 
     /// Runs one of Distill's tools. `cardOnly`: a server confined to the board, which reaches a note only through a card
@@ -219,6 +232,10 @@ enum DistillTools {
                                                 "lines_removed": change.removed, "gone": change.gone] as [String: Any]
             }
             keys["distilled_from"] = distilled
+        } else if card.distilledFrom == nil, let note = opened(by: card) {
+            // Asks to distill a note, its tie to it not here (made on a shared board before build 48).
+            keys["distilled_from"] = ["note": note.uuidString, "title": card.sourceTitle ?? "", "link": DistillLinks.section(note: note, heading: nil),
+                                      "asks_to_distill": true] as [String: Any]
         }
         return keys
     }

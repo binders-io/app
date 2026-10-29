@@ -702,6 +702,20 @@ extension SelfTest {
               && !manager.fileExists(atPath: beyond.appendingPathComponent("new.txt").path),
               "a link in the worktree that leads outside it stops OpenCode, and names the link: \(notes(outward).last ?? "")")
         registry.remove(linkedAgent.id)
+        // A Python virtual environment a run made in the worktree: its link to the interpreter it was made with is let be.
+        let venvTree = data.appendingPathComponent("venv-tree", isDirectory: true)
+        let venvBin = venvTree.appendingPathComponent("service/.venv/bin", isDirectory: true)
+        try? manager.createDirectory(at: venvBin, withIntermediateDirectories: true)
+        try? "home = /usr/bin\n".write(to: venvTree.appendingPathComponent("service/.venv/pyvenv.cfg"), atomically: true, encoding: .utf8)
+        try? manager.createSymbolicLink(atPath: venvBin.appendingPathComponent("python3").path, withDestinationPath: "/bin/sh")
+        check(AgentWorktrees.outwardLink(in: venvTree.path) == nil, "a virtual environment's link to its interpreter doesn't stop OpenCode")
+        try? "secret\n".write(to: beyond.appendingPathComponent("plain.txt"), atomically: true, encoding: .utf8)
+        try? manager.createSymbolicLink(atPath: venvBin.appendingPathComponent("notes").path, withDestinationPath: beyond.appendingPathComponent("plain.txt").path)
+        check(AgentWorktrees.outwardLink(in: venvTree.path) == "service/.venv/bin/notes", "but one there to a file that isn't a program still does")
+        try? manager.removeItem(at: venvBin.appendingPathComponent("notes"))
+        try? manager.removeItem(at: venvTree.appendingPathComponent("service/.venv/pyvenv.cfg"))
+        check(AgentWorktrees.outwardLink(in: venvTree.path) == "service/.venv/bin/python3", "and a link to a program outside any virtual environment does too")
+        try? manager.removeItem(at: venvTree)
 
         // 13. A version Binders didn't check, and Codex settings from an administrator.
         set(.codex, "version", "0.163.0")

@@ -544,7 +544,9 @@ enum MCPServer {
                 throw MCPCore.ToolFailure("A run Binders started works on its own card. Suggest more work in a comment on it.")
             default:
                 guard UUID(uuidString: string("id")) == only else {
-                    throw MCPCore.ToolFailure("This run works on card \(only.uuidString) only.")
+                    // Distill's tools reach the card's note through the card: its id, never the note's.
+                    let through = DistillTools.names.contains(name) ? " Give that card's id: Binders finds the note it's from." : ""
+                    throw MCPCore.ToolFailure("This run works on card \(only.uuidString) only.\(through)")
                 }
             }
         }
@@ -923,6 +925,9 @@ enum MCPServer {
                              // The binders whose cards it takes, by name, for where a message to it goes from the iPhone's
                              // Agents screen; and whether it's the Manager.
                              entry["binders"] = yourBinders.filter { saved.takesCards(from: $0.id) }.map(\.name)
+                             // What it wears on the iPhone's Agents screen, as on the Mac's (lane AC2).
+                             let tool: CLIAgent? = if case .cliAgent(let wake) = saved.wake { wake.tool } else { nil }
+                             entry["avatar"] = AgentAvatarKind.of(wakes: saved.wake.kind, tool: tool, name: saved.name).rawValue
                              if registry.isManager(saved) { entry["manager"] = true }
                              // Changed outside Binders since you saved it, it drafts first until you save it again, and
                              // the iPhone hears that: never a leave it gave itself in agents.json, nor a vendor it named

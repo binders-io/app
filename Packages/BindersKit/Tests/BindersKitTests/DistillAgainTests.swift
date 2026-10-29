@@ -106,9 +106,15 @@ final class DistillAgainTests: XCTestCase {
         let storage = DistillItem(title: "Store 7 days of jobs, encrypted", section: "Storage")
         var testing = DistillItem(title: "Test an hour offline", section: "Testing")
         testing.waitsFor = [storage.id]
-        let plan = DistillAgain.plan(read: [storage, testing], earlier: earlier(), sections: sections)
+        let before = earlier()
+        let plan = DistillAgain.plan(read: [storage, testing], earlier: before, sections: sections)
         XCTAssertEqual(plan.items.map(\.title), ["Test an hour offline"])
-        XCTAssertEqual(plan.items[0].waitsFor, [], "what it waited for is on the board from before, not in this proposal")
+        let stored = before.first { $0.section == "Storage" && DistillAgain.similarity($0.title, storage.title) >= 0.99 }?.item
+        XCTAssertNotNil(stored)
+        XCTAssertEqual(plan.items[0].waitsFor, stored.map { [$0] }, "what it waited for is on the board from before: it waits for that")
+        var unknown = testing
+        unknown.waitsFor = [UUID()]
+        XCTAssertEqual(DistillAgain.plan(read: [unknown], earlier: before, sections: sections).items[0].waitsFor, [], "a wait on nothing here goes")
     }
 
     func testAnAgentsOwnProposalLeavesOutOnlyRepeats() {

@@ -683,7 +683,9 @@ final class DistillService {
                 record.items = DistillAgain.additions(read: items, earlier: earlier).items
             } else {
                 // The note read again: the new and the changed, by section.
-                let plan = DistillAgain.plan(read: items, earlier: earlier, sections: sections)
+                // An agent answering "Distill with…" read the whole note: what it found in a section that's the same is kept
+                // unless it repeats something from before.
+                let plan = DistillAgain.plan(read: items, earlier: earlier, sections: sections, byAgent: readByAgent && requestCard != nil)
                 record.items = plan.items
                 record.updates = plan.updates + plan.closes
                 if earlier.contains(where: \.heldBack) { record.offeredHeldBack = true }
@@ -771,10 +773,11 @@ final class DistillService {
         let distill = UUID()
         let version = NoteHistory.markRead(note, by: distill)
         let words = note.agentMark.noteLine
+        // Its tie to the note is made with it, so on a shared board it goes to the team with the card.
         let card = board.create(title: DistillCards.requestTitle(note.title),
                                 details: DistillCards.requestDetails(noteText: note.text, note: note.id, agentWords: words, who: takers(for: note.binderID)),
-                                binderID: note.binderID, column: .ready, source: ("note", note.id.uuidString, note.title), by: .you)
-        card.distilledFrom = DistilledFrom(note: note.id, distill: distill, item: distill, version: version, request: true)
+                                binderID: note.binderID, column: .ready, source: (NoteWorkCards.noteKind, note.id.uuidString, note.title),
+                                distilled: DistilledFrom(note: note.id, distill: distill, item: distill, version: version, request: true), by: .you)
         Store.shared.save()
         board.give(card, to: agent.name, by: .you)
         // An agent reads it now: what Binders' model last failed at is no longer the news.

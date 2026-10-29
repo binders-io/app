@@ -102,7 +102,7 @@ struct AgentsSections: View {
     private func row(_ agent: AgentProfile) -> some View {
         let starts = Self.startsPart(agent, canStart: routerCanStart)
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: BindersTheme.agentSymbol).foregroundStyle(BindersTheme.agent)
+            AgentAvatar(name: agent.name, profile: agent, size: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(agent.name).fontWeight(.medium)
                 Text([Self.describe(agent.wake), Self.describe(agent.reporting), AgentConsent.vendor(agent).map { "sends cards to \($0)" },

@@ -193,6 +193,15 @@ extension SelfTest {
                       "its proposal answers the card: \(answered.text.prefix(100))")
             run.check(board.timeline(request.id).contains { $0.text.hasPrefix("Echo proposed 1 work item") }, "and the card says so")
             run.check(!DistillBoard.cards(of: note.id).contains { $0.id == request.id }, "the asking card isn't one of the spec's work items")
+            // One whose tie to the note didn't come with it (a shared board's, before build 48): known by its title and source.
+            let tie = request.distilledFrom
+            run.check(tie?.request == true, "the asking card is tied to its note when it's made")
+            request.distilledFrom = nil
+            run.check((try? DistillTools.note(request.id.uuidString, cardOnly: true, reads: .everything, actor: echoActor))?.note.id == note.id,
+                      "an asking card without its tie still opens its note to the agent holding it")
+            let untied = run.object((await run.call("get_task", ["id": request.id.uuidString], as: echoActor)).text)
+            run.check((untied["distilled_from"] as? [String: Any])?["asks_to_distill"] as? Bool == true, "and get_task says it asks to distill it")
+            request.distilledFrom = tie
         } else {
             run.check(false, "Distill with Echo gives it a card")
         }
@@ -232,6 +241,10 @@ extension SelfTest {
         let fromCardOnly = try? DistillTools.note(cardCheck.id.uuidString, cardOnly: true, reads: .everything)
         run.check(fromCardOnly?.note.id == note.id, "a server confined to the board reaches the note through a card distilled from it")
         run.check((try? DistillTools.note(note.id.uuidString, cardOnly: true, reads: .everything)) == nil, "but not by the note's own id")
+        let plainFromNote = board.create(title: "Look at the totals", binderID: web.id, source: (NoteWorkCards.noteKind, note.id.uuidString, note.title), by: .you)
+        run.check((try? DistillTools.note(plainFromNote.id.uuidString, cardOnly: true, reads: .everything)) == nil,
+                  "nor through a card that names the note but neither came from Distill nor asks to distill it")
+        board.removeHere(plainFromNote)
         run.check((try? DistillTools.note(cardCheck.id.uuidString, cardOnly: true, reads: .everything, actor: echoActor)) != nil,
                   "an agent reaches it through a card it holds")
         run.check((try? DistillTools.note(cardCheck.id.uuidString, cardOnly: true, reads: .everything, actor: BoardActor(name: "Stranger", kind: .agent))) == nil,

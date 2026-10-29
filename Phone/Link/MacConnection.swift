@@ -60,7 +60,7 @@ enum LinkTimeouts {
     /// errands.
     static func request(_ method: String, _ params: [String: Any]) -> TimeInterval {
         if method == "tools/call", let name = params["name"] as? String { return tool(name) }
-        return [CaptureOutcome.listMethod, ConversationSuggestion.listMethod].contains(method) ? read : errand
+        return [CaptureOutcome.listMethod, ConversationSuggestion.listMethod, LinkFeatures.sessionListMethod].contains(method) ? read : errand
     }
 }
 

@@ -266,9 +266,30 @@ enum AgentWorktrees {
                 continue
             }
             guard walk.fileAttributes?[.type] as? FileAttributeType == .typeSymbolicLink else { continue }
-            guard let leads = leadsTo((root as NSString).appendingPathComponent(relative)), AgentWorktree.isInside(leads, root) else { return relative }
+            guard let leads = leadsTo((root as NSString).appendingPathComponent(relative)), AgentWorktree.isInside(leads, root) else {
+                if interpreter(relative, leadsTo: leadsTo((root as NSString).appendingPathComponent(relative)), in: root) { continue }
+                return relative
+            }
         }
         return nil
+    }
+
+    /// A Python virtual environment's link to the interpreter it was made with (.venv/bin/python3 and the like): a link in
+    /// a folder with a pyvenv.cfg, inside the worktree, to a program. A run that makes one in the card's worktree would
+    /// otherwise stop the next; the program is only ever run, and a run's file tools have no reason to write to it.
+    static func interpreter(_ relative: String, leadsTo target: String?, in root: String) -> Bool {
+        guard let target else { return false }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: target, isDirectory: &isFolder), !isFolder.boolValue,
+              FileManager.default.isExecutableFile(atPath: target) else { return false }
+        var folder = (relative as NSString).deletingLastPathComponent
+        while !folder.isEmpty, folder != "/", folder != "." {
+            if FileManager.default.fileExists(atPath: ((root as NSString).appendingPathComponent(folder) as NSString).appendingPathComponent("pyvenv.cfg")) {
+                return true
+            }
+            folder = (folder as NSString).deletingLastPathComponent
+        }
+        return false
     }
 
     /// Where a path ends up once every link in it is followed, whether or not its end is there: realpath(3) when all of it

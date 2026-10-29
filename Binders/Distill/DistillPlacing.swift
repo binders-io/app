@@ -41,18 +41,20 @@ extension DistillService {
             for item in placing {
                 let details = pending(item) ? DistillCards.pendingDetails(item, note: note.id, noteTitle: note.title)
                     : DistillCards.details(item, note: note.id, noteTitle: note.title, placedByAgent: agentPlaced ? actor.name : nil)
-                let card = board.create(title: DistillCards.title(item), details: details,
-                                        binderID: note.binderID, column: column, source: ("note", note.id.uuidString, note.title), by: actor)
-                card.distilledFrom = DistilledFrom(note: note.id, distill: record.id, item: item.id, section: item.section,
-                                                   sectionHash: item.sectionHash, version: record.version, quote: item.quote,
-                                                   briefFor: pending(item) ? DistillSections.hash(details) : nil, briefAgent: waitsForBrief(item))
+                // Its tie to the note is made with it, so on a shared board it goes to the team with the card.
+                let from = DistilledFrom(note: note.id, distill: record.id, item: item.id, section: item.section,
+                                         sectionHash: item.sectionHash, version: record.version, quote: item.quote,
+                                         briefFor: pending(item) ? DistillSections.hash(details) : nil, briefAgent: waitsForBrief(item))
+                let card = board.create(title: DistillCards.title(item), details: details, binderID: note.binderID, column: column,
+                                        source: (NoteWorkCards.noteKind, note.id.uuidString, note.title), distilled: from, by: actor)
                 if pending(item) { briefs.append(self.briefJob(item, card: card, noteTitle: note.title, agent: waitsForBrief(item))) }
                 made.append((item, card))
                 cardOf[item.id] = card.id
             }
             Store.shared.save()
             for (item, card) in made where !item.waitsFor.isEmpty {
-                let ids = item.waitsFor.compactMap { cardOf[$0] }.filter { $0 != card.id }
+                // A wait on a card made from the note some other way names the card itself (`DistillAgain.waits`).
+                let ids = item.waitsFor.compactMap { cardOf[$0] ?? board.card($0)?.id }.filter { $0 != card.id }
                 guard !ids.isEmpty else { continue }
                 do {
                     try board.setWaits(card, to: ids, by: actor)

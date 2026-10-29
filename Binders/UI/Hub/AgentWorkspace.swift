@@ -291,8 +291,8 @@ private struct CardSessionPane: View {
 
     var body: some View {
         // The tool its runs are, as the receipt that started the last says; else as the agent is woken now.
-        let tool = AgentSessionWatch.run(of: card, timeline: events)?.tool ?? AgentWorkSessions.tool(of: person.profile)
-        let files = AgentDoing.runLogs(links: card.links, card: card.id, logs: AgentPlaces.logs.path).map { URL(fileURLWithPath: $0) }
+        let tool = AgentSessionBlocks.tool(of: card, events: events, profile: person.profile)
+        let files = AgentSessionBlocks.files(of: card)
         let answering = CardAnswering.of(card, events: events)
         let reach = controller.agents.commentReach(for: card, events: events)
         let running = controller.agents.isWorking(on: card.id)
@@ -306,12 +306,12 @@ private struct CardSessionPane: View {
                     .binderTint(Store.shared.binder(card.binderID)?.colorIndex)
             }
             AgentTerminalPane {
-                AgentTerminalTranscript(blocks: blocks(tool: tool, files: files, running: running), running: running,
-                                        current: logs.watches.last?.current, since: running ? logs.watches.last?.startedAt : nil,
-                                        intro: files.isEmpty && tool != nil ? intro : nil)
+                AgentTerminalTranscript(blocks: AgentSessionBlocks.card(card, events: events, logs: logs, tool: tool, files: files, running: running, controller: controller),
+                                        running: running, current: logs.watches.last?.current, since: running ? logs.watches.last?.startedAt : nil,
+                                        intro: files.isEmpty && tool != nil ? AgentSessionBlocks.cardIntro(card, name: person.name) : nil)
             } prompt: {
                 AgentTerminalPrompt(placeholder: "Message \(person.name.shortAgentName)", hint: reach.line(answering: answering), blocked: nil) { words in
-                    send(words, reach: reach, answering: answering)
+                    AgentSessionBlocks.send(words, on: card, events: events, controller: controller)
                 }
             }
         }
@@ -321,56 +321,6 @@ private struct CardSessionPane: View {
         .alert("Couldn't do that", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(problem ?? "") }
-    }
-
-    private var intro: String {
-        "\(card.title.isEmpty ? "This card" : "“\(card.title)”") hasn't had a run yet. When \(person.name.shortAgentName) starts on it, what it does shows here as it goes."
-    }
-
-    /// Your words on the card, as the runs heard them: answers and comments by you.
-    private var yours: [(at: Date, text: String)] {
-        events.filter { CardConversation.isYours($0.conversation) }.map { ($0.createdAt, $0.text) }
-    }
-
-    private func blocks(tool: AgentSessionTool?, files: [URL], running: Bool) -> [AgentTerminalBlock] {
-        guard tool != nil, !files.isEmpty else {
-            // What you asked for leads: the card itself, then what was said on it.
-            let asked = [card.title, card.details.trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }.joined(separator: "\n\n")
-            let start = AgentTerminalBlock(id: "card", kind: .run("The card · " + card.createdAt.formatted(.dateTime.weekday(.abbreviated).hour().minute())))
-            return [start] + (asked.isEmpty ? [] : [AgentTerminalBlock(id: "card-asked", kind: .you(asked))]) + Self.conversation(events)
-        }
-        let (runs, after) = logs.runs(yours: yours)
-        let why = running ? (controller.agents.takesLive(card.id) ? "Sending" : "Goes to it when this run ends")
-            : controller.agents.unsent(for: card)?.why ?? "On the card"
-        return AgentTerminal.blocks(runs, waiting: after.map { ($0, why) })
-    }
-
-    /// A card with no runs Binders read (one an agent checks itself, a web hook's): its conversation, your words and the
-    /// agent's.
-    static func conversation(_ events: [TaskEvent]) -> [AgentTerminalBlock] {
-        var blocks: [AgentTerminalBlock] = []
-        for event in events {
-            let id = event.id.uuidString
-            let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if CardConversation.isYours(event.conversation) {
-                blocks.append(AgentTerminalBlock(id: id, kind: .you(text)))
-            } else if event.kind == .woke {
-                blocks.append(AgentTerminalBlock(id: id, kind: .run("Woken · " + event.createdAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))))
-            } else if event.authorIsAgent, !text.isEmpty, [.progress, .question, .approval, .completed, .comment, .moved, .released].contains(event.kind) {
-                let lead = event.kind == .question ? "Asks: " : event.kind == .approval ? "Asks your approval: " : ""
-                blocks.append(AgentTerminalBlock(id: id, kind: .said(lead + text)))
-            }
-        }
-        return blocks
-    }
-
-    /// As the card's composer sends: Send to (your words, then Wake Now) where only that reaches it, else a comment, which
-    /// goes straight into a run that takes it, or on the card for its next one.
-    private func send(_ words: String, reach: CommentReach, answering: CardAnswering?) -> String? {
-        if let first = reach.buttons(answering: answering).first, first.wakesNow {
-            return CardActions.sendToAgent(card, words: words, controller: controller)
-        }
-        return controller.board.comment(card, text: words, by: .you)
     }
 }
 
@@ -388,15 +338,17 @@ private struct ChatSessionPane: View {
     var body: some View {
         let service = controller.chats
         let chat = service.chat(chatID)
-        let tool: AgentSessionTool? = if case .claudeCode = person.profile?.wake { .claude } else { nil }
+        let tool = AgentSessionBlocks.chatTool(person.profile)
         let files = service.logs(of: chatID)
         let running = chat?.status == .running
         AgentTerminalPane {
-            AgentTerminalTranscript(blocks: chat.map { blocks($0, tool: tool, files: files) } ?? [], running: running,
+            AgentTerminalTranscript(blocks: chat.map { AgentSessionBlocks.chat($0, logs: logs, tool: tool, files: files, controller: controller) } ?? [], running: running,
                                     current: logs.watches.last?.current, since: running ? logs.watches.last?.startedAt : nil,
                                     intro: chat == nil ? "That chat isn't on this Mac any more." : nil)
         } prompt: {
-            AgentTerminalPrompt(placeholder: "Message \(person.name.shortAgentName)", hint: hint(chat), blocked: blocked(chat)) { words in
+            AgentTerminalPrompt(placeholder: "Message \(person.name.shortAgentName)",
+                                hint: AgentSessionBlocks.chatHint(chat, name: person.name, profile: person.profile, controller: controller),
+                                blocked: AgentSessionBlocks.chatBlocked(name: person.name, controller: controller)) { words in
                 switch service.send(words, to: person.name, chat: chatID, via: "mac") {
                 case .success: return nil
                 case .failure(let failure): return failure.why
@@ -407,46 +359,6 @@ private struct ChatSessionPane: View {
         .onChange(of: files) { logs.follow(files, tool: tool) }
         .onChange(of: chat?.status) { logs.follow(service.logs(of: chatID), tool: tool) }
         .onDisappear { logs.stop() }
-    }
-
-    private func blocks(_ chat: AgentChat, tool: AgentSessionTool?, files: [URL]) -> [AgentTerminalBlock] {
-        var blocks: [AgentTerminalBlock]
-        if tool != nil, !files.isEmpty {
-            let yours = chat.messages.filter { $0.from == .you }.map { ($0.at, $0.text) }
-            let (runs, after) = logs.runs(yours: yours)
-            let why = chat.status == .running ? (controller.chats.takesLive(chat.id) ? "Sending" : "Goes to it when it's done answering") : ""
-            blocks = AgentTerminal.blocks(runs, waiting: after.map { ($0, why) })
-        } else {
-            blocks = chat.messages.map { message in
-                if message.from == .you {
-                    message.delivered || chat.status != .waiting || chat.messages.lastIndex(where: { $0.from == .agent }).map({ last in
-                        chat.messages.firstIndex { $0.id == message.id }.map { $0 < last } ?? false
-                    }) == true
-                        ? AgentTerminalBlock(id: message.id.uuidString, kind: .you(message.text))
-                        : AgentTerminalBlock(id: message.id.uuidString, kind: .waiting(message.text, why: "Waits for it to check the board"))
-                } else {
-                    AgentTerminalBlock(id: message.id.uuidString, kind: .said(message.text))
-                }
-            }
-        }
-        if let why = chat.why { blocks.append(AgentTerminalBlock(id: "why", kind: .end(ok: false, line: why))) }
-        return blocks
-    }
-
-    private func hint(_ chat: AgentChat?) -> String? {
-        let name = person.name.shortAgentName
-        guard let chat else { return nil }
-        if person.profile?.wake == .board { return "\(name) reads this when it next checks the board, and answers here." }
-        if chat.status == .running {
-            return controller.chats.takesLive(chat.id) ? "\(name) takes your words now: they go straight into its session."
-                : "What you write now goes to \(name) when it's done answering."
-        }
-        return "Carries on the chat's session. Return sends, Shift-Return starts a new line."
-    }
-
-    private func blocked(_ chat: AgentChat?) -> String? {
-        guard let profile = controller.chats.agent(named: person.name) else { return "\(person.name) can't chat now. Look at it in Settings → Agents." }
-        return controller.chats.problem(with: profile)
     }
 }
 

@@ -103,6 +103,12 @@ final class AgentTerminalLogs {
         watches.forEach { $0.stop() }
     }
 
+    /// Every log read as it is now, for a reply that shows the session.
+    func caughtUp() async {
+        watches.forEach { $0.poll() }
+        for watch in watches { await watch.caughtUp() }
+    }
+
     /// The runs, with your words given to each before it started (those its log doesn't echo), from `yours`: each with
     /// when you wrote it, oldest first. Words after the last run's start that no log echoes come back as `after`.
     func runs(yours: [(at: Date, text: String)]) -> (runs: [AgentTerminal.Run], after: [String]) {

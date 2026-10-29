@@ -21,6 +21,8 @@ final class AgentSessionWatch {
     private(set) var ended = false
     /// When the run started: the log's own creation.
     private(set) var startedAt: Date?
+    /// The log has been read once, whatever it held.
+    @ObservationIgnored private(set) var readOnce = false
 
     /// The most of a log read at first: a longer one is read from its last part.
     static let firstRead: UInt64 = 8 * 1024 * 1024
@@ -68,6 +70,7 @@ final class AgentSessionWatch {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.reading = false
+                self.readOnce = true
                 guard let read else { return }
                 self.offset = read.offset
                 self.partial = read.partial
@@ -79,6 +82,15 @@ final class AgentSessionWatch {
                 self.current = read.reader.current
                 self.ended = read.reader.ended
             }
+        }
+    }
+
+    /// Reads what's there now and returns once it's read, or after `within` seconds: for a reply that shows the session.
+    func caughtUp(within seconds: Double = 2) async {
+        poll()
+        let until = Date().addingTimeInterval(seconds)
+        while reading || !readOnce, Date() < until {
+            try? await Task.sleep(for: .milliseconds(25))
         }
     }
 

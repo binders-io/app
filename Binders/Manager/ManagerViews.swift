@@ -163,7 +163,12 @@ struct ManagerChat: View {
             VStack(alignment: .leading, spacing: 6) {
                 switch request.status {
                 case .waiting: StatusLabel("Waiting for the Manager", .waiting)
-                case .running: StatusLabel("\(request.agent ?? "The Manager") is on it", .live)
+                case .running:
+                    Label {
+                        Text("\(request.agent ?? "The Manager") is on it")
+                    } icon: {
+                        ProgressView().controlSize(.small)
+                    }
                 case .failed: StatusLabel(request.why ?? "It didn't finish.", .problem)
                 case .stopped: StatusLabel(request.why ?? "Stopped.", .waiting)
                 case .answered: EmptyView()
