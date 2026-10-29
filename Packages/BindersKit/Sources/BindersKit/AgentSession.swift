@@ -24,6 +24,9 @@ public struct AgentSessionEvent: Equatable, Sendable, Identifiable {
     public enum Kind: Equatable, Sendable {
         /// What it said, as it says it: Markdown.
         case said(String)
+        /// What it was told, as its log echoes it back (Claude Code's `--replay-user-messages`): the prompt a run starts
+        /// on, and each of your words sent into it while it works.
+        case asked(String)
         /// A tool it used.
         case tool(AgentSessionStep)
         /// Its own list of what it's doing, and which step it's on.
@@ -105,6 +108,8 @@ public struct AgentSessionStep: Equatable, Sendable {
     public var diff: [String]
     public var added: Int
     public var removed: Int
+    /// How many lines came back in all, before `output` was cut to its end.
+    public var outputLines: Int = 0
 
     public init(kind: Kind, name: String, subject: String, status: Status = .running, output: String? = nil, diff: [String] = [],
                 added: Int = 0, removed: Int = 0) {
@@ -129,12 +134,31 @@ public struct AgentSessionStep: Equatable, Sendable {
     }
 }
 
+/// How a turn ended, when its tool says: how long it took and what it cost.
+public struct AgentSessionStats: Equatable, Sendable {
+    public var seconds: Double?
+    public var cost: Double?
+    public var turns: Int?
+
+    public init(seconds: Double? = nil, cost: Double? = nil, turns: Int? = nil) {
+        self.seconds = seconds
+        self.cost = cost
+        self.turns = turns
+    }
+}
+
 /// Fed one line of a run's log at a time; `events` is the session so far. Lines that aren't a JSON object are skipped.
 public struct AgentSessionReader: Sendable {
     public let tool: AgentSessionTool
     public private(set) var events: [AgentSessionEvent] = []
     /// The run's session id, as its tool names it.
     public private(set) var session: String?
+    /// How each end went, by its event's id, when the tool said.
+    public private(set) var stats: [String: AgentSessionStats] = [:]
+    /// The most of a tool's output this reader keeps, from its end: `outputLimit` unless a terminal asks for more.
+    public let keepsOutput: Int
+    /// The most lines of an edit's diff this reader keeps.
+    public let keepsDiff: Int
 
     /// The most events kept: the oldest go first.
     public static let eventLimit = 400
@@ -147,11 +171,16 @@ public struct AgentSessionReader: Sendable {
 
     private var index: [String: Int] = [:]
     private var lines = 0
+    /// How many times it has ended: a run you send words into ends each turn.
+    private var ends = 0
     /// Antigravity: what each response step has said so far.
     private var responses: [Int: String] = [:]
 
-    public init(tool: AgentSessionTool) {
+    /// `output` and `diff`: how much of a tool's output and an edit's lines to keep; a terminal keeps far more than a card.
+    public init(tool: AgentSessionTool, output: Int = AgentSessionReader.outputLimit, diff: Int = AgentSessionReader.diffLines) {
         self.tool = tool
+        keepsOutput = max(1, output)
+        keepsDiff = max(1, diff)
     }
 
     public mutating func feed(_ line: Substring) {
@@ -195,7 +224,12 @@ public struct AgentSessionReader: Sendable {
         return []
     }
 
-    public var ended: Bool { events.contains { if case .ended = $0.kind { true } else { false } } }
+    /// It has ended, and nothing has come since: a run you send words into goes on after a turn's end.
+    public var ended: Bool {
+        guard let last = events.last else { return false }
+        if case .ended = last.kind { return true }
+        return false
+    }
 
     // MARK: Keeping the timeline
 
@@ -218,6 +252,11 @@ public struct AgentSessionReader: Sendable {
         add(id, .said(String(text.prefix(Self.textLimit))))
     }
 
+    private mutating func ask(_ text: String?, id: String? = nil) {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+        add(id, .asked(String(text.prefix(Self.textLimit))))
+    }
+
     private mutating func plan(_ items: [AgentSessionPlanItem]) {
         guard !items.isEmpty else { return }
         add("plan", .plan(items))
@@ -238,13 +277,24 @@ public struct AgentSessionReader: Sendable {
         guard let at = index[id], at < events.count, case .tool(var step) = events[at].kind else { return }
         step.status = ok ? .ok : .failed
         if let output = output?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
-            step.output = Self.tail(output)
+            step.output = Self.tail(output, keeping: keepsOutput)
+            step.outputLines = output.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
         }
         events[at].kind = .tool(step)
     }
 
-    private mutating func end(ok: Bool, words: String?) {
-        add("end", .ended(ok: ok, words: words.map { String($0.prefix(Self.textLimit)) }))
+    /// The first end is "end"; a run that carries on after it ends again as "end-2", "end-3", each where it came.
+    private mutating func end(ok: Bool, words: String?, stats: AgentSessionStats? = nil) {
+        // Ended twice with nothing between (a turn's failure, then its result): one end, the last word.
+        let id: String
+        if let last = events.last, case .ended = last.kind {
+            id = last.id
+        } else {
+            ends += 1
+            id = ends == 1 ? "end" : "end-\(ends)"
+        }
+        add(id, .ended(ok: ok, words: words.map { String($0.prefix(Self.textLimit)) }))
+        if let stats { self.stats[id] = stats }
     }
 
     // MARK: Claude Code (stream-json)
@@ -272,20 +322,33 @@ public struct AgentSessionReader: Sendable {
                         })
                         continue
                     }
-                    start(call, Self.step(name: name, input: input))
+                    start(call, Self.step(name: name, input: input, diffLimit: keepsDiff))
                 default:
                     continue
                 }
             }
         case "user":
             let message = object["message"] as? [String: Any] ?? [:]
-            for part in (message["content"] as? [[String: Any]]) ?? [] where part["type"] as? String == "tool_result" {
+            // What it was told, echoed back: never Claude Code's own notes to itself.
+            let own = object["isSynthetic"] as? Bool == true || object["isMeta"] as? Bool == true
+            if let text = message["content"] as? String {
+                if !own { ask(text, id: object["uuid"] as? String) }
+                return
+            }
+            let parts = (message["content"] as? [[String: Any]]) ?? []
+            let results = parts.filter { $0["type"] as? String == "tool_result" }
+            for part in results {
                 guard let call = part["tool_use_id"] as? String else { continue }
                 finish(call, ok: part["is_error"] as? Bool != true, output: Self.text(part["content"]))
             }
+            if results.isEmpty, !own {
+                ask(parts.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n"), id: object["uuid"] as? String)
+            }
         case "result":
             let failed = object["is_error"] as? Bool == true || (object["subtype"] as? String).map { $0 != "success" } == true
-            end(ok: !failed, words: failed ? (object["result"] as? String ?? object["subtype"] as? String) : nil)
+            let stats = AgentSessionStats(seconds: (object["duration_ms"] as? NSNumber).map { $0.doubleValue / 1_000 },
+                                          cost: (object["total_cost_usd"] as? NSNumber)?.doubleValue, turns: (object["num_turns"] as? NSNumber)?.intValue)
+            end(ok: !failed, words: failed ? (object["result"] as? String ?? object["subtype"] as? String) : nil, stats: stats)
         default:
             break
         }
@@ -364,7 +427,7 @@ public struct AgentSessionReader: Sendable {
                 })
                 return
             }
-            start(id, Self.step(name: name, input: input))
+            start(id, Self.step(name: name, input: input, diffLimit: keepsDiff))
             switch state["status"] as? String {
             case "completed": finish(id, ok: true, output: state["output"] as? String)
             case "error": finish(id, ok: false, output: state["error"] as? String)
@@ -394,7 +457,7 @@ public struct AgentSessionReader: Sendable {
             let name = data["toolName"] as? String ?? ""
             let arguments = data["arguments"] as? [String: Any] ?? [:]
             if name == "report_intent" || name == "update_todo" { return }
-            var step = Self.step(name: name, input: arguments)
+            var step = Self.step(name: name, input: arguments, diffLimit: keepsDiff)
             if let server = data["mcpServerName"] as? String, server.hasPrefix("binders") { step.kind = .board }
             start(id, step)
         case "tool.execution_complete":
@@ -435,7 +498,7 @@ public struct AgentSessionReader: Sendable {
                 let arguments = (info["parameters"] ?? info["args"] ?? info["arguments"] ?? info["input"]) as? [String: Any] ?? [:]
                 let id = "step-\(step)"
                 if index[id] == nil {
-                    var made = Self.step(name: name, input: arguments)
+                    var made = Self.step(name: name, input: arguments, diffLimit: keepsDiff)
                     if AntigravityOutput.isBoardTool(name: name, server: server) { made.kind = .board }
                     start(id, made)
                 }
@@ -458,7 +521,7 @@ public struct AgentSessionReader: Sendable {
     // MARK: Words
 
     /// A tool call from its name and arguments, as the tools name them (Claude Code's Read, OpenCode's read, Copilot's view).
-    static func step(name: String, input: [String: Any]) -> AgentSessionStep {
+    static func step(name: String, input: [String: Any], diffLimit: Int = diffLines) -> AgentSessionStep {
         let lowered = name.lowercased()
         func value(_ keys: String...) -> String? {
             for key in keys { if let text = input[key] as? String, !text.isEmpty { return text } }
@@ -480,7 +543,7 @@ public struct AgentSessionReader: Sendable {
                 old = edits.compactMap { ($0["old_string"] ?? $0["oldString"]) as? String }.joined(separator: "\n")
                 new = edits.compactMap { ($0["new_string"] ?? $0["newString"]) as? String }.joined(separator: "\n")
             }
-            (step.diff, step.removed, step.added) = diff(old: old, new: new)
+            (step.diff, step.removed, step.added) = diff(old: old, new: new, limit: diffLimit)
             return step
         case "write", "create", "write_file", "create_file":
             let content = value("content", "file_text", "text") ?? ""
@@ -501,12 +564,12 @@ public struct AgentSessionReader: Sendable {
     }
 
     /// The lines an edit took out and put in, without those it kept at either end; and how many of each.
-    static func diff(old: String, new: String) -> ([String], Int, Int) {
+    static func diff(old: String, new: String, limit: Int = diffLines) -> ([String], Int, Int) {
         var before = old.isEmpty ? [] : old.components(separatedBy: "\n")
         var after = new.isEmpty ? [] : new.components(separatedBy: "\n")
         while let a = before.first, let b = after.first, a == b { before.removeFirst(); after.removeFirst() }
         while let a = before.last, let b = after.last, a == b { before.removeLast(); after.removeLast() }
-        let lines = (before.map { "- " + $0 } + after.map { "+ " + $0 }).prefix(diffLines).map { String($0.prefix(200)) }
+        let lines = (before.map { "- " + $0 } + after.map { "+ " + $0 }).prefix(limit).map { String($0.prefix(200)) }
         return (Array(lines), before.count, after.count)
     }
 
@@ -536,8 +599,8 @@ public struct AgentSessionReader: Sendable {
         name.replacingOccurrences(of: "_", with: " ")
     }
 
-    static func tail(_ text: String) -> String {
-        text.count > outputLimit ? "…" + String(text.suffix(outputLimit)) : text
+    static func tail(_ text: String, keeping limit: Int = outputLimit) -> String {
+        text.count > limit ? "…" + String(text.suffix(limit)) : text
     }
 
     static func planStatus(_ status: String?) -> AgentSessionPlanItem.Status {

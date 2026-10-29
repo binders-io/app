@@ -5,9 +5,10 @@ import BindersKit
 /// its cards, with its permission mode, its sandbox, Binders' board tools as the agent and its private folders denied
 /// (`AgentChatLaunch`), in a worktree of its own for the chat. `AgentChatService` keeps the chat and its replies.
 extension AgentDispatcher {
-    /// Starts it on `prompt`, or says why it can't. `exited` hears the run's exit status and its log.
+    /// Starts it on `prompt`, or says why it can't. `exited` hears the run's exit status and its log. A run that takes your
+    /// words while it works comes with its input (`AgentLiveInput`), its prompt sent as the first message.
     func wakeChat(_ agent: AgentProfile, wake: ClaudeCodeWake, chat: AgentChat, session: UUID, resume: Bool, prompt: String, strict: Bool,
-                  exited: @escaping @MainActor (Int32, URL) -> Void) -> Result<(Process, URL), AgentChatService.Failure> {
+                  exited: @escaping @MainActor (Int32, URL) -> Void) -> Result<(Process, URL, AgentLiveInput?), AgentChatService.Failure> {
         guard !registry.paused else { return .failure(.init("Agents are paused in Settings → Agents.")) }
         guard registry.wakeable(agent) else { return .failure(.init("\(agent.name) can't be started as it is. Look at it in Settings → Agents.")) }
         // Not limited to Binders' tools, only the hook keeps it to Binders' board tools: an organization that runs its own
@@ -32,12 +33,17 @@ extension AgentDispatcher {
         do {
             // The login shell finds claude on your PATH; the script is fixed, and everything else goes in as arguments.
             let environment = ProcessInfo.processInfo.environment.merging(launch.environment) { _, added in added }
-            let process = try AutomationService.launch("/bin/zsh", ["-lc", "exec \"$@\"", "binders", wake.executable ?? "claude"] + launch.arguments,
-                                                       stdin: launch.prompt, environment: environment, directory: URL(fileURLWithPath: launch.directory),
-                                                       log: log, limit: Self.chatLimit) { status in
-                Task { @MainActor in exited(status, log) }
+            let program = ["-lc", "exec \"$@\"", "binders", wake.executable ?? "claude"]
+            let ended: @Sendable (Int32) -> Void = { status in Task { @MainActor in exited(status, log) } }
+            if Self.takesLiveInput(wake) {
+                let started = try AutomationService.launchKeepingInput("/bin/zsh", program + ClaudeCodeLiveInput.taking(launch).arguments, environment: environment,
+                                                                       directory: URL(fileURLWithPath: launch.directory), log: log, limit: Self.chatLimit,
+                                                                       exited: ended)
+                return .success((started.process, log, AgentLiveInput(log: log, agent: agent.name, writer: started.input, prompt: launch.prompt)))
             }
-            return .success((process, log))
+            let process = try AutomationService.launch("/bin/zsh", program + launch.arguments, stdin: launch.prompt, environment: environment,
+                                                       directory: URL(fileURLWithPath: launch.directory), log: log, limit: Self.chatLimit, exited: ended)
+            return .success((process, log, nil))
         } catch {
             return .failure(.init("Couldn't start Claude Code: \(error.localizedDescription)"))
         }

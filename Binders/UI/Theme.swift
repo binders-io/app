@@ -105,6 +105,30 @@ enum BindersTheme {
         static let live = Color(nsColor: srgb(0xFF5A52))
     }
 
+    /// An agent's terminal on the Agents page: dark whatever the appearance, as a terminal is, a shade deeper than the
+    /// dark page so it reads as its own pane in both. Its words in the code face; brand warmth for your words and the
+    /// working star, green and red only for how a tool went and an edit's lines.
+    enum Terminal {
+        static let ground = Color(nsColor: srgb(0x111114))
+        static let bar = Color(nsColor: srgb(0x17171B))
+        static let edge = Color(nsColor: dynamic("terminalEdge", dark: 0xFFFFFF, light: 0x000000, darkAlpha: 0.10, lightAlpha: 0.10))
+        static let ink = Color(nsColor: srgb(0xE8E8EC))
+        static let muted = Color(nsColor: srgb(0xA0A0A9))
+        static let faint = Color(nsColor: srgb(0x6B6B74))
+        static let line = Color(nsColor: srgb(0xFFFFFF, alpha: 0.08))
+        static let yours = Color(nsColor: srgb(0xFFFFFF, alpha: 0.05))
+        static let warm = Color(nsColor: srgb(0xE8875B))
+        static let ok = Color(nsColor: srgb(0x4ADE80))
+        static let failed = Color(nsColor: srgb(0xF87171))
+        static let going = Color(nsColor: srgb(0xF5A524))
+        static let added = Color(nsColor: srgb(0x9BE9B4))
+        static let addedGround = Color(nsColor: srgb(0x163322))
+        static let removed = Color(nsColor: srgb(0xFDB0B0))
+        static let removedGround = Color(nsColor: srgb(0x3C1A1D))
+
+        static func font(_ size: CGFloat = 12.5, weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight, design: .monospaced) }
+    }
+
     /// The light values whatever the appearance.
     enum Light {
         static let accentText = Color(nsColor: srgb(0x5639E6))

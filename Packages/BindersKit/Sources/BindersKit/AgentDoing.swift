@@ -211,17 +211,25 @@ public enum AgentDoing {
     /// that folder, with the card's own prefix. An agent can add links, but it can't write that folder, so at worst this
     /// points at an older run of the same card.
     public static func runLog(links: [String], card: UUID, logs: String) -> String? {
+        runLogs(links: links, card: card, logs: logs).last
+    }
+
+    /// Every run's log among the card's links, oldest first, each once: the card's session as the Agents page's terminal
+    /// reads it, run after run.
+    public static func runLogs(links: [String], card: UUID, logs: String) -> [String] {
         let folder = (logs as NSString).standardizingPath
         let prefix = String(card.uuidString.prefix(8)).lowercased()
-        return links.reversed().lazy.compactMap { link -> String? in
+        var seen: Set<String> = []
+        return links.compactMap { link -> String? in
             guard let url = URL(string: link), url.isFileURL else { return nil }
             let path = (url.path as NSString).standardizingPath
             let name = (path as NSString).lastPathComponent
             guard (path as NSString).deletingLastPathComponent == folder, name.hasPrefix(prefix + "-"), name.hasSuffix(".jsonl"),
-                  name.dropFirst(prefix.count + 1).dropLast(".jsonl".count).allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
+                  name.dropFirst(prefix.count + 1).dropLast(".jsonl".count).allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
+                  seen.insert(path).inserted
             else { return nil }
             return path
-        }.first
+        }
     }
 
     /// A CLI run's line: its plan as its own output says it, cleaned.

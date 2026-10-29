@@ -47,6 +47,12 @@ final class AgentDispatcher {
     @ObservationIgnored private var runIDs: [UUID: UUID] = [:]
     /// A wake that came while the card's run was still going, kept for when it ends: the reason, and whether you tapped.
     private var deferred: [UUID: (reason: AgentWake.Reason, tapped: Bool)] = [:]
+    /// Each Claude Code run that takes your words while it works, by card, while its input is open (`AgentLiveInput`).
+    @ObservationIgnored private var liveInputs: [UUID: AgentLiveInput] = [:]
+    /// The cards whose run takes your words now: what the composer and the Agents page say about where your words go.
+    private(set) var live: Set<UUID> = []
+    /// Your comments that went straight into a card's running session, by event: a later wake doesn't carry them again.
+    @ObservationIgnored private var heardLive: Set<UUID> = []
     /// The Claude Code session of each card's run, as its hooks name it.
     @ObservationIgnored private var sessions: [UUID: UUID] = [:]
     /// How each card's Claude Code run was started: limited to Binders' tools or not, why, and whether it's the one start
@@ -155,6 +161,8 @@ final class AgentDispatcher {
         // Binders' own comments and moves (the Manager's tidying and its Undo, lane MG1) wake no one.
         let yours = !actor.isAgent && !([.comment, .moved].contains(kind) && actor.name == BoardService.binders.name)
         let commented = yours && kind == .comment
+        // A comment while its run takes your words goes straight into the run, now.
+        if commented, deliverLive(card, wake: wake) { return }
         guard let reason = AgentWake.reason(kind: kind.rawValue, from: from, to: to, column: card.column, byPerson: yours),
               let agent = target(for: card, reason: reason) else {
             if commented { noteUnsent(card) }
@@ -326,7 +334,8 @@ final class AgentDispatcher {
         guard let board else { return false }
         // A notice about its spec is for it as your comment would be.
         if notices[card.id] != nil { return true }
-        return !CardConversation.unheardComments(board.timeline(card.id).map(\.conversation), agent: agent.name, failureLines: Self.failureLines).isEmpty
+        let events = board.timeline(card.id).filter { !heardLive.contains($0.id) }
+        return !CardConversation.unheardComments(events.map(\.conversation), agent: agent.name, failureLines: Self.failureLines).isEmpty
     }
 
     @discardableResult
@@ -394,6 +403,28 @@ final class AgentDispatcher {
         guard runs[id]?.isRunning != true, !isCLIRunGoing(id), let (reason, tapped) = deferred.removeValue(forKey: id) else { return }
         guard let card = board?.card(id), let due = dueReason(card, reason) else { return }
         fire(id, reason: due, tapped: tapped)
+    }
+
+    // MARK: Your words, into a run that's going
+
+    /// Whether the card's run takes your words now (Claude Code started with stream-json input, its input still open).
+    func takesLive(_ card: UUID) -> Bool { liveInputs[card]?.isOpen == true }
+
+    /// Your newest comment on the card, into its running session: true when it went. A phone's comment goes only when
+    /// it asked you about that agent first.
+    private func deliverLive(_ card: TaskCard, wake: CommentWake) -> Bool {
+        guard let input = liveInputs[card.id], input.isOpen, let board else { return false }
+        switch wake {
+        case .none: return false
+        case .only(let name) where !(BoardRules.isNamed(input.agent, as: name) || BoardRules.isNamed(name, as: input.agent)): return false
+        default: break
+        }
+        guard let comment = board.timeline(card.id).last(where: { $0.kind == .comment && !$0.authorIsAgent }),
+              input.send(comment.text) else { return false }
+        heardLive.insert(comment.id)
+        notSent[card.id] = nil
+        record(card.id, ok: true, "Sent into \(input.agent)'s running session")
+        return true
     }
 
     // MARK: Your taps
@@ -707,10 +738,24 @@ final class AgentDispatcher {
         do {
             // The login shell finds claude on your PATH; the script is fixed, and everything else goes in as arguments.
             let environment = ProcessInfo.processInfo.environment.merging(launch.environment) { _, added in added }
-            let process = try AutomationService.launch("/bin/zsh", ["-lc", "exec \"$@\"", "binders", wake.executable ?? "claude"] + launch.arguments,
-                                                       stdin: launch.prompt, environment: environment, directory: URL(fileURLWithPath: launch.directory),
-                                                       log: log, limit: Self.runLimit) { status in
+            let process: Process
+            let exited: @Sendable (Int32) -> Void = { status in
                 Task { @MainActor [weak self] in self?.finished(id, run: run, agent: agent, status: status, log: log) }
+            }
+            if Self.takesLiveInput(wake) {
+                // Your words reach it while it works: its prompt goes in as the first message, yours after it.
+                let taking = ClaudeCodeLiveInput.taking(launch)
+                let started = try AutomationService.launchKeepingInput("/bin/zsh", ["-lc", "exec \"$@\"", "binders", wake.executable ?? "claude"] + taking.arguments,
+                                                                       environment: environment, directory: URL(fileURLWithPath: launch.directory),
+                                                                       log: log, limit: Self.runLimit, exited: exited)
+                process = started.process
+                liveInputs[id]?.ended()
+                liveInputs[id] = AgentLiveInput(log: log, agent: agent.name, writer: started.input, prompt: launch.prompt)
+                live.insert(id)
+            } else {
+                process = try AutomationService.launch("/bin/zsh", ["-lc", "exec \"$@\"", "binders", wake.executable ?? "claude"] + launch.arguments,
+                                                       stdin: launch.prompt, environment: environment, directory: URL(fileURLWithPath: launch.directory),
+                                                       log: log, limit: Self.runLimit, exited: exited)
             }
             started(id, process, run: run)
             sessions[id] = session
@@ -723,6 +768,14 @@ final class AgentDispatcher {
             record(id, ok: false, "Couldn't start Claude Code: \(error.localizedDescription)")
             return .notWoken("Couldn't start Claude Code: \(error.localizedDescription)")
         }
+    }
+
+    /// Whether Claude Code takes your words while it works: it does. In a throwaway folder, a stand-in for it does only
+    /// when it says it reads them (it mentions --input-format): the self-tests' older stand-ins read their prompt to its end.
+    static func takesLiveInput(_ wake: ClaudeCodeWake) -> Bool {
+        guard AppPaths.isDemo else { return true }
+        guard let path = wake.executable, let script = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        return script.contains("--input-format")
     }
 
     /// The session of the card's last Claude Code run for this agent, from its wake receipt, when there was one.
@@ -748,6 +801,8 @@ final class AgentDispatcher {
         runs[id] = nil
         runIDs[id] = nil
         working.remove(id)
+        liveInputs.removeValue(forKey: id)?.ended()
+        live.remove(id)
         let stoppedByYou = stopping.remove(id) != nil
         let launched = launches.removeValue(forKey: id)
         // The run is over: what its hooks said stands, and a hook that reports after this is one too many.
@@ -1016,7 +1071,8 @@ final class AgentDispatcher {
 
     /// `wakeAnswer`, and whether it carries comments of yours the agent hasn't had (`joined`).
     private func wakeWords(for agent: AgentProfile, on card: TaskCard) -> (answer: String, joined: Bool) {
-        let events = board?.timeline(card.id) ?? []
+        // Never the words that went straight into a running session: it has them.
+        let events = (board?.timeline(card.id) ?? []).filter { !heardLive.contains($0.id) }
         let words = CardConversation.wakeWords(events.map(\.conversation), agent: agent.name, failureLines: Self.failureLines)
         let texts = words.words.map { events[$0].text }
         // What changed in its spec goes after your words, as one of them: only what this agent may hear of each change.
@@ -1607,6 +1663,8 @@ enum CommentReach: Equatable {
     case sendsWithWakeNow(agent: String, NotHeld)
     /// It wakes once the run going for the card ends.
     case afterRun(String, AgentWake.Reason)
+    /// Its run takes your words while it works: they go straight into it.
+    case live(String)
     /// In Ready, a run Binders started for it is starting and hasn't taken the card yet.
     case startingRun(String)
     /// It was woken this many times in the last hour, its most.
@@ -1636,7 +1694,7 @@ enum CommentReach: Equatable {
     var agent: String? {
         switch self {
         case .wakes(let agent, _, _), .sendsWithWakeNow(let agent, _): agent
-        case .afterRun(let agent, _), .startingRun(let agent), .atCap(let agent, _), .changedOutside(let agent), .held(let agent, _),
+        case .afterRun(let agent, _), .live(let agent), .startingRun(let agent), .atCap(let agent, _), .changedOutside(let agent), .held(let agent, _),
              .checksBoard(let agent), .notThisBoard(let agent), .turnedOff(let agent), .finished(let agent, _), .notGiven(let agent):
             agent
         case .done(let agent): agent
@@ -1678,6 +1736,8 @@ extension AgentDispatcher {
         default:
             break
         }
+        // A run that takes your words now: straight into it.
+        if let input = liveInputs[card.id], input.isOpen, card.column != .blocked { return .live(input.agent) }
         // In Blocked your words are its answer, and the card goes back to work.
         let after = BoardRules.answered(card.state, by: .you, at: now)
         let answering = card.column == .blocked && after.column != .blocked

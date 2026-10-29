@@ -24,6 +24,9 @@ final class AgentChatService {
     @ObservationIgnored let registry: AgentRegistry
     @ObservationIgnored private var processes: [UUID: Process] = [:]
     @ObservationIgnored private var runs: [UUID: (strict: Bool, resumed: Bool, log: URL)] = [:]
+    /// Each run that takes your words while it works, by chat, and how many replies it has given so far.
+    @ObservationIgnored private var inputs: [UUID: AgentLiveInput] = [:]
+    @ObservationIgnored private var repliedLive: [UUID: Int] = [:]
     @ObservationIgnored private var stopping: Set<UUID> = []
     @ObservationIgnored private var restartedOnce: Set<UUID> = []
     @ObservationIgnored private var timer: Timer?
@@ -126,13 +129,28 @@ final class AgentChatService {
             file.chats.insert(AgentChat(agent: agent.name, title: AgentChat.title(from: text)), at: 0)
             index = 0
         }
-        file.chats[index].messages.append(AgentChatMessage(id: id ?? UUID(), from: .you, text: text, via: via))
+        let message = AgentChatMessage(id: id ?? UUID(), from: .you, text: text, via: via)
+        file.chats[index].messages.append(message)
         file.chats[index].updatedAt = Date()
         file.chats[index].why = nil
+        // Its run takes your words while it works: straight into it.
+        if let input = inputs[file.chats[index].id], input.send(text),
+           let at = file.chats[index].messages.firstIndex(where: { $0.id == message.id }) {
+            file.chats[index].messages[at].delivered = true
+        }
         let chat = file.chats[index]
         save()
         start(chat.id)
         return .success(self.chat(chat.id) ?? chat)
+    }
+
+    /// Whether the chat's run takes your words now.
+    func takesLive(_ id: UUID) -> Bool { inputs[id]?.isOpen == true }
+
+    /// The logs of the chat's runs, oldest first, in Binders' logs folder.
+    func logs(of id: UUID) -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: AgentPlaces.logs.path)) ?? []
+        return AgentChatLaunch.logs(names, chat: id).map { AgentPlaces.logs.appendingPathComponent($0) }
     }
 
     /// Stops the chat's run, if it's going.
@@ -174,9 +192,13 @@ final class AgentChatService {
             let strict = AgentDispatcher.asksOnlyBinders
             switch dispatcher.wakeChat(agent, wake: wake, chat: chat, session: session, resume: resume, prompt: prompt, strict: strict,
                                        exited: { [weak self] status, log in self?.ended(id, status: status, log: log) }) {
-            case .success(let (process, log)):
+            case .success(let (process, log, input)):
                 processes[id] = process
                 runs[id] = (strict, resume, log)
+                if let input {
+                    inputs[id] = input
+                    input.answer = { [weak self] answer in self?.answered(id, answer) }
+                }
                 file.chats[index].session = session
                 file.chats[index].status = .running
                 for message in file.chats[index].messages.indices where file.chats[index].messages[message].from == .you {
@@ -190,6 +212,17 @@ final class AgentChatService {
         default:
             fail(id, "\(agent.name) can't chat. Give it a card instead.")
         }
+    }
+
+    /// A turn of a run that takes your words ended: its reply goes in now, as it gives it, rather than when the run ends.
+    private func answered(_ id: UUID, _ answer: ClaudeCodeLiveInput.Answer) {
+        guard let text = answer.text, !answer.error, let index = file.chats.firstIndex(where: { $0.id == id }) else { return }
+        file.chats[index].messages.append(AgentChatMessage(from: .agent, text: text))
+        file.chats[index].why = nil
+        file.chats[index].updatedAt = Date()
+        repliedLive[id, default: 0] += 1
+        live[id] = nil
+        save()
     }
 
     private func fail(_ id: UUID, _ why: String) {
@@ -209,11 +242,17 @@ final class AgentChatService {
         let run = runs.removeValue(forKey: id)
         live[id] = nil
         let stoppedByYou = stopping.remove(id) != nil
+        inputs.removeValue(forKey: id)?.ended()
+        let replied = repliedLive.removeValue(forKey: id) ?? 0
         guard let index = file.chats.firstIndex(where: { $0.id == id }) else { return }
         let output = AgentDispatcher.startAndEnd(of: log)
         let (reply, error) = AgentChatStream.reply(in: output)
         file.chats[index].status = .idle
-        if let reply, !error {
+        if replied > 0 {
+            // Its replies went in as it gave them.
+            file.chats[index].why = stoppedByYou ? "You stopped it." : nil
+            restartedOnce.remove(id)
+        } else if let reply, !error {
             file.chats[index].messages.append(AgentChatMessage(from: .agent, text: reply))
             file.chats[index].why = nil
             restartedOnce.remove(id)

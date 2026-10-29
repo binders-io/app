@@ -4,7 +4,8 @@ import BindersKit
 
 /// A run's session, live: Binders' own log of a run it started, read from where it was last read every second while
 /// something shows it, through `AgentSessionReader`. Only that log is read, never a tool's own files, and what it says is
-/// kept in memory while it shows. The agent's words are data, shown as its.
+/// kept in memory while it shows. The agent's words are data, shown as its. Once it has ended it's read every 5 seconds,
+/// as a run that takes your words carries on after a turn's end.
 @MainActor
 @Observable
 final class AgentSessionWatch {
@@ -12,6 +13,8 @@ final class AgentSessionWatch {
     let tool: AgentSessionTool
 
     private(set) var events: [AgentSessionEvent] = []
+    /// How each turn ended, by its end's event id.
+    private(set) var stats: [String: AgentSessionStats] = [:]
     private(set) var plan: [AgentSessionPlanItem] = []
     /// What it's doing now, while it runs.
     private(set) var current: String?
@@ -27,11 +30,13 @@ final class AgentSessionWatch {
     @ObservationIgnored private var partial = Data()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var reading = false
+    @ObservationIgnored private var ticks = 0
 
-    init(log: URL, tool: AgentSessionTool) {
+    /// `output` and `diff`: how much of each tool's output and edit it keeps (`AgentSessionReader`); a terminal keeps more.
+    init(log: URL, tool: AgentSessionTool, output: Int = AgentSessionReader.outputLimit, diff: Int = AgentSessionReader.diffLines) {
         self.log = log
         self.tool = tool
-        reader = AgentSessionReader(tool: tool)
+        reader = AgentSessionReader(tool: tool, output: output, diff: diff)
         startedAt = (try? FileManager.default.attributesOfItem(atPath: log.path))?[.creationDate] as? Date
     }
 
@@ -40,7 +45,11 @@ final class AgentSessionWatch {
         poll()
         guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.ticks += 1
+                if !self.ended || self.ticks.isMultiple(of: 5) { self.poll() }
+            }
         }
     }
 
@@ -65,10 +74,10 @@ final class AgentSessionWatch {
                 guard read.changed else { return }
                 self.reader = read.reader
                 self.events = read.reader.events
+                self.stats = read.reader.stats
                 self.plan = read.reader.plan
                 self.current = read.reader.current
                 self.ended = read.reader.ended
-                if self.ended { self.stop() }
             }
         }
     }
