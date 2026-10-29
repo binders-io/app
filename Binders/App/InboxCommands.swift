@@ -518,9 +518,17 @@ enum InboxCommands {
                 : "Card “\(made.card.title)” added to the \(name) board, in \(made.card.column.title). The to-do is ticked off when the card is done.")
         }
         guard !field("title").isEmpty else { return .failure("title is required") }
+        // Work read in a note: the card joins the note's cards, marked at its words, in the note's binder unless one is named.
+        var fromNote: (note: NoteItem, from: DistilledFrom)?
+        if !field("note").isEmpty {
+            guard let id = UUID(uuidString: field("note")), let note = Store.shared.note(id) else { return .failure("No note with that id. list_notes shows them.") }
+            fromNote = (note, linked(note, quote: field("quote"), section: field("section")))
+        }
         var target: BinderRecord
         var routed: CardRouter.Decision?
-        if field("binder").isEmpty, actor.isAgent {
+        if field("binder").isEmpty, let note = fromNote?.note, let binder = Store.shared.binder(note.binderID) {
+            target = binder
+        } else if field("binder").isEmpty, actor.isAgent {
             (target, routed) = await controller.router.binderForMCP(title: field("title"))
         } else {
             guard let named = binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
@@ -528,7 +536,16 @@ enum InboxCommands {
         }
         // On a shared board an agent acts as itself in the team, which this Mac has to know first (lane DB2).
         if actor.isAgent, controller.teamBoard.isShared(binder: target.id), !controller.teamBoard.knowsItself { return .failure(Self.teamNotReached) }
-        let card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
+        let card: TaskCard
+        if let fromNote {
+            let note = fromNote.note
+            let back = "From [\(NoteCards.title(note.title))](\(DistillLinks.section(note: note.id, heading: fromNote.from.section)))"
+            let details = [field("details"), back].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            card = board.create(title: field("title"), details: details, binderID: target.id, column: column,
+                                source: (NoteWorkCards.noteKind, note.id.uuidString, note.title), distilled: fromNote.from, by: actor)
+        } else {
+            card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
+        }
         // A new card on a board whose database is off or out of reach is kept here for it, and says so (lane DB8).
         let kept = controller.teamBoard.reach(card).map(TeamBoardWrites.kept).map { $0.isEmpty ? "" : " " + $0 } ?? ""
         if var routed {
@@ -542,6 +559,19 @@ enum InboxCommands {
             controller.router.suggestLater(for: card, origin: origin)
         }
         return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to the \(target.name) board, in \(card.column.title).\(kept)")
+    }
+
+    /// How a card made from a note with create_task is tied to it, as Put on Board ties one (lane DS6): its words, cleaned
+    /// as a reader's quote is, and the "## " section they're in, as named (matched loosely), else where the words are found.
+    /// Neither: it's the whole note's, shown after its title.
+    static func linked(_ note: NoteItem, quote given: String, section named: String) -> DistilledFrom {
+        let text = note.text
+        let quote = DistillQuote.clean(given)
+        let headings = DistillSections.sections(of: text).compactMap(\.heading)
+        var section = named.isEmpty ? nil : DistillSections.match(named, in: headings)
+        if section == nil, let quote { section = DistillQuote.section(of: quote, in: text) }
+        guard quote != nil || section != nil else { return .put(note: note.id) }
+        return .put(note: note.id, section: section, sectionText: section.flatMap { DistillSections.section($0, in: text)?.text }, quote: quote)
     }
 
     /// A change to a card, by the actor named in the request (an agent over MCP, or you from the phone). On a board shared

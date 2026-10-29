@@ -261,6 +261,8 @@ final class DistillService {
         let key = DistillKeep.Key(format: format, model: client.model, takers: who.fingerprint)
         let split = DistillKeep.split(sections, kept: full ? [] : store.file(for: id).readings ?? [], key: key)
         if quietly, split.read.isEmpty { return .failure(.unchanged) }
+        // What's captured from the note already, by any reader, which the model is told not to propose again.
+        let captured = captured(for: note, sections: sections)
         reading.insert(id)
         if quietly { quietReading.insert(id) } else { list(for: id).readingStarted() }
         lastRead[id] = text
@@ -298,7 +300,7 @@ final class DistillService {
         if !split.read.isEmpty {
             do {
                 outcome = try await DistillRun.read(title: note.title, text: text, budget: budget, who: who, format: format,
-                                                    concurrent: client.concurrentAsks, only: split.kept.isEmpty ? nil : split.read,
+                                                    concurrent: client.concurrentAsks, only: split.kept.isEmpty ? nil : split.read, captured: captured,
                                                     onPart: { [weak self] part in
                                                         await MainActor.run { self?.partRead(part, of: id, builder: liveReading) }
                                                     }) { [weak self] ask in
@@ -354,6 +356,8 @@ final class DistillService {
             read.cutOff = new.cutOff
             read.noList = false
         }
+        // An item whose section matched no heading goes under the one its quote is in.
+        read.recoverSections(from: text)
         guard !read.items.isEmpty else {
             live[id]?.phase = .done
             guard let outcome else {
@@ -657,16 +661,19 @@ final class DistillService {
         let offeredBefore = file.distills.contains { $0.offeredHeldBack == true }
         let earlier = file.distills.enumerated().flatMap { index, distill in
             let heldBack = !offeredBefore && index == latest && distill.readNote?.contains(DistillReading.Result.overWords) == true
-            // Lane DS9: one you dismissed from the Distill list counts too, so it's never proposed again.
-            return distill.items.filter { $0.dropped || distill.status != .dismissed || $0.card != nil }.map { item -> DistillAgain.Earlier in
+            // Every item from before, by any reader: placed, waiting, one you dismissed from the Distill list, and what was
+            // left in a proposal put aside, so none is proposed again.
+            return distill.items.map { item -> DistillAgain.Earlier in
                 let card = item.card.flatMap { board?.card($0) }
                 // A card whose brief was brought up to date carries its section's newer version.
                 let hash = card?.distilledFrom?.sectionHash ?? item.sectionHash
                 return DistillAgain.Earlier(item: item.id, title: item.title, section: item.section, sectionHash: hash,
                                             card: card?.id, finished: card.map { $0.column == .done } ?? false, heldBack: heldBack,
-                                            brief: item.brief, quote: item.quote)
+                                            brief: item.brief, quote: item.quote,
+                                            waiting: distill.status == .proposed && item.card == nil && !item.dropped,
+                                            whole: !distill.readByAgent || distill.requestCard != nil)
             }
-        }
+        } + otherCards(of: note.id)
         var record = DistillRecord(id: id, note: note.id, ranBy: ranBy.name, ranByAgent: ranBy.isAgent, readBy: readBy, readByAgent: readByAgent,
                                    version: version ?? NoteHistory.markRead(note, by: id), items: items, requestCard: requestCard,
                                    parts: parts, readNote: readNote)
@@ -680,6 +687,7 @@ final class DistillService {
                 record.items = plan.items
                 record.updates = plan.updates + plan.closes
                 if earlier.contains(where: \.heldBack) { record.offeredHeldBack = true }
+                refresh(plan.refreshes, of: note.id)
             }
             record.after = file.distills.last?.id
         }
@@ -689,6 +697,60 @@ final class DistillService {
         store.save(record)
         boardRevision += 1
         return record
+    }
+
+    /// The note's cards that Distill didn't make from an item: put in its group by hand, made with Put on Board, or by an
+    /// agent's create_task with the note. Distill leaves out an item much like one of them.
+    private func otherCards(of note: UUID) -> [DistillAgain.Earlier] {
+        DistillBoard.cards(of: note).compactMap { card in
+            guard let member = card.noteMembership, member.tie != .distilled else { return nil }
+            return DistillAgain.Earlier(item: card.id, title: card.title, section: member.section, sectionHash: member.from?.sectionHash, card: card.id,
+                                        finished: card.column == .done, quote: member.quote, other: true)
+        }
+    }
+
+    /// What's captured from the note already, as the model is told it (`DistillPrompt.capturedLine`): every item from
+    /// before, by any reader, that's on the board, waiting for review or in a proposal put aside, and the note's other cards.
+    /// Not an item you dismissed, nor one whose section changed since and that Distill again may bring up to date: the
+    /// model reads that section afresh.
+    func captured(for note: NoteItem, sections: [DistillSections.Section]) -> [DistillPrompt.Captured] {
+        let now = Dictionary(sections.map { ($0.heading ?? "", $0.hash) }, uniquingKeysWith: { a, _ in a })
+        var captured: [DistillPrompt.Captured] = []
+        for record in store.file(for: note.id).distills {
+            for item in record.items where !item.dropped {
+                let card = item.card.flatMap { board?.card($0) }
+                let open = card.map { $0.column != .done && $0.distilledFrom?.closed == nil } ?? (record.status == .proposed)
+                let hash = card?.distilledFrom?.sectionHash ?? item.sectionHash
+                // Gone, or changed since with a card or a waiting item to bring up to date: left to the reading.
+                guard let current = now[item.section ?? ""] else { continue }
+                if open, hash != nil, hash != current { continue }
+                captured.append(DistillPrompt.Captured(title: card?.title ?? item.title, section: item.section))
+            }
+        }
+        captured += otherCards(of: note.id).map { DistillPrompt.Captured(title: $0.title, section: $0.section) }
+        return captured
+    }
+
+    /// Items still waiting for review whose section changed, brought up to date with what Distill again read there.
+    private func refresh(_ refreshes: [DistillAgain.Refresh], of note: UUID) {
+        guard !refreshes.isEmpty else { return }
+        let byItem = Dictionary(refreshes.map { ($0.item, $0) }, uniquingKeysWith: { a, _ in a })
+        store.update(note) { file in
+            for index in file.distills.indices {
+                for position in file.distills[index].items.indices {
+                    guard let refresh = byItem[file.distills[index].items[position].id] else { continue }
+                    var item = file.distills[index].items[position]
+                    if !refresh.brief.isEmpty {
+                        item.brief = refresh.brief
+                        item.briefPending = refresh.briefPending == true ? true : nil
+                    }
+                    if !refresh.doneWhen.isEmpty { item.doneWhen = refresh.doneWhen }
+                    if let quote = refresh.quote { item.quote = quote }
+                    if let hash = refresh.sectionHash { item.sectionHash = hash }
+                    file.distills[index].items[position] = item
+                }
+            }
+        }
     }
 
     /// "Distill with…": a card in the note's binder asking the agent to read the note and call propose_work_items with
@@ -730,16 +792,25 @@ final class DistillService {
         guard note.distill else { return .failure(.off) }
         let text = note.text
         let sections = DistillSections.sections(of: text)
-        let read = DistillReading.read(itemsJSON, headings: sections.compactMap(\.heading), names: takers(for: note.binderID).others)
+        var read = DistillReading.read(itemsJSON, headings: sections.compactMap(\.heading), names: takers(for: note.binderID).others)
         guard !read.items.isEmpty else {
             return .failure(.empty(read.noList ? "items must be a list of work items, each with at least a title." : "No item had a title."))
         }
+        // A section it named that matches no heading: the one its quote is in.
+        read.recoverSections(from: text)
         var items = read.items(sections: sections)
         readersPicks(read, into: &items, binder: note.binderID)
         await suggestWho(&items, binder: note.binderID)
         let from = request?.distilledFrom
         var record = propose(items, for: note, text: text, sections: sections, ranBy: actor, readBy: actor.name, readByAgent: actor.isAgent,
                              version: from?.version, requestCard: request?.id)
+        // An agent that answered "Distill with…" read the whole note: the sections that read as they did then count as read,
+        // so Binders' model reads only what changed since.
+        if actor.isAgent, let from, from.request == true, let version = from.version, let then = NoteHistory.text(of: version, note: note),
+           then.utf8.count <= DistillCards.noteLimit {
+            let readings = DistillKeep.agentReadings(read.items, read: then, sections: sections, agent: actor.name)
+            if !readings.isEmpty { store.update(note.id) { $0.readings = DistillKeep.kept($0.readings, adding: readings, sections: sections) } }
+        }
         if let request, let board {
             let count = record.items.count
             board.note(request, text: count == 0 && record.updates.isEmpty

@@ -23,9 +23,21 @@ public enum DistillAgain {
         /// Its brief and the note's words it came from, for telling a repeat in other words (`alike`).
         public var brief: String?
         public var quote: String?
+        /// Still waiting for review in a proposal (no card yet): what's new in its changed section brings it up to date
+        /// (`Plan.refreshes`) rather than proposing it again.
+        public var waiting: Bool
+        /// Not one of Distill's items: a card made from the note some other way (put in its group by hand, Put on Board,
+        /// an agent's create_task with the note). A repeat of it is left out, but it says nothing of how its section stands,
+        /// and it's never brought up to date or closed.
+        public var other: Bool
+        /// It came from a reading of the whole note: Binders' model's, or an agent's answering "Distill with…". False for an
+        /// agent's own proposal of what it picked out, which says nothing of the rest of its section: a repeat of it is
+        /// left out, and the section is still read.
+        public var whole: Bool
 
         public init(item: UUID, title: String, section: String?, sectionHash: String?, card: UUID?, finished: Bool = false,
-                    heldBack: Bool = false, brief: String? = nil, quote: String? = nil) {
+                    heldBack: Bool = false, brief: String? = nil, quote: String? = nil, waiting: Bool = false, other: Bool = false,
+                    whole: Bool = true) {
             self.item = item
             self.title = title
             self.section = section
@@ -35,7 +47,21 @@ public enum DistillAgain {
             self.heldBack = heldBack
             self.brief = brief
             self.quote = quote
+            self.waiting = waiting
+            self.other = other
+            self.whole = whole
         }
+    }
+
+    /// An item still waiting for review whose section changed, brought up to date by what the note now says (Distill
+    /// again), in place of a new item much like it.
+    public struct Refresh: Equatable, Sendable {
+        public var item: UUID
+        public var brief: String
+        public var doneWhen: String
+        public var quote: String?
+        public var sectionHash: String?
+        public var briefPending: Bool?
     }
 
     /// How a section stands against the items from before.
@@ -50,6 +76,8 @@ public enum DistillAgain {
         public var updates: [DistillUpdate]
         /// Cards whose section is gone.
         public var closes: [DistillUpdate]
+        /// Items still waiting for review whose section changed, brought up to date.
+        public var refreshes: [Refresh] = []
         /// Items left out as the same as one from before, or from a section that's the same.
         public var leftOut: Int
         /// Each section of the note now, by title, and how it stands.
@@ -57,11 +85,15 @@ public enum DistillAgain {
     }
 
     /// The plan: `read` is what the reader proposed now (each with its section's hash as now), `earlier` every item from
-    /// before (placed or still proposed, not dropped), `sections` the note's sections now.
+    /// before (placed, still proposed or put aside, and dropped ones, which are never proposed again) and the note's other
+    /// cards (`Earlier.other`), `sections` the note's sections now.
     public static func plan(read: [DistillItem], earlier: [Earlier], sections: [DistillSections.Section]) -> Plan {
         var states: [String: SectionState] = [:]
+        // Cards made from the note some other way, and an agent's pick of items, say nothing of how a section stands: Put
+        // on Board from one line of a section never makes the rest of it "the same".
+        let distilled = earlier.filter { !$0.other && $0.whole }
         for section in sections {
-            let before = earlier.filter { $0.section == section.heading }
+            let before = distilled.filter { $0.section == section.heading }
             if before.isEmpty {
                 states[section.title] = .new
             } else if before.allSatisfy({ $0.sectionHash == section.hash }) {
@@ -73,19 +105,33 @@ public enum DistillAgain {
         let now = Dictionary(sections.map { ($0.heading ?? "", $0) }, uniquingKeysWith: { a, _ in a })
         var keep: [DistillItem] = []
         var updates: [DistillUpdate] = []
+        var refreshes: [Refresh] = []
         var leftOut = 0
         var matched: Set<UUID> = []
+        /// Brings the card, or the waiting item, `earlier` stands for up to date with `item`; false when it's neither.
+        func update(_ earlier: Earlier, with item: DistillItem, section: DistillSections.Section?) -> Bool {
+            guard !earlier.other, !matched.contains(earlier.item) else { return false }
+            if let card = earlier.card, !earlier.finished {
+                matched.insert(earlier.item)
+                updates.append(DistillUpdate(kind: .brief, card: card, item: earlier.item, section: item.section, sectionHash: section?.hash,
+                                             brief: item.brief, doneWhen: item.doneWhen, quote: item.quote))
+                return true
+            }
+            if earlier.waiting, earlier.card == nil {
+                matched.insert(earlier.item)
+                refreshes.append(Refresh(item: earlier.item, brief: item.brief, doneWhen: item.doneWhen, quote: item.quote ?? earlier.quote,
+                                         sectionHash: section?.hash, briefPending: item.briefPending))
+                return true
+            }
+            return false
+        }
         for item in read {
             let section = sections.first { $0.heading == item.section }
             let state = section.map { states[$0.title] ?? .new } ?? .new
             let before = earlier.filter { $0.section == item.section }
             // Never the same item twice: one with the title of an item from before in the same section.
             if let same = before.first(where: { similarity($0.title, item.title) >= 0.99 }) {
-                if state == .changed, let card = same.card, !same.finished, !matched.contains(same.item) {
-                    matched.insert(same.item)
-                    updates.append(DistillUpdate(kind: .brief, card: card, item: same.item, section: item.section, sectionHash: section?.hash,
-                                                 brief: item.brief, doneWhen: item.doneWhen, quote: item.quote))
-                }
+                if state == .changed { _ = update(same, with: item, section: section) }
                 leftOut += 1
                 continue
             }
@@ -107,13 +153,12 @@ public enum DistillAgain {
             case .new:
                 keep.append(item)
             case .changed:
-                // What's new in a changed section: an update for the card it matches best, or a new item.
-                if let best = before.filter({ !matched.contains($0.item) && $0.card != nil && !$0.finished })
+                // What's new in a changed section: an update for the card, or the item still waiting, it matches best; else
+                // a new item.
+                if let best = before.filter({ !matched.contains($0.item) && !$0.other && (($0.card != nil && !$0.finished) || ($0.waiting && $0.card == nil)) })
                     .map({ ($0, similarity($0.title, item.title)) }).filter({ $0.1 >= 0.5 }).max(by: { $0.1 < $1.1 })?.0,
-                   let card = best.card {
-                    matched.insert(best.item)
-                    updates.append(DistillUpdate(kind: .brief, card: card, item: best.item, section: item.section, sectionHash: section?.hash,
-                                                 brief: item.brief, doneWhen: item.doneWhen, quote: item.quote))
+                   update(best, with: item, section: section) {
+                    leftOut += best.card == nil ? 1 : 0
                 } else if repeated {
                     leftOut += 1
                 } else {
@@ -123,7 +168,7 @@ public enum DistillAgain {
         }
         // Cards whose section is gone: offered to close.
         var closes: [DistillUpdate] = []
-        for item in earlier where item.card != nil && !item.finished {
+        for item in earlier where item.card != nil && !item.finished && !item.other {
             let gone = item.section.map { now[$0] == nil } ?? (now[""] == nil && item.sectionHash != nil)
             if gone, let card = item.card {
                 closes.append(DistillUpdate(kind: .close, card: card, item: item.item, section: item.section))
@@ -136,15 +181,19 @@ public enum DistillAgain {
             item.waitsFor = item.waitsFor.filter(kept.contains)
             return item
         }
-        return Plan(items: keep, updates: updates, closes: closes, leftOut: leftOut, sections: states)
+        return Plan(items: keep, updates: updates, closes: closes, refreshes: refreshes, leftOut: leftOut, sections: states)
     }
 
     /// An agent's own proposal for a note distilled before: everything it proposes, but an item the same as one from
-    /// before in the same section, which is never made twice. It offers no updates or closes: those come from reading the
-    /// note again (`plan`).
+    /// before in the same section, which is never made twice, or much like one from before anywhere in the note, by any
+    /// reader, or like one it kept already (`alike`, as `plan` leaves out). It offers no updates or closes: those come from
+    /// reading the note again (`plan`).
     public static func additions(read: [DistillItem], earlier: [Earlier]) -> (items: [DistillItem], leftOut: Int) {
-        let keep = read.filter { item in
-            !earlier.contains { $0.section == item.section && similarity($0.title, item.title) >= 0.99 }
+        var keep: [DistillItem] = []
+        for item in read {
+            let same = earlier.contains { $0.section == item.section && similarity($0.title, item.title) >= 0.99 }
+            guard !same, !earlier.contains(where: { alike(item, $0) }), !keep.contains(where: { alike(item, $0) }) else { continue }
+            keep.append(item)
         }
         let kept = Set(keep.map(\.id))
         return (keep.map { item in

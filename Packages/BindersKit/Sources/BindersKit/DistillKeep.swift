@@ -53,10 +53,16 @@ public struct DistillSectionReading: Codable, Equatable, Sendable {
         self.at = at
     }
 
-    /// Whether it's a reading of `section` as it is now, asked this way.
+    /// Whether it's a reading of `section` as it is now, asked this way, or an agent's reading of it (`byAgent`), which
+    /// counts however Binders' model is asked.
     public func reads(_ section: DistillSections.Section, as key: DistillKeep.Key) -> Bool {
-        self.section == section.heading && hash == section.hash && format == key.format.rawValue && model == key.model && takers == key.takers
+        self.section == section.heading && hash == section.hash && (byAgent || (format == key.format.rawValue && model == key.model && takers == key.takers))
     }
+
+    /// What `format` says for an agent's reading: one of your agents read the whole note for a "Distill with…" card and
+    /// proposed its work with propose_work_items (`DistillKeep.agentReadings`).
+    public static let agentFormat = "agent"
+    public var byAgent: Bool { format == Self.agentFormat }
 }
 
 /// Keeping a note's readings by section, and reading only what changed (lane DS8).
@@ -136,6 +142,24 @@ public enum DistillKeep {
                                              DistillSectionReading.Item(title: item.title, brief: item.brief, doneWhen: item.doneWhen, quote: item.quote,
                                                                         size: item.size, hint: item.hint, forName: item.forName, waits: item.waitsFor,
                                                                         briefPending: item.briefPending ? true : nil)
+                                         }, at: at)
+        }
+    }
+
+    /// The readings an agent's proposal leaves to keep, when it answered a card asking it to read the whole note: one for
+    /// each section of the note now (`sections`) that reads as it did in the version the agent read (`read`, its text),
+    /// with the agent's items from it. A section changed since, or that the card didn't carry whole, is left for Binders'
+    /// model to read.
+    public static func agentReadings(_ items: [DistillReading.Item], read: String, sections: [DistillSections.Section], agent: String,
+                                     at: Date = Date()) -> [DistillSectionReading] {
+        func name(_ heading: String?) -> String { heading ?? "\u{0}opening" }
+        let then = Set(DistillSections.sections(of: read).map { name($0.heading) + "\u{1}" + $0.hash })
+        return sections.filter { then.contains(name($0.heading) + "\u{1}" + $0.hash) }.map { section in
+            let mine = items.filter { $0.section == section.heading && (section.heading != nil || $0.unknownSection == nil) }
+            return DistillSectionReading(section: section.heading, hash: section.hash, format: DistillSectionReading.agentFormat, model: agent,
+                                         takers: "", items: mine.map { item in
+                                             DistillSectionReading.Item(title: item.title, brief: item.brief, doneWhen: item.doneWhen, quote: item.quote,
+                                                                        size: item.size, hint: item.hint, forName: item.forName)
                                          }, at: at)
         }
     }

@@ -289,6 +289,47 @@ extension SelfTest {
         hosting.rootView = AnyView(page(DistillNoteMarks.work(for: note, controller: controller)))
         try? await Task.sleep(for: .milliseconds(300))
         run.check(chip(onLineWith: "Put address") != nil, "on again, they're back")
+
+        // MARK: Work items waiting for review are marked too, as proposed
+        _ = await run.call("propose_work_items", ["id": note.id.uuidString, "items": [
+            ["title": "Ask the bank about fees", "section": "Later", "quote": "Need to follow up with the bank about fees by Friday."],
+            ["title": "Try a dark theme", "section": "Later", "quote": "Maybe a dark theme."],
+        ]], as: BoardActor(name: "Scribe", kind: .agent))
+        work = DistillNoteMarks.work(for: note, controller: controller)
+        run.check(work?.cards.filter(\.chip.proposed).map(\.title) == ["Ask the bank about fees", "Try a dark theme"],
+                  "the editor gets the waiting items: \(work?.cards.filter(\.chip.proposed).map(\.title) ?? [])")
+        hosting.rootView = AnyView(page(work))
+        try? await Task.sleep(for: .milliseconds(500))
+        run.check(marked("Need to follow up with the bank about fees by Friday.") && marked("Maybe a dark theme."), "their words are marked")
+        run.check(chip(onLineWith: "follow up with the bank")?.text == "Proposed", "with a Proposed chip: \(chip(onLineWith: "follow up with the bank")?.text ?? "none")")
+        run.check(chip(onLineWith: "## Later")?.text == "2 proposed", "and counted at their heading: \(chip(onLineWith: "## Later")?.text ?? "none")")
+        let bankTint = storage.attribute(.workMark, at: string().range(of: "follow up with the bank").location, effectiveRange: nil) as? WorkTint
+        run.check(bankTint?.underline != nil && (formTint?.underline == nil), "a dotted line under them, which cards don't have")
+        let bankChip = chip(onLineWith: "follow up with the bank")
+        run.check((storage.attribute(.toolTip, at: bankChip?.character.location ?? 0, effectiveRange: nil) as? String)
+                    .map { $0.contains("Proposed by Scribe") && $0.contains("Click to review it in the Distill list.") } == true,
+                  "hovering it says who proposed it and what a click does")
+        if let rect = bankChip?.rect, let proposedWork = work {
+            var reviewing: [UUID] = []
+            var clicking = proposedWork
+            clicking.open = { reviewing.append($0) }
+            editor.setWork(clicking)
+            let point = NSPoint(x: rect.midX + editor.textContainerOrigin.x, y: rect.midY + editor.textContainerOrigin.y)
+            let bank = proposedWork.cards.first { $0.title == "Ask the bank about fees" }?.id
+            run.check(editor.clickedWorkChip(at: point) && reviewing == [bank].compactMap { $0 }, "a click on its chip opens it")
+            proposedWork.open(bank ?? UUID())
+            run.check(service.list(for: note.id).selected == bank, "in the Distill list, at its row")
+            editor.setWork(proposedWork)
+        }
+        if let directory {
+            capture(hosting, name: "distill-marks-proposed-light", directory: directory)
+            window.appearance = NSAppearance(named: .darkAqua)
+            editor.restyle()
+            try? await Task.sleep(for: .milliseconds(300))
+            capture(hosting, name: "distill-marks-proposed-dark", directory: directory)
+            window.appearance = NSAppearance(named: .aqua)
+            editor.restyle()
+        }
         _ = (apple, google, log)
         return run.failures == 0 ? 0 : 1
     }

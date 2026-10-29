@@ -333,8 +333,10 @@ extension SelfTest {
             return 1
         }
         let placed = service.place(first, items: Set(first.items.map(\.id)), column: .ready)
-        run.check(placed.count == 2, "Distill places its 2 cards beside them: \(placed.count)")
-        run.check(DistillBoard.cards(of: note.id).count == 8, "the note has 8 cards now: \(DistillBoard.cards(of: note.id).count)")
+        // "Write the release notes" is on the board already, put there from its line: it isn't proposed again.
+        run.check(first.items.map(\.title) == ["Speed up the sign-in page"], "Distill leaves out what Put on Board put there: \(first.items.map(\.title))")
+        run.check(placed.count == 1, "Distill places its card beside them: \(placed.count)")
+        run.check(DistillBoard.cards(of: note.id).count == 7, "the note has 7 cards now: \(DistillBoard.cards(of: note.id).count)")
         let puts = [whole!, riskCard!, old] + lineCards
         let kept = puts.map { ($0.id, $0.details, $0.title, $0.column) }
         let previousAgain = note.text

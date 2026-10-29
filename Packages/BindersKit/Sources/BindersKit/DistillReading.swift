@@ -51,11 +51,50 @@ public enum DistillPrompt {
         """
 
     /// What the model reads: the note's title, its sections' headings, and the note. `items`: the most items it's asked
-    /// for, when fewer than `maxItems` (a slow model's smaller answer, lane DS7).
-    public static func user(title: String, sections: [String], text: String, items: Int = maxItems) -> String {
+    /// for, when fewer than `maxItems` (a slow model's smaller answer, lane DS7). `captured`: the work already captured
+    /// from the note (`capturedLine`), which it's told not to propose again.
+    public static func user(title: String, sections: [String], text: String, items: Int = maxItems, captured: [Captured] = []) -> String {
         let note = text.count > noteLimit ? String(text.prefix(noteLimit)) + "\n…" : text
         let most = items < maxItems ? " List at most \(items) work items." : ""
-        return "The note “\(title)”. \(headingsLine(sections))\(most)\n\n\(note)"
+        let already = capturedLine(captured).map { "\n\n" + $0 } ?? ""
+        return "The note “\(title)”. \(headingsLine(sections))\(most)\(already)\n\n\(note)"
+    }
+
+    /// A work item already captured from the note, by any reader (Binders' model or an agent): waiting for review, on the
+    /// board, or put aside. Its title and the "## " section it came from (nil for the opening).
+    public struct Captured: Equatable, Sendable {
+        public var title: String
+        public var section: String?
+
+        public init(title: String, section: String? = nil) {
+            self.title = title
+            self.section = section
+        }
+    }
+
+    /// The most captured items the prompt lists, and how long the list may be: small enough for a model that reads 8,000
+    /// tokens (`DistillBudget.promptTokens` leaves room for it).
+    public static let capturedLimit = 40
+    public static let capturedCharacters = 1_600
+
+    /// "Already captured from this note, so don't propose these again, in any words: …": the titles (cut to 80
+    /// characters) with their sections, at most `capturedLimit` and `capturedCharacters`, the rest counted. Nil for none.
+    public static func capturedLine(_ captured: [Captured]) -> String? {
+        var seen: Set<String> = []
+        let unique = captured.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty && seen.insert(LoopGuard.normalize($0.title)).inserted }
+        guard !unique.isEmpty else { return nil }
+        let start = "Already captured from this note, so don't propose these again, in any words: "
+        var listed: [String] = []
+        var length = start.count
+        for item in unique.prefix(capturedLimit) {
+            let title = item.title.count > 80 ? String(item.title.prefix(80)) + "…" : item.title
+            let entry = "\"\(title)\"" + (item.section.map { " (\($0.count > 40 ? String($0.prefix(40)) + "…" : $0))" } ?? "")
+            guard length + entry.count + 2 <= capturedCharacters || listed.isEmpty else { break }
+            listed.append(entry)
+            length += entry.count + 2
+        }
+        let more = unique.count - listed.count
+        return start + listed.joined(separator: "; ") + (more > 0 ? "; and \(more) more." : ".")
     }
 
     /// "Its sections: \"A\", \"B\"." as the prompts say it.
@@ -68,8 +107,11 @@ public enum DistillPrompt {
     /// can name them, and the part's own text.
     /// Lane DS8: `earlier` is no longer given (parts are read at once); a part that is only some of the note, the rest read
     /// before (Distill Again), says so.
-    public static func part(title: String, sections: [String], part: DistillParts.Part, earlier: [String], items: Int = maxItems) -> String {
+    /// `captured`: the work already captured from the note (`capturedLine`).
+    public static func part(title: String, sections: [String], part: DistillParts.Part, earlier: [String], items: Int = maxItems,
+                            captured: [Captured] = []) -> String {
         var lines = ["The note “\(title)”. \(headingsLine(sections))", ""]
+        if let already = capturedLine(captured) { lines.insert(contentsOf: [already, ""], at: 2) }
         let which = part.count > 1 ? "The note is long, so you read it in \(part.count) parts. This is part \(part.number) of \(part.count): \(part.holds). "
             : "This holds only \(part.holds); the rest of the note was read before. "
         lines.append(which + (items < maxItems ? "List only the work this part asks for, at most \(items) items." : "List only the work this part asks for."))
@@ -138,15 +180,16 @@ public enum DistillPrompt {
     }
 
     /// What every part of a v2 reading starts with, the same for each, so a model in Binders reads it once
-    /// (`ReplySchema.userPrefix`): the note's title and every heading.
-    public static func prefix(title: String, sections: [String]) -> String {
-        "The note “\(title)”. \(headingsLine(sections))\n\n"
+    /// (`ReplySchema.userPrefix`): the note's title and every heading, and the work already captured from it
+    /// (`capturedLine`), which is the same for every part too.
+    public static func prefix(title: String, sections: [String], captured: [Captured] = []) -> String {
+        "The note “\(title)”. \(headingsLine(sections))\n\n" + (capturedLine(captured).map { $0 + "\n\n" } ?? "")
     }
 
     /// A v2 part's question: the shared start, which part this is when there's more than one or it's only some of the
     /// note (`partial`: the rest was read before), and its numbered lines.
     public static func partV2(title: String, sections: [String], part: DistillParts.Part, lines: DistillLines, items: Int = maxItems,
-                              partial: Bool = false) -> String {
+                              partial: Bool = false, captured: [Captured] = []) -> String {
         var said: [String] = []
         if part.count > 1 {
             said.append("The note is long, so you read it in \(part.count) parts. This is part \(part.number) of \(part.count): \(part.holds).")
@@ -157,7 +200,7 @@ public enum DistillPrompt {
             said.append(items < maxItems ? "List only the work in these lines, at most \(items) items." : "List only the work in these lines.")
         }
         let framing = said.isEmpty ? "" : said.joined(separator: " ") + "\n\n"
-        return prefix(title: title, sections: sections) + framing + lines.rendered
+        return prefix(title: title, sections: sections, captured: captured) + framing + lines.rendered
     }
 
     /// What a second try adds, at the end, when the first reply had no list in it.

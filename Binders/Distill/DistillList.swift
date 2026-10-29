@@ -157,12 +157,16 @@ final class DistillListModel {
         }
     }
 
-    /// An item being read that an earlier reading already gave (on the board, waiting, or dismissed): Distill Again leaves
-    /// it out once the reading is done, so it never shows, nor flies.
+    /// An item being read that an earlier reading already gave, by any reader (on the board, waiting, or dismissed), the
+    /// same or in other words (`DistillAgain.alike`): Distill Again leaves it out once the reading is done, so it never
+    /// shows, nor flies.
     func isRepeat(_ item: DistillItem, in file: DistillFile? = nil) -> Bool {
         let file = file ?? DistillStore.shared.file(for: note)
         return file.distills.contains { record in
-            record.items.contains { $0.id != item.id && $0.section == item.section && DistillAgain.similarity($0.title, item.title) >= 0.99 }
+            record.items.contains { other in
+                other.id != item.id && ((other.section == item.section && DistillAgain.similarity(other.title, item.title) >= 0.99)
+                    || DistillAgain.alike((item.title, item.brief, item.quote), (other.title, other.brief, other.quote)))
+            }
         }
     }
 
@@ -504,7 +508,8 @@ enum DistillActions {
             }
             return
         }
-        let readBefore = !DistillStore.shared.file(for: note.id).distills.filter { !$0.readByAgent }.isEmpty
+        // Read before by Binders' model, or by an agent that answered "Distill with…": its sections count as read too.
+        let readBefore = DistillStore.shared.file(for: note.id).distills.contains { !$0.readByAgent || $0.requestCard != nil }
         if readBefore, service.model() != nil, !service.hasChangedSections(note: note) {
             list.upToDateUntil = Date().addingTimeInterval(upToDateFor)
             service.said[note.id] = nil
@@ -531,10 +536,12 @@ enum DistillActions {
         NotificationCenter.default.post(name: show, object: nil, userInfo: ["note": note, "popout": popout])
     }
 
-    /// "Up to date · read 2 minutes ago": what the list says when nothing changed since its last reading.
+    /// "Up to date · read 2 minutes ago": what the list says when nothing changed since its last reading, by Binders'
+    /// model or by an agent that read the whole note ("read by Scribe 2 minutes ago").
     static func upToDateLine(_ note: UUID, now: Date = Date()) -> String? {
-        guard let last = DistillStore.shared.file(for: note).distills.last(where: { !$0.readByAgent }) else { return nil }
-        return "Up to date · read \(WorkBar.ago(last.at, now: now))"
+        guard let last = DistillStore.shared.file(for: note).distills.last(where: { !$0.readByAgent || $0.requestCard != nil }) else { return nil }
+        let by = last.readByAgent ? " by \(last.readBy.shortAgentName)" : ""
+        return "Up to date · read\(by) \(WorkBar.ago(last.at, now: now))"
     }
 }
 

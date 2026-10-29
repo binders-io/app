@@ -66,6 +66,7 @@ extension SelfTest {
 
         await distillReachChecks(run, note: note, cards: placed)
         await distillFinishChecks(run, note: note, web: web, cards: placed, router: standIn)
+        await distillCapturedChecks(run)
         print(run.failures == 0 ? "DISTILL_MORE_OK" : "DISTILL_MORE_FAILED: \(run.failures)")
         return run.failures == 0 ? 0 : 1
     }
