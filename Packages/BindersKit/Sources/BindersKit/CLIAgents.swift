@@ -153,9 +153,19 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
     /// is, with no worktree, so the folder needn't be a git repository (a workspace holding several, say). It changes your
     /// files there directly, Binders commits nothing, and one card runs in the folder at a time. Nil means off.
     public var inFolder: Bool?
+    /// "Open a pull request when it finishes" (`PullRequests`). Nil means off.
+    public var pullRequests: Bool?
 
     /// Whether each run works in the folder itself, with no worktree: only when you turned it on.
     public var worksInFolder: Bool { inFolder == true }
+
+    /// How its pull requests are opened, when you turned them on and it can: Binders, after it commits in a worktree; the
+    /// run itself in the folder itself, where only a tool that runs git (Codex) can make a branch and commit. Nil: none.
+    public var pullRequestWay: PullRequests.Way? {
+        guard pullRequests == true else { return nil }
+        if !worksInFolder { return .binders }
+        return tool == .codex && editsFiles ? .tool : nil
+    }
 
     /// The modes Binders starts these tools in. Neither turns their checks off.
     public static let modes = ["acceptEdits", "plan"]
@@ -173,7 +183,7 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
     public var editsFiles: Bool { safeMode == "acceptEdits" }
 
     public init(tool: CLIAgent, repository: String, permissionMode: String = Self.newAgentMode, model: String? = nil,
-                allowedDomains: [String]? = nil, executable: String? = nil, inFolder: Bool? = nil) {
+                allowedDomains: [String]? = nil, executable: String? = nil, inFolder: Bool? = nil, pullRequests: Bool? = nil) {
         self.tool = tool
         self.repository = repository
         self.permissionMode = permissionMode
@@ -181,10 +191,11 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
         self.allowedDomains = allowedDomains
         self.executable = executable
         self.inFolder = inFolder
+        self.pullRequests = pullRequests
     }
 
     private enum CodingKeys: String, CodingKey {
-        case tool, repository, permissionMode, model, allowedDomains, executable, inFolder
+        case tool, repository, permissionMode, model, allowedDomains, executable, inFolder, pullRequests
     }
 
     /// The tool and the repository are needed, and a tool this build doesn't know fails, so the agent isn't read. A
@@ -198,6 +209,7 @@ public struct CLIAgentWake: Codable, Equatable, Sendable {
         allowedDomains = try container.decodeIfPresent([String].self, forKey: .allowedDomains)
         executable = try container.decodeIfPresent(String.self, forKey: .executable)
         inFolder = try container.decodeIfPresent(Bool.self, forKey: .inFolder)
+        pullRequests = try container.decodeIfPresent(Bool.self, forKey: .pullRequests)
     }
 
     /// The model it's started with: a name, never another flag, and nothing that turns checks off. Nil leaves it to the tool.

@@ -136,7 +136,7 @@ extension SelfTest {
         // k) A run Binders starts gets the board's tools alone.
         setenv("BINDERS_TOOLS", "board", 1)
         let offered = Set(MCPServer.offered.map(\.name))
-        check(offered == MCPServer.boardTools, "a woken run gets the board's tools and nothing that reads your binders: \(offered.count)")
+        check(offered == MCPServer.boardTools.subtracting([PullRequests.tool]), "a woken run gets the board's tools and nothing that reads your binders: \(offered.count)")
         // l) ... for its own card alone, as exactly the agent it woke.
         let own = id((await call("create_task", ["title": "Tidy the changelog", "binder": "Launch", "column": "ready"], as: .you)).text)
         let theirs = id((await call("create_task", ["title": "Plan the offsite", "binder": "Launch", "column": "ready"], as: .you)).text)

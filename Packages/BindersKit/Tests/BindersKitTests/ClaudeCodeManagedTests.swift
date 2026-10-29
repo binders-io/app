@@ -69,7 +69,7 @@ final class ClaudeCodeManagedTests: XCTestCase {
         XCTAssertTrue(refusal("mcp__slack__post_message")?.contains("mcp__slack__post_message") == true, "it says which tool")
         XCTAssertNotNil(ClaudeCodeToolGuard.refusal(Data("not json".utf8)), "what it can't read is refused")
         XCTAssertNotNil(ClaudeCodeToolGuard.refusal(Data(#"{"tool_input":{}}"#.utf8)))
-        XCTAssertEqual(ClaudeCodeToolGuard.boardTools.count, 13)
+        XCTAssertEqual(ClaudeCodeToolGuard.boardTools.count, 14, "open_pull_request among them, which the server offers only where it's let")
     }
 
     func testTheRefusalOfTheLimit() {

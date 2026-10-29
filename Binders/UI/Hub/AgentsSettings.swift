@@ -701,6 +701,11 @@ struct AgentEditor: View {
                    isOn: Binding(get: { claude.worksInFolder }, set: { claude.inFolder = $0 ? true : nil }))
             Text("For a folder that isn't a git repository, such as a workspace holding several. Each run starts in the folder as it is, with no worktree: it changes your files there directly, with no branch or diff of its own, and one card runs there at a time. Its other limits below still apply.")
                 .font(.caption).foregroundStyle(.secondary)
+            // Off unless you turn it on: nil keeps an agents.json from before as it was.
+            Toggle("Open a pull request when it finishes",
+                   isOn: Binding(get: { claude.opensPullRequests }, set: { claude.pullRequests = $0 ? true : nil }))
+            Text(Self.pullRequestsLine(inFolder: claude.worksInFolder))
+                .font(.caption).foregroundStyle(.secondary)
             Picker("Permissions", selection: $claude.permissionMode) {
                 ForEach(ClaudeCodeWake.modes, id: \.self) { Text(Self.modeTitle($0)).tag($0) }
             }
@@ -779,6 +784,14 @@ struct AgentEditor: View {
                isOn: Binding(get: { cli.worksInFolder }, set: { cli.inFolder = $0 ? true : nil }))
         Text("For a folder that isn't a git repository, such as a workspace holding several. Each run starts in the folder as it is, with no worktree: it changes your files there directly, with no branch or commit of its own, and one card runs there at a time. Its other limits below still apply.")
             .font(.caption).foregroundStyle(.secondary)
+        // Off unless you turn it on. In the folder itself only Codex, which runs git, can make the branch to open one from.
+        let pullRequestsPossible = !cli.worksInFolder || (tool == .codex && cli.editsFiles)
+        Toggle("Open a pull request when it finishes",
+               isOn: Binding(get: { cli.pullRequests == true }, set: { cli.pullRequests = $0 ? true : nil }))
+            .disabled(!pullRequestsPossible && cli.pullRequests != true)
+        Text(pullRequestsPossible ? Self.pullRequestsLine(inFolder: cli.worksInFolder, bindersCommits: !cli.worksInFolder)
+             : "In the folder itself, \(tool.name) can't make a branch to open a pull request from\(tool == .codex ? " when it only reads" : ", as it runs no git commands"). Use a worktree for pull requests, or Codex or Claude Code.")
+            .font(.caption).foregroundStyle(.secondary)
         // Antigravity can't be held to reading only: it edits files or doesn't run. One saved as Reads Only shows it, so
         // changing it is a choice you can see.
         Picker("Permissions", selection: $cli.permissionMode) {
@@ -810,6 +823,15 @@ struct AgentEditor: View {
         case .antigravity:
             return "Started by Binders, Antigravity runs on its own in a git worktree Binders makes for the card, with its terminal sandbox on. It reads and edits files there without asking. Its commands run in the sandbox, and only the ones your Antigravity settings allow: no one is there to approve any other, so it doesn't run, and the card says what was refused. It reaches nothing on the network, and it uses Binders' tools for that card only. Your own Antigravity hooks, plugins and MCP servers load with it, as Binders can't turn them off for a run. Binders can't change your Antigravity settings either, so it reads two of them before each run and won't start Antigravity when they'd let it act outside its worktree without asking: toolPermission set to always-proceed, or allow rules for files outside the worktree, the web or other MCP servers. A run needs mcp(binders/*) in permissions.allow, as it refuses any MCP tool no rule allows. It can't be held to reading only, so it always edits files, and Binders won't start it in a worktree whose .agents folder has hooks, MCP servers or plugins. It runs under your Antigravity sign-in; sign in by running agy once in Terminal. " + end
         }
+    }
+
+    /// What "Open a pull request when it finishes" does.
+    static func pullRequestsLine(inFolder: Bool, bindersCommits: Bool = false) -> String {
+        let how = "Binders pushes the branch and opens the pull request with your own git sign-in and GitHub's gh (brew install gh, then gh auth login); the run itself still can't push. Binders never pushes your default branch and never force-pushes, and the card gets the pull request's link."
+        if bindersCommits { return "When a run ends, Binders commits its changes on the card's branch, as always. " + how }
+        return inFolder
+            ? "It makes a branch of its own in each repository it changes and commits there, then asks Binders to open a pull request for each. " + how
+            : "When its work is committed on its branch, it asks Binders to open the pull request. " + how
     }
 
     /// The same for a run in the folder itself: no worktree, nothing committed.

@@ -66,6 +66,13 @@ enum MCPServer {
     /// The tools this server offers: all of them, the board's alone for an agent's own server, the board's for one card
     /// for a woken run, which makes no new cards, and none for a run that didn't get its card or its name.
     static var offered: [MCPTool] {
+        offeredByConfinement.filter { $0.name != PullRequests.tool || opensPullRequests }
+    }
+
+    /// Whether this server's run may have Binders open its pull requests: its agent's setting, as the launch said.
+    static var opensPullRequests: Bool { ProcessInfo.processInfo.environment[PullRequests.environmentKey] == "1" }
+
+    private static var offeredByConfinement: [MCPTool] {
         switch confinement {
         case .everything: hostTools
         case .nothing: []
@@ -280,6 +287,14 @@ enum MCPServer {
         MCPTool(name: "complete_task", description: "Finish a card with a summary of what was done. It goes to Review for the user, unless they let agents finish cards in that binder.", parameters: [
             MCPToolParameter(name: "id", description: "The card's id.", required: true),
             MCPToolParameter(name: "summary", description: "What was done, and anything the user should check.", required: true),
+            MCPToolParameter(name: "agent", description: "Your name on the board."),
+        ]),
+        MCPTool(name: PullRequests.tool, description: "Once your work for the card is committed on a branch of your own, have Binders push that branch and open a pull request for it, with the user's own sign-ins. Never the default branch. Returns the pull request's link, which Binders also puts on the card.", parameters: [
+            MCPToolParameter(name: "id", description: "The card's id.", required: true),
+            MCPToolParameter(name: "repository", description: "The repository's folder, relative to the folder you work in: \".\" for that folder itself."),
+            MCPToolParameter(name: "title", description: "The pull request's title.", required: true),
+            MCPToolParameter(name: "body", description: "What changed, why, and how to check it, in Markdown."),
+            MCPToolParameter(name: "draft", description: "true to open it as a draft."),
             MCPToolParameter(name: "agent", description: "Your name on the board."),
         ]),
         // Chat (lane AC1), for an agent that checks the board itself, on its own server for Binders.
@@ -1054,6 +1069,12 @@ enum MCPServer {
         case "complete_task":
             guard !string("summary").isEmpty else { throw MCPCore.ToolFailure("summary is required") }
             return try await boardWrite(name, ["text": string("summary")])
+        case PullRequests.tool:
+            guard Self.opensPullRequests else { throw MCPCore.ToolFailure("The user hasn't let this agent open pull requests.") }
+            guard !string("title").isEmpty else { throw MCPCore.ToolFailure("title is required") }
+            let draft = (arguments["draft"] as? Bool) ?? (string("draft").lowercased() == "true")
+            return try await boardWrite(name, ["repository": string("repository"), "title": string("title"), "body": string("body"),
+                                               "draft": draft ? "true" : "false"])
         default:
             throw MCPCore.ToolFailure("No tool named \(name)")
         }

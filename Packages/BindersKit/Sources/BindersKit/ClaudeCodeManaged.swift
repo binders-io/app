@@ -179,7 +179,9 @@ public enum ClaudeCodeToolGuard {
     public static let boardTools: Set<String> = ["list_tasks", "get_task", "create_task", "claim_task", "update_task", "ask_on_task",
                                                  "comment_task", "release_task", "complete_task", "request_approval",
                                                  // Distill: through the card alone, to the note it came from.
-                                                 "propose_work_items", "get_note_history", "get_note_version"]
+                                                 "propose_work_items", "get_note_history", "get_note_version",
+                                                 // Only offered where you let the agent open pull requests (`PullRequests`).
+                                                 PullRequests.tool]
 
     /// Why the tool in a PreToolUse hook's JSON may not run, or nil when it's one of Binders' board tools. Anything it
     /// can't read is refused.

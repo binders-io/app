@@ -356,6 +356,10 @@ enum InboxCommands {
             let result = await controller.addToCalendar(described: text)
             return result.added ? InboxResult(ok: true, message: result.line) : .failure(result.line)
 
+        case PullRequests.tool:
+            // Lane PR1: Binders pushes the run's branch and opens its pull request, for an agent you let.
+            return await PullRequestOpener.fromRun(field: field, controller: controller)
+
         case "distill_note", "propose_work_items":
             // Lane DS1: a proposal for a person to review; cards only where the binder lets agents place them.
             return await DistillCommands.perform(request, controller: controller)

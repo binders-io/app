@@ -189,6 +189,8 @@ public enum CLIAgentLaunches {
     /// the card or the name didn't arrive), this card, this agent, and the throwaway data folder in the self-tests.
     static func serverValues(_ run: CLIAgentRun) -> [(String, String)] {
         var values = [("BINDERS_TOOLS", "board"), ("BINDERS_RUN", "1"), ("BINDERS_CARD", run.card.uuidString), ("BINDERS_AGENT", run.boardName)]
+        // The run opens its own pull requests only where it commits itself (`PullRequests.Way.tool`).
+        if run.wake.pullRequestWay == .tool { values.append((PullRequests.environmentKey, "1")) }
         if let data = run.throwawayData { values.append(("BINDERS_DATA_DIR", data)) }
         return values
     }
@@ -196,7 +198,8 @@ public enum CLIAgentLaunches {
     /// The prompt for a CLI run: Binders commits, and it says what the run can do.
     static func prompt(_ run: CLIAgentRun) -> String {
         AgentRunPrompt.text(card: run.card, reason: run.reason, draftsFirst: run.draftsFirst, commits: .binders,
-                            reach: AgentRunPrompt.reach(run.wake.tool, editsFiles: run.wake.editsFiles), inFolder: run.wake.worksInFolder)
+                            reach: AgentRunPrompt.reach(run.wake.tool, editsFiles: run.wake.editsFiles), inFolder: run.wake.worksInFolder,
+                            pullRequests: run.wake.pullRequestWay)
     }
 
     // MARK: Small parts

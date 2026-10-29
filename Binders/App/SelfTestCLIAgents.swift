@@ -396,7 +396,7 @@ extension SelfTest {
             let listed = Set(((reply(2)?["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
             let other = ((reply(3)?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
             let own = ((reply(4)?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
-            check(listed == MCPServer.boardTools.subtracting(["create_task"]), "\(tool.rawValue): Binders' server offers the board's tools for one card: \(listed.sorted())")
+            check(listed == MCPServer.boardTools.subtracting(["create_task", PullRequests.tool]), "\(tool.rawValue): Binders' server offers the board's tools for one card: \(listed.sorted())")
             check(reply(3)?["isError"] as? Bool == true && other.contains("This run works on card \(id.uuidString) only"), "\(tool.rawValue): another card is refused: \(other)")
             check(reply(4)?["isError"] as? Bool == false && own.contains(id.uuidString), "\(tool.rawValue): its own card it reads")
             // 5. The worktree, one per card and tool, beside the repository's other worktrees in Binders' folder.
@@ -453,7 +453,7 @@ extension SelfTest {
         // An agent's own server, BINDERS_TOOLS=board without BINDERS_RUN, as before: the board's tools.
         let own = await mcpReplies(["BINDERS_TOOLS": "board", "BINDERS_AGENT": "Codex · repo", "BINDERS_DATA_DIR": data.path, "PATH": "/usr/bin:/bin"])
         let ownTools = Set(((((own.first { ($0["id"] as? Int) == 2 })?["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String })
-        check(ownTools == MCPServer.boardTools.union(AgentChatTools.all), "an agent's own server still offers the board's tools, and its chats': \(ownTools.sorted())")
+        check(ownTools == MCPServer.boardTools.subtracting([PullRequests.tool]).union(AgentChatTools.all), "an agent's own server still offers the board's tools, and its chats': \(ownTools.sorted())")
 
         // 8. Blocked, with why.
         let halfway = await run(opencodeAgent, mode: "unfinished", title: "Write the notes") { id in
@@ -866,6 +866,39 @@ extension SelfTest {
         check(((try? String(contentsOf: workspace.appendingPathComponent("README.md"), encoding: .utf8)) ?? "").contains("A line the stand-in added."),
               "what it changed is in the folder")
         registry.remove(folderAgent.id)
+
+        // 17, pull requests: let have them, a run's commit on the card's branch is pushed and its pull request opened, by
+        // Binders. A local origin and a stand-in gh, so nothing reaches GitHub.
+        let origin = data.appendingPathComponent("origin.git", isDirectory: true)
+        try? manager.createDirectory(at: origin, withIntermediateDirectories: true)
+        await git(["init", "-q", "--bare", "-b", "main"], in: origin)
+        await git(["remote", "add", "origin", origin.path], in: repo)
+        await git(["push", "-q", "origin", "main"], in: repo)
+        await git(["remote", "set-head", "origin", "main"], in: repo)
+        let ghBin = data.appendingPathComponent("gh-bin", isDirectory: true)
+        try? manager.createDirectory(at: ghBin, withIntermediateDirectories: true)
+        try? "#!/bin/sh\necho 'https://github.com/example/repo/pull/12'\n".write(to: ghBin.appendingPathComponent("gh"), atomically: true, encoding: .utf8)
+        try? manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghBin.appendingPathComponent("gh").path)
+        PullRequestOpener.testPath = ghBin.path + ":/usr/bin:/bin"
+        AgentDispatcher.pullRequestsInDemo = true
+        var prAgent = agent(.codex, name: "Codex · pull requests")
+        if case .cliAgent(var wake) = prAgent.wake {
+            wake.pullRequests = true
+            prAgent.wake = .cliAgent(wake)
+        }
+        check(registry.upsert(prAgent) == nil, "an agent that opens pull requests is saved")
+        let withPR = await run(prAgent, mode: "edit", title: "Add a line for review")
+        await wait(30) { board.card(withPR)?.links.contains("https://github.com/example/repo/pull/12") == true }
+        let prBranch = AgentWorktree.branch(card: withPR, tool: .codex)
+        check(board.card(withPR)?.links.contains("https://github.com/example/repo/pull/12") == true, "its pull request's link is on the card")
+        check(await git(["rev-parse", "--verify", "-q", "refs/heads/\(prBranch)"], in: origin).ok, "Binders pushed the card's branch to origin")
+        check(events(withPR).contains { $0.text.contains("Opened a pull request for \(prBranch)") }, "the card says so")
+        check(!stubbed(.codex, "stdin.txt").contains("Never push.\n") || stubbed(.codex, "stdin.txt").contains("opens a pull request"),
+              "the run is told Binders opens it")
+        registry.remove(prAgent.id)
+        AgentDispatcher.pullRequestsInDemo = false
+        PullRequestOpener.testPath = nil
+        await git(["remote", "remove", "origin"], in: repo)
 
         // 18. Never the real tools.
         let real = AgentProfile(name: "Codex · real", wake: .cliAgent(CLIAgentWake(tool: .codex, repository: repoPath)), preset: "codex", wakesPerHour: 30)

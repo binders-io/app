@@ -1345,6 +1345,9 @@ extension AgentDispatcher {
         }
     }
 
+    /// Self-tests only: a throwaway folder's runs open pull requests too (to a stand-in origin).
+    static var pullRequestsInDemo = false
+
     /// A CLI run's process ended: its end steps, once.
     private func cliExited(_ id: UUID, run: UUID, status: Int32) {
         guard runIDs[id] == run, let runRecord = cliRuns[id], runRecord.run == run else {
@@ -1433,6 +1436,10 @@ extension AgentDispatcher {
                 committed = .nothing
             }
             try? FileManager.default.removeItem(at: CLIRuns.temporary(runRecord.stem))
+            // Its pull request, when you let the agent have them: Binders pushes the branch it just committed on.
+            if case .committed = committed, let worktree, wake?.pullRequestWay == .binders, let board = self.board, !AppPaths.isDemo || Self.pullRequestsInDemo {
+                PullRequestOpener.afterCommit(worktree: worktree.path, branch: worktree.branch, agent: runRecord.agentName, card: id, said: words, board: board)
+            }
             // Decide, now that the commit is done: an answer, a comment or a Wake Now that came meanwhile goes first.
             var next: (reason: AgentWake.Reason, tapped: Bool)?
             if let (reason, tapped) = self.deferred.removeValue(forKey: id), let card = self.board?.card(id), let due = self.dueAtRunEnd(card, reason) {

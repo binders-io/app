@@ -870,6 +870,10 @@ enum SelfTest {
             // A Claude Code that an organization manages, with a stand-in claude, in a throwaway BINDERS_DATA_DIR (lane RF1).
             return await claudeManagedSelfTest()
         }
+        if args.contains("--selftest-pull-requests") {
+            // Pull requests for agents' work (lane PR1), to a local origin with a stand-in gh, in a throwaway BINDERS_DATA_DIR.
+            return await pullRequestsSelfTest()
+        }
         if args.contains("--selftest-cli-agents") {
             // Codex, OpenCode, GitHub Copilot CLI and Antigravity as agents, with stand-ins for the tools, in a throwaway BINDERS_DATA_DIR.
             // A folder after the flag gets a drawing of each one's settings.
