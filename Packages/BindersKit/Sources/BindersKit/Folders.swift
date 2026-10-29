@@ -143,6 +143,57 @@ public enum FolderTree {
         return result
     }
 
+    /// A row of a binder's list drawn as a tree: a folder, or one of the items in it, with how deep it is.
+    public enum OutlineRow: Hashable, Sendable {
+        case folder(UUID, depth: Int)
+        case item(UUID, depth: Int)
+
+        public var depth: Int {
+            switch self {
+            case .folder(_, let depth), .item(_, let depth): depth
+            }
+        }
+    }
+
+    /// A binder's list as a tree, the way Finder and Obsidian keep one: at each level its folders by name, then the
+    /// items in it in the order given (newest first, say); what's inside a folder shows under it only while it's in
+    /// `open`. An item whose folder isn't there (a teammate's folder that hasn't arrived) is at the top. Untangled first.
+    public static func outline(_ folders: [FolderNode], items: [(id: UUID, folder: UUID?)], open: Set<UUID>) -> [OutlineRow] {
+        let placed = untangled(folders)
+        let known = Set(placed.map(\.id))
+        var inFolder: [UUID?: [UUID]] = [:]
+        for item in items { inFolder[item.folder.flatMap { known.contains($0) ? $0 : nil }, default: []].append(item.id) }
+        var rows: [OutlineRow] = []
+        var visited = Set<UUID>()
+        func walk(_ parent: UUID?, depth: Int) {
+            for child in children(of: parent, in: placed) where visited.insert(child.id).inserted {
+                rows.append(.folder(child.id, depth: depth))
+                if open.contains(child.id) { walk(child.id, depth: depth + 1) }
+            }
+            rows += (inFolder[parent] ?? []).map { .item($0, depth: depth) }
+        }
+        walk(nil, depth: 0)
+        return rows
+    }
+
+    /// How many of `items` (each by its folder) each folder holds, in it or in the folders inside it, however deep. An
+    /// item whose folder isn't there counts for none.
+    public static func counts(_ folders: [FolderNode], items: [UUID?]) -> [UUID: Int] {
+        let byID = index(untangled(folders))
+        var direct: [UUID: Int] = [:]
+        for case let folder? in items where byID[folder] != nil { direct[folder, default: 0] += 1 }
+        var counts: [UUID: Int] = [:]
+        for (folder, count) in direct {
+            for ancestor in chain(to: folder, in: byID) { counts[ancestor.id, default: 0] += count }
+        }
+        return counts
+    }
+
+    /// The folders `id` is inside, from the top down, without itself: what has to be open for it to show.
+    public static func ancestors(of id: UUID?, in folders: [FolderNode]) -> [UUID] {
+        chain(to: id, in: index(untangled(folders))).dropLast().map(\.id)
+    }
+
     /// The folder at a path, each part matched ignoring case and spacing, starting in `parent` (nil: the top). Nil when
     /// a part isn't there. An empty path is `parent` itself.
     public static func resolve(_ path: [String], in folders: [FolderNode], from parent: UUID? = nil) -> UUID? {

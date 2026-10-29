@@ -81,6 +81,35 @@ final class FolderTreeTests: XCTestCase {
         XCTAssertEqual(partial.missing, ["Releases", "2026"])
         XCTAssertEqual(FolderTree.resolvePartially(["Nothing"], in: all).deepest, nil)
     }
+
+    func testTheListAsATree() {
+        let top = UUID(), inOps = UUID(), deep = UUID(), lost = UUID(), inSocial = UUID()
+        let items: [(id: UUID, folder: UUID?)] = [(top, nil), (deep, pipelines.id), (inOps, ops.id), (lost, UUID()), (inSocial, social.id)]
+        // All closed: the folders at the top, then what's at the top, in the order given; one whose folder isn't here too.
+        XCTAssertEqual(FolderTree.outline(all, items: items, open: []), [.folder(ops.id, depth: 0), .folder(social.id, depth: 0),
+                                                                        .item(top, depth: 0), .item(lost, depth: 0)])
+        // Ops open: its folder, then its items, under it.
+        XCTAssertEqual(FolderTree.outline(all, items: items, open: [ops.id]),
+                       [.folder(ops.id, depth: 0), .folder(devOps.id, depth: 1), .item(inOps, depth: 1), .folder(social.id, depth: 0),
+                        .item(top, depth: 0), .item(lost, depth: 0)])
+        // A folder open inside a closed one stays hidden.
+        XCTAssertFalse(FolderTree.outline(all, items: items, open: [devOps.id, pipelines.id]).contains(.item(deep, depth: 3)))
+        let everything = FolderTree.outline(all, items: items, open: [ops.id, devOps.id, pipelines.id, social.id])
+        XCTAssertEqual(everything.count, 9)
+        XCTAssertTrue(everything.contains(.item(deep, depth: 3)))
+        XCTAssertEqual(everything.map(\.depth), [0, 1, 2, 3, 1, 0, 1, 0, 0])
+    }
+
+    func testCountsTakeTheWholeFolder() {
+        let counts = FolderTree.counts(all, items: [pipelines.id, pipelines.id, ops.id, nil, UUID()])
+        XCTAssertEqual(counts[ops.id], 3, "its own and those in the folders inside it")
+        XCTAssertEqual(counts[devOps.id], 2)
+        XCTAssertEqual(counts[pipelines.id], 2)
+        XCTAssertNil(counts[social.id])
+        XCTAssertEqual(FolderTree.ancestors(of: pipelines.id, in: all), [ops.id, devOps.id])
+        XCTAssertEqual(FolderTree.ancestors(of: ops.id, in: all), [])
+        XCTAssertEqual(FolderTree.ancestors(of: nil, in: all), [])
+    }
 }
 
 /// Tidy into folders: the prefix rule, case by case, and what's proposed.

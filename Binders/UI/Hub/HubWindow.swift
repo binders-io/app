@@ -49,8 +49,11 @@ final class HubNavigation {
     var binderID: UUID? {
         didSet { if binderID != oldValue { folderID = nil } }
     }
-    /// The folder in it the binder page is in; nil at its top. Set after the binder.
+    /// The folder new things go in on the binder page: the one you clicked last in its lists, or the one the note,
+    /// meeting or capture you chose is in; nil at its top. Set after the binder.
     var folderID: UUID?
+    /// A folder for the binder page's list to show, from the sidebar or one just made: open, and scrolled to.
+    var folderToShow: UUID?
     /// Tidy into Folders, asked for from the sidebar: the binder page opens its sheet.
     var pendingTidy = false
     /// Deep links from search results and spoken answers, consumed by the destination page.
@@ -87,6 +90,16 @@ final class HubNavigation {
     func folderShown(for binderID: UUID?) -> UUID? {
         guard selection == .binder, let binderID, self.binderID == binderID else { return nil }
         return Store.shared.shownFolder(folderID, in: binderID)
+    }
+
+    /// Shows a folder on its binder's page: the binder open, the folder where new things go, and open in the page's list
+    /// and the sidebar, with the folders it's in.
+    func show(folder: FolderRecord) {
+        binderID = folder.binderID
+        folderID = folder.id
+        selection = .binder
+        FolderExpansion.shared.reveal(folder.id, in: folder.binderID, itself: true)
+        folderToShow = folder.id
     }
 }
 
@@ -182,7 +195,7 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
         window.setFrame(fitted, display: false)
     }
 
-    /// ⌘N: a new note in the binder that's open (or the current one), in the folder you're in, on the Notes page, ready
+    /// ⌘N: a new note in the binder that's open (or the current one), in the folder chosen in it, on the Notes page, ready
     /// to type in.
     @objc func newNote(_ sender: Any?) {
         guard Store.shared.allowsSave() else { return }
@@ -394,9 +407,10 @@ struct HubSidebar: View {
     @Query private var allFolders: [FolderRecord]
     @State private var hovered: HubSection?
     @State private var hoveredBinder: UUID?
-    /// Binders and folders shown open, with their folders under them; all closed at first.
-    @State private var openBinders: Set<UUID> = []
-    @State private var openFolders: Set<UUID> = []
+    /// Binders and folders shown open, with their folders under them: the same folders as the binder page's lists, kept
+    /// across launches.
+    @State private var expansion = FolderExpansion.shared
+    @ReducedMotion private var reduceMotion
     /// What a drag is over: a binder's row, or a folder's.
     @State private var dropTarget: UUID?
     @State private var creating = false
@@ -464,10 +478,10 @@ struct HubSidebar: View {
                     row(.today)
                     row(.work)
                     row(.agents)
-                    groupLabel("Binders")
+                    bindersLabel
                     ForEach(binders) { binder in
                         binderRow(binder)
-                        if openBinders.contains(binder.id) { folderRows(binder) }
+                        if expansion.binders.contains(binder.id) { folderRows(binder) }
                     }
                     Button {
                         guard Store.shared.allowsSave() else { return }
@@ -541,18 +555,30 @@ struct HubSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(BindersTheme.ground2)
         .toolbar(removing: .sidebarToggle)
-        // The folder you're in shows in the sidebar, its binder and the folders around it open.
-        .onChange(of: navigation.folderID, initial: true) { _, folder in reveal(folder) }
-        .onChange(of: FolderPrompts.shared.made) { _, made in reveal(Store.shared.folder(made)?.parentID, binder: Store.shared.folder(made)?.binderID) }
     }
 
-    /// Opens a folder's binder and the folders it's in, so it shows.
-    private func reveal(_ folder: UUID?, binder: UUID? = nil) {
-        guard let binderID = binder ?? Store.shared.folder(folder)?.binderID else { return }
-        openBinders.insert(binderID)
-        let nodes = Store.shared.folderNodes(in: binderID)
-        for ancestor in FolderTree.chain(to: folder, in: FolderTree.index(nodes)).dropLast() { openFolders.insert(ancestor.id) }
-        if binder != nil, let folder { openFolders.insert(folder) }
+    /// "Binders", with Collapse All beside it while any binder or folder here is open.
+    private var bindersLabel: some View {
+        HStack(spacing: 0) {
+            groupLabel("Binders")
+            Spacer(minLength: 0)
+            if !expansion.binders.isEmpty {
+                Button {
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { expansion.collapseEverything() }
+                } label: {
+                    Image(systemName: "rectangle.compress.vertical")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(BindersTheme.faint)
+                        .frame(width: 22, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 12)
+                .padding(.trailing, 6)
+                .help("Collapse all binders and folders")
+                .accessibilityLabel("Collapse all binders and folders")
+            }
+        }
     }
 
     @ViewBuilder
@@ -617,7 +643,7 @@ struct HubSidebar: View {
             }
             .buttonStyle(.plain)
             if hasFolders {
-                disclosure(openBinders.contains(binder.id), name: binder.name) { toggle(binder.id, in: &openBinders) }
+                disclosure(expansion.binders.contains(binder.id), name: binder.name) { expansion.toggleBinder(binder.id) }
                     .padding(.trailing, 6)
             }
         }
@@ -634,6 +660,11 @@ struct HubSidebar: View {
         }
         .contextMenu {
             Button("New Folder…") { FolderPrompts.shared.create(in: binder.id, parent: nil) }
+            if hasFolders {
+                Button("Expand All Folders") { expansion.expandAll(in: binder.id) }
+                Button("Collapse All Folders") { expansion.collapseAll(in: binder.id) }
+                    .disabled(!expansion.hasOpen(in: binder.id))
+            }
             if !binder.isTeamCopy {
                 Button("Tidy into Folders…") {
                     guard Store.shared.allowsSave() else { return }
@@ -676,7 +707,7 @@ struct HubSidebar: View {
         func walk(_ parent: UUID?, depth: Int) {
             for child in FolderTree.children(of: parent, in: nodes) {
                 rows.append(FolderEntry(node: child, depth: depth))
-                if openFolders.contains(child.id) { walk(child.id, depth: depth + 1) }
+                if expansion.isOpen(child.id) { walk(child.id, depth: depth + 1) }
             }
         }
         walk(nil, depth: 0)
@@ -686,10 +717,9 @@ struct HubSidebar: View {
     private func folderRow(_ folder: FolderRecord, binder: BinderRecord, depth: Int, hasFolders: Bool) -> some View {
         let selected = navigation.selection == .binder && navigation.binderID == binder.id && navigation.folderID == folder.id
         return HStack(spacing: 0) {
+            // Shows it in the binder page's tree, open, where new things go; the page stays on the binder.
             Button {
-                navigation.binderID = binder.id
-                navigation.folderID = folder.id
-                navigation.selection = .binder
+                navigation.show(folder: folder)
                 settings.currentBinderID = binder.id
             } label: {
                 HStack(spacing: 8) {
@@ -710,7 +740,7 @@ struct HubSidebar: View {
             }
             .buttonStyle(.plain)
             if hasFolders {
-                disclosure(openFolders.contains(folder.id), name: folder.name) { toggle(folder.id, in: &openFolders) }
+                disclosure(expansion.isOpen(folder.id), name: folder.name) { expansion.toggle(folder.id) }
                     .padding(.trailing, 6)
             }
         }
@@ -742,10 +772,6 @@ struct HubSidebar: View {
         .buttonStyle(.plain)
         .help(open ? "Hide the folders in \(name)" : "Show the folders in \(name)")
         .accessibilityLabel(open ? "Hide folders" : "Show folders")
-    }
-
-    private func toggle(_ id: UUID, in set: inout Set<UUID>) {
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
     }
 
     private func rowFill(selected: Bool, hovered: Bool, dropping: Bool) -> AnyShapeStyle {

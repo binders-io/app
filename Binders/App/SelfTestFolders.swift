@@ -144,13 +144,13 @@ extension SelfTest {
         check(FolderPrompts.shared.deleting == crowded.id && store.folder(crowded.id) != nil, "one with things in it asks first")
         FolderPrompts.shared.deleting = nil
 
-        // ⌘N in a folder: the new note goes in it.
+        // ⌘N with a folder chosen: the new note goes in it.
         let navigation = HubWindowController.shared.navigation
         navigation.selection = .binder
         navigation.binderID = work.id
         navigation.folderID = pipelines?.id
         HubWindowController.shared.newNote(nil)
-        check(navigation.pendingNoteID.flatMap { store.note($0) }?.folderID == pipelines?.id, "a new note goes in the folder you're in")
+        check(navigation.pendingNoteID.flatMap { store.note($0) }?.folderID == pipelines?.id, "a new note goes in the folder chosen")
         navigation.folderID = nil
 
         // A template's folder.
@@ -240,6 +240,7 @@ extension SelfTest {
         await severalMeetingsSelfTest(check: check, undoManager: undoManager)
         await switcherPlacesSelfTest(check: check, work: work, folder: pipelines, drawingTo: directory)
 
+        await folderTreeSelfTest(check: check, drawingTo: directory)
         tidySelfTest(check: check, note: { note($0, in: $1) }, undoManager: undoManager)
         await folderSearchSelfTest(check: check, note: { note($0, in: $1, folder: $2) }, work: work, folder: pipelines)
 
@@ -410,14 +411,15 @@ extension SelfTest {
         window.close()
     }
 
-    /// The sidebar with a binder's folders open and the binder page inside one, drawn to `directory`.
+    /// The sidebar with a binder's folders open and the binder page's tree open at one, drawn to `directory`.
     @MainActor
     private static func drawFolders(work: BinderRecord, folder: FolderRecord?, into directory: URL) async {
         let controller = DictationController()
         let navigation = HubNavigation()
         navigation.selection = .binder
         navigation.binderID = work.id
-        navigation.folderID = folder?.id
+        // Shown from the sidebar: open in the tree, with the folders it's in.
+        if let folder { navigation.show(folder: folder) }
         navigation.pendingBinderTab = .notes
         let hosting = NSHostingView(rootView: HubView()
             .environment(controller).environment(controller.meetings).environment(controller.knowledge).environment(controller.team)

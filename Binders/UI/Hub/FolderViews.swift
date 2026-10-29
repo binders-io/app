@@ -425,6 +425,13 @@ final class FolderPrompts {
         guard let creating, let made = Store.shared.createFolder(named: draft, in: creating.binderID, parent: creating.parent) else { return }
         self.made = made.id
         self.creating = nil
+        // It shows where it was made: in the sidebar, and on its binder's page, open, where new things go now.
+        let navigation = HubWindowController.shared.navigation
+        if navigation.selection == .binder, navigation.binderID == made.binderID {
+            navigation.show(folder: made)
+        } else {
+            FolderExpansion.shared.reveal(made.id, in: made.binderID)
+        }
         HubWindowController.shared.controller?.team.scheduleSync(after: 0.5)
         let then = self.then
         self.then = nil
@@ -439,7 +446,7 @@ final class FolderPrompts {
 
     func remove(_ folder: FolderRecord, undoManager: UndoManager?) {
         let navigation = HubWindowController.shared.navigation
-        // A page that was in it shows where its things went.
+        // New things went in it, or in a folder inside it: now they go where its things went.
         if let open = navigation.folderID, FolderTree.subtree(of: folder.id, in: Store.shared.folderNodes(in: folder.binderID)).contains(open) {
             navigation.folderID = Store.shared.shownFolder(folder.parentID, in: folder.binderID)
         }
@@ -458,6 +465,11 @@ final class FolderPrompts {
             undoManager?.setActionName("Delete Folder")
         }
         undoManager?.setActionName("Delete Folder")
+    }
+
+    /// "New Folder…" at the top of a binder; "New Folder in “Pipelines”…" with a folder chosen.
+    static func newFolderTitle(in folder: UUID?) -> String {
+        Store.shared.folder(folder).map { "New Folder in “\($0.name)”…" } ?? "New Folder…"
     }
 
     /// Where a new folder goes, or a deleted one's things: "Work", "Work › DevOps".
@@ -536,9 +548,12 @@ struct MoveToFolderItems: View {
     let binderID: UUID
     let current: UUID?
     var excluding: UUID? = nil
+    /// False for several items from different folders: none is checked, and any will do.
+    var marksCurrent = true
     let move: (UUID?) -> Void
 
     var body: some View {
+        let current: UUID? = marksCurrent ? self.current : UUID()
         let flat = FolderTree.flattened(Store.shared.folderNodes(in: binderID), excluding: excluding.map { [$0] } ?? [])
             .map { FolderEntry(node: $0.node, depth: $0.depth) }
         Button {
@@ -582,97 +597,5 @@ struct FolderContextItems: View {
         }
         Divider()
         Button("Delete Folder…", role: .destructive) { FolderPrompts.shared.delete(folder, undoManager: undoManager) }
-    }
-}
-
-// MARK: - Where you are
-
-/// Inside a folder, under the binder's name: where you are, as a path you click to go back up. Each part takes what's
-/// dropped on it.
-struct FolderPathBar: View {
-    let binder: BinderRecord
-    let folderID: UUID?
-    let open: (UUID?) -> Void
-
-    var body: some View {
-        let chain = FolderTree.chain(to: folderID, in: FolderTree.index(Store.shared.folderNodes(in: binder.id)))
-        HStack(spacing: 4) {
-            segment(binder.name, symbol: "books.vertical", target: nil, current: chain.isEmpty)
-            ForEach(chain) { folder in
-                Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-                segment(folder.name, symbol: "folder", target: folder.id, current: folder.id == chain.last?.id)
-            }
-        }
-        .font(.callout)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Where you are")
-    }
-
-    private func segment(_ name: String, symbol: String, target: UUID?, current: Bool) -> some View {
-        PathSegment(name: name, symbol: symbol, current: current, binderID: binder.id, target: target) { open(target) }
-    }
-}
-
-private struct PathSegment: View {
-    let name: String
-    let symbol: String
-    let current: Bool
-    let binderID: UUID
-    let target: UUID?
-    let action: () -> Void
-    @State private var targeted = false
-    @Environment(\.undoManager) private var undoManager
-
-    var body: some View {
-        Button(action: action) {
-            Label(name, systemImage: symbol)
-                .lineLimit(1)
-                .foregroundStyle(current ? AnyShapeStyle(.primary) : AnyShapeStyle(.tintText))
-                .fontWeight(current ? .semibold : .regular)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(targeted ? AnyShapeStyle(TintFill().opacity(0.18)) : AnyShapeStyle(Color.clear)))
-        }
-        .buttonStyle(.plain)
-        .disabled(current && !targeted)
-        .help(target == nil ? "The top of the binder. Drop a note or folder here to move it to the top." : "Open this folder. Drop a note or folder here to move it in.")
-        .dropDestination(for: String.self) { items, _ in
-            DraggedItem.drop(items, into: target, binder: binderID, undoManager: undoManager)
-        } isTargeted: { targeted = $0 }
-    }
-}
-
-/// A folder in a binder's notes, meetings or captures: click to go in; drop a note, meeting or folder on it to move it
-/// in; drag it onto another folder.
-struct FolderListRow: View {
-    let folder: FolderRecord
-    /// What it holds that this list shows, for the count beside it.
-    let count: Int
-    let open: () -> Void
-    @State private var targeted = false
-    @Environment(\.undoManager) private var undoManager
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 8) {
-                Image(systemName: "folder").foregroundStyle(.tintText).frame(width: 18)
-                Text(folder.name).lineLimit(1)
-                Spacer(minLength: 4)
-                if count > 0 { Text("\(count)").font(.caption).monospacedDigit().foregroundStyle(.secondary) }
-                Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 3)
-            .padding(.horizontal, 4)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(targeted ? AnyShapeStyle(TintFill().opacity(0.18)) : AnyShapeStyle(Color.clear)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .draggable(DraggedItem.folder(folder.id).string)
-        .dropDestination(for: String.self) { items, _ in
-            DraggedItem.drop(items, into: folder.id, binder: folder.binderID, undoManager: undoManager)
-        } isTargeted: { targeted = $0 }
-        .contextMenu { FolderContextItems(folder: folder) }
-        .accessibilityLabel("Folder \(folder.name)")
-        .accessibilityHint("Opens the folder")
     }
 }

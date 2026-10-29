@@ -55,15 +55,16 @@ struct SeveralButtons: View {
     let noun: String
     /// The binder the list is in, whose folders Move to Folder offers; nil for a list of every binder's.
     let binderID: UUID?
-    /// The folder the list is in; nil at the top.
+    /// The folder they're all in (nil: the top), or, when `together` is false, where new things go.
     let folderID: UUID?
+    var together = true
     let toFolder: (UUID?) -> Void
     let toBinder: (BinderRecord) -> Void
     let delete: () -> Void
 
     var body: some View {
         if let binderID {
-            Menu { SeveralFolderItems(binderID: binderID, folderID: folderID, move: toFolder) } label: { Label("Move to Folder", systemImage: "folder") }
+            Menu { SeveralFolderItems(binderID: binderID, folderID: folderID, together: together, move: toFolder) } label: { Label("Move to Folder", systemImage: "folder") }
                 .fixedSize()
                 .help("Move the \(count) \(noun) into a folder in this binder, or a new one")
         }
@@ -83,13 +84,14 @@ struct SeveralMenuItems: View {
     let noun: String
     let binderID: UUID?
     let folderID: UUID?
+    var together = true
     let toFolder: (UUID?) -> Void
     let toBinder: (BinderRecord) -> Void
     let delete: () -> Void
 
     var body: some View {
         if let binderID {
-            Menu("Move \(count) \(noun) to Folder") { SeveralFolderItems(binderID: binderID, folderID: folderID, move: toFolder) }
+            Menu("Move \(count) \(noun) to Folder") { SeveralFolderItems(binderID: binderID, folderID: folderID, together: together, move: toFolder) }
         }
         Menu("Move \(count) \(noun) to Binder") { MoveToBinderItems(current: binderID, move: toBinder) }
         Divider()
@@ -101,12 +103,13 @@ struct SeveralMenuItems: View {
 struct SeveralFolderItems: View {
     let binderID: UUID
     let folderID: UUID?
+    var together = true
     let move: (UUID?) -> Void
 
     var body: some View {
-        MoveToFolderItems(binderID: binderID, current: folderID, move: move)
+        MoveToFolderItems(binderID: binderID, current: folderID, marksCurrent: together, move: move)
         Divider()
-        Button(folderID == nil ? "New Folder…" : "New Folder Here…") {
+        Button(FolderPrompts.newFolderTitle(in: folderID)) {
             FolderPrompts.shared.create(in: binderID, parent: folderID) { made in move(made) }
         }
     }
