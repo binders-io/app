@@ -412,11 +412,10 @@ final class ManagerService {
         case .deletedCard:
             guard board.card(change.id) == nil else { return nil }
             guard let was = ManagerCardSnapshot.read(change.snapshot) else { return "“\(change.line)”: Binders didn't keep enough of it to make it again." }
-            let shared = controller?.teamBoard.isShared(binder: was.binder) == true
             let column = BoardColumn(rawValue: was.column) ?? .backlog
             let card = board.create(title: was.title, details: was.details, binderID: was.binder, column: column == .done ? .backlog : column, due: was.due,
                                     source: was.sourceKind.flatMap { kind in was.sourceID.map { (kind, $0, was.sourceTitle ?? "") } },
-                                    id: shared ? nil : was.id, by: .you)
+                                    id: was.id, by: .you)
             if !was.links.isEmpty { board.tidy(card, links: was.links, by: .you, line: "Brought back: Undid the Manager's deleting it.") }
             if let who = was.meantFor { board.assign(card, to: who, by: .you) }
             if column == .done { try? board.tidyMove(card, to: .done, note: "Brought back as it was.") }
@@ -515,7 +514,6 @@ final class ManagerService {
             note.text = updated
             note.updatedAt = Date()
             Store.shared.save()
-            TeamNotes.current?.capture(note, by: .person)
             if !oldTitle.isEmpty { _ = LinkTargets.renameNote(note.id, from: oldTitle, to: note.title, itself: true) }
             file.suggestions[index].status = .accepted
             save()

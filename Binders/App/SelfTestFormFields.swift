@@ -7,8 +7,8 @@ extension SelfTest {
     /// box from the row's left edge, at least half the row wide, inside the window (`StackedField`, by its `field.` probes).
     /// Each Settings page, scrolled top to bottom, at 1020 × 720 and 840 × 560, light and dark (AI once for each provider,
     /// Writing with listed sites, iPhone with its addresses); then the agent editor (Claude Code, a command over SSH, a
-    /// web hook with a status address, Codex), the automation editor (a command, a web hook), the team database's sheets, the
-    /// decision server's, and where MLX models come from, opened. Draws each screen to `directory` as it scrolls:
+    /// web hook with a status address, Codex), the automation editor (a command, a web hook), the
+    /// decision server's sheet, and where MLX models come from, opened. Draws each screen to `directory` as it scrolls:
     /// settings-<page>-<width>-<theme>-<step>.png and sheet-<name>-<theme>-<step>.png.
     @MainActor
     static func formFieldsFit(directory: URL, controller: DictationController, hub: (@escaping (HubNavigation) -> Void) -> AnyView,
@@ -142,9 +142,6 @@ extension SelfTest {
             ("agent-codex", NSSize(width: 600, height: 660), environment(AgentEditor(agent: codex, isNew: false))),
             ("automation-command", NSSize(width: 580, height: 560), environment(AutomationEditor(rule: script) { _, _ in })),
             ("automation-webhook", NSSize(width: 580, height: 560), environment(AutomationEditor(rule: webhook) { _, _ in })),
-            ("team-database", NSSize(width: 520, height: 640), environment(TeamDatabaseSetUpSheet { _ in })),
-            ("team-update", NSSize(width: 480, height: 360), environment(TeamDatabaseUpdateSheet { _ in })),
-            ("team-member", NSSize(width: 460, height: 420), environment(TeamAddMemberSheet { _ in })),
             ("decision-server", NSSize(width: 520, height: 320), environment(DecisionServerSheet(address: "") { _ in })),
             // Settings → AI's "Where models come from", opened, in a grouped form as the page has it.
             ("mlx-source", NSSize(width: 560, height: 300), environment(Form { MLXModelSource(shows: true) }.formStyle(.grouped))),
@@ -173,9 +170,7 @@ extension SelfTest {
                         "field.agent.statusAddress", "field.agent.statusToken", "field.agent.cliModel",
                         "field.automation.name", "field.automation.phrase", "field.automation.command", "field.automation.webhookURL",
                         "field.automation.body", "field.automation.token",
-                        "field.teamdb.server", "field.teamdb.database", "field.teamdb.adminLogin", "field.teamdb.adminPassword", "field.teamdb.teamName",
-                        "field.teamdb.yourName", "field.teamdb.update.adminLogin", "field.teamdb.update.adminPassword", "field.teamdb.member.name",
-                        "field.teamdb.member.login", "field.decision.server",
+                        "field.decision.server",
                         "field.mlx.endpoint", "field.mlx.token", "field.ai.ollamaURL", "field.ai.baseURL", "field.ai.apiKey", "field.writing.sites", "field.team.name", "field.phone.address"]
         let missing = expected.filter { !seen.contains($0) }
         check(missing.isEmpty, "every stacked field was drawn and checked (\(seen.count) of them)" + (missing.isEmpty ? "" : "; not seen: \(missing.joined(separator: ", "))"))

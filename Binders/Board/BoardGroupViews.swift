@@ -281,12 +281,10 @@ struct SeveralCardsButtons: View {
 /// Whom Assign to gives cards to.
 enum AssignChoice: Equatable {
     case who(BoardBulk.Who)
-    /// A teammate's agent, which asks for your yes the first time (lane DB2).
-    case teammatesAgent(TeamDirectory.Agent)
 }
 
-/// Assign to's choices, as a card's own Who menu has them: anyone, you, your agents that take this board's cards,
-/// teammates' agents and teammates on a board shared through the team database, and the people on this board.
+/// Assign to's choices, as a card's own Who menu has them: anyone, you, your agents that take this board's cards, and the
+/// people on this board.
 struct AssignItems: View {
     @Environment(DictationController.self) private var controller
     let binderID: UUID?
@@ -303,20 +301,7 @@ struct AssignItems: View {
                 ForEach(agents) { agent in Button(agent.name) { choose(.who(.agent(agent.name))) } }
             }
         }
-        let team = controller.teamBoard
-        let theirs = team.teammatesAgents(taking: binderID)
-        if !theirs.isEmpty {
-            Section("Teammates' Agents") {
-                ForEach(theirs) { agent in Button(team.consent(for: agent).name) { choose(.teammatesAgent(agent)) } }
-            }
-        }
-        let teammates = team.covers(binderID) ? team.directory.teammates.map(\.name) : []
-        if !teammates.isEmpty {
-            Section("Teammates") {
-                ForEach(teammates, id: \.self) { name in Button(name) { choose(.who(.person(name))) } }
-            }
-        }
-        let people = peopleOnThisBoard.filter { name in !teammates.contains(name) && team.teammatesAgent(named: name) == nil }
+        let people = peopleOnThisBoard
         if !people.isEmpty {
             Section("People") {
                 ForEach(people, id: \.self) { name in Button(name) { choose(.who(.person(name))) } }

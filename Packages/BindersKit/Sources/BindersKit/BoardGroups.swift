@@ -282,18 +282,10 @@ public enum BoardBulkWords {
         return parts.isEmpty ? "Nothing changed." : parts.joined(separator: " ")
     }
 
-    /// The one question before deleting several: "Delete 5 cards?", with what Undo can and can't put back. `shared`: how
-    /// many are on a board shared through the team database, which go for everyone.
+    /// The one question before deleting several: "Delete 5 cards?", with what Undo can put back.
     public static func deleteQuestion(_ count: Int) -> String { "Delete \(cards(count))?" }
 
-    public static func deleteMessage(_ count: Int, shared: Int) -> String {
-        if shared == 0 { return "You can undo this." }
-        let them = shared == count ? (count == 1 ? "It's on the team's board" : "They're on the team's board")
-            : shared == 1 ? "1 of them is on the team's board" : "\(shared) of them are on the team's board"
-        let mine = count - shared
-        return them + ": " + (shared == 1 ? "it's" : "they're") + " deleted for everyone, which can't be undone."
-            + (mine == 0 ? "" : mine == 1 ? " Undo puts the other one back." : " Undo puts the other \(mine) back.")
-    }
+    public static let deleteMessage = "You can undo this."
 
     /// The one question before giving several to an agent: "Give 5 cards to Claude Code?"
     public static func giveQuestion(_ count: Int, to agent: String) -> String { "Give \(cards(count)) to \(agent)?" }

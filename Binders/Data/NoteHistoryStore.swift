@@ -142,8 +142,6 @@ enum NoteHistory {
     /// Puts a version back, keeping what's there now as a version first, so a restore can be undone the same way. For a
     /// Distill note the text put back is kept too, as a version of its own by you, so its history is only ever added to.
     static func restore(_ version: Version, to note: NoteItem) {
-        // A note shared through a team database: the team's version, put back as a version of its own (lane DB3).
-        if TeamNotes.current?.restore(version.stem, to: note) == true { return }
         let now = Date()
         if note.distill {
             var index = self.index(of: note.id, note: note)
@@ -203,7 +201,6 @@ enum NoteHistory {
 
     /// Gives a version a name ("Approved", "v2"), or takes it away with an empty one.
     static func name(_ version: String, of note: NoteItem, _ name: String) {
-        if TeamNotes.current?.name(version, of: note, name) == true { return }
         var index = self.index(of: note.id, note: note)
         let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
         var entry = index.versions[version] ?? .init(by: index.current?.by ?? .you)
@@ -216,8 +213,6 @@ enum NoteHistory {
     /// Marked with the distill. Returns its id.
     @discardableResult
     static func markRead(_ note: NoteItem, by distill: UUID, at date: Date = Date()) -> String {
-        // A shared note: the team's document as it is now, which the team's history marks (lane DB3).
-        if let version = TeamNotes.current?.markRead(note, by: distill) { return version }
         var index = self.index(of: note.id, note: note)
         let id: String
         if let latest = versions(of: note.id).first, latest.text == note.text {
@@ -234,7 +229,6 @@ enum NoteHistory {
 
     /// Marks a version kept earlier (the one an agent was given to read) with the distill that read it.
     static func markVersion(_ version: String, of note: NoteItem, by distill: UUID) {
-        if TeamNotes.current?.markVersion(version, of: note, by: distill) == true { return }
         var index = self.index(of: note.id, note: note)
         var entry = index.versions[version] ?? .init(by: index.current?.by ?? .you)
         if !entry.distills.contains(distill) { entry.distills.append(distill) }
@@ -245,15 +239,12 @@ enum NoteHistory {
     /// A version's text by its id, or the note's as it is now for "now".
     static func text(of version: String, note: NoteItem) -> String? {
         if version == NoteVersions.nowID { return note.text }
-        if let text = TeamNotes.current?.text(of: version, note: note) { return text }
         let url = folder(for: note.id).appendingPathComponent(version).appendingPathExtension("md")
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
     /// History's list for a note: every version newest first, the note as it is now on top, each with who made it.
     static func entries(of note: NoteItem) -> [NoteVersions.Entry] {
-        // A shared note's history is the team's (lane DB3).
-        if let team = TeamNotes.current, team.keepsHistory(of: note) { return team.entries(of: note) }
         let texts = versions(of: note.id).map { (id: $0.stem, at: $0.date, text: $0.text) }
         return NoteVersions.entries(texts: texts, now: note.text, index: index(of: note.id, note: note))
     }
@@ -276,8 +267,6 @@ struct NoteHistorySheet: View {
     @State private var entries: [String: NoteVersions.Entry] = [:]
     @State private var naming = false
     @State private var name = ""
-    /// A note shared through a team database: its versions are the team's (lane DB3), with names, compare and distills.
-    @State private var team = false
 
     var body: some View {
         // A note with "## " headings says which sections each version touched; one without has only its opening.
@@ -292,13 +281,13 @@ struct NoteHistorySheet: View {
             Divider()
             if versions.isEmpty {
                 ContentUnavailableView("No earlier versions yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text(team ? "The team's versions of this note show here, each with who made it." : note.distill ? "Binders keeps every version of a note with Distill on, with who made it." : "Binders keeps a note as it was before each time you edit it, every few minutes while you write, and before a teammate's or an agent's change lands. Versions stay for 30 days."))
+                                       description: Text(note.distill ? "Binders keeps every version of a note with Distill on, with who made it." : "Binders keeps a note as it was before each time you edit it, every few minutes while you write, and before a teammate's or an agent's change lands. Versions stay for 30 days."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
                     // Who wrote the note as it is now, above the versions kept before it.
-                    if note.distill || team, let now = entries[NoteVersions.nowID] {
+                    if note.distill, let now = entries[NoteVersions.nowID] {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Now").font(.callout.weight(.semibold))
                             Label(now.by.label, systemImage: now.by.isAgent ? BindersTheme.agentSymbol : "person")
@@ -324,7 +313,7 @@ struct NoteHistorySheet: View {
                                 }
                             }
                             if let entry = entries[version.stem] {
-                                if note.distill || team {
+                                if note.distill {
                                     Label(entry.by.label, systemImage: entry.by.isAgent ? BindersTheme.agentSymbol : "person")
                                         .font(.caption)
                                         .foregroundStyle(entry.by.isAgent ? AnyShapeStyle(BindersTheme.agent) : AnyShapeStyle(.secondary))
@@ -364,7 +353,7 @@ struct NoteHistorySheet: View {
                             Divider()
                             HStack {
                                 Button("Copy") { TextInserter.copyToClipboard(selected.text) }
-                                if note.distill || team {
+                                if note.distill {
                                     // Compare it with any other version, or with the note now; or just read it.
                                     Picker("Compare", selection: $compareTo) {
                                         Text("Read It").tag("")
@@ -400,7 +389,7 @@ struct NoteHistorySheet: View {
                                     NoteHistory.restore(selected, to: note)
                                     dismiss()
                                 }
-                                .help(note.distill || team ? "Puts this version back as a new version. Nothing in the history is taken away."
+                                .help(note.distill ? "Puts this version back as a new version. Nothing in the history is taken away."
                                       : "Puts this version back. What's there now is kept as a version, so you can go back to it.")
                             }
                             .padding(12)
@@ -412,14 +401,7 @@ struct NoteHistorySheet: View {
         .frame(width: 820, height: 560)
         .pageGround()
         .task {
-            if let notes = TeamNotes.current, notes.keepsHistory(of: note) {
-                team = true
-                versions = await notes.versions(of: note).map {
-                    NoteHistory.Version(url: URL(fileURLWithPath: "/team-versions/\($0.id.uuidString).md"), date: $0.at, text: $0.text)
-                }
-            } else {
-                versions = NoteHistory.versions(of: note.id)
-            }
+            versions = NoteHistory.versions(of: note.id)
             reloadEntries()
             // The version kept as the change landed is from the same moment, give or take the rounding of its name.
             let before = changesFrom.flatMap { moment in versions.first { $0.date <= moment.addingTimeInterval(1) } }
@@ -428,7 +410,7 @@ struct NoteHistorySheet: View {
             if before != nil { compareTo = NoteVersions.nowID }
         }
         .onChange(of: selected) {
-            guard note.distill || team else { return }
+            guard note.distill else { return }
             compareTo = ""
             showingChanges = false
         }

@@ -101,8 +101,7 @@ final class BoardGroupsTests: XCTestCase {
                        "Put 2 cards in “Spec”. 1 stayed: Distill made it from “Plan”, so it stays in that note's group.")
         XCTAssertEqual(BoardBulkWords.grouped(2, into: nil), "Took 2 cards out of their notes' groups.")
         XCTAssertEqual(BoardBulkWords.deleteQuestion(5), "Delete 5 cards?")
-        XCTAssertEqual(BoardBulkWords.deleteMessage(5, shared: 0), "You can undo this.")
-        XCTAssertEqual(BoardBulkWords.deleteMessage(5, shared: 2), "2 of them are on the team's board: they're deleted for everyone, which can't be undone. Undo puts the other 3 back.")
+        XCTAssertEqual(BoardBulkWords.deleteMessage, "You can undo this.")
         XCTAssertEqual(BoardBulkWords.giveQuestion(5, to: "Claude Code"), "Give 5 cards to Claude Code?")
         XCTAssertEqual(BoardBulkWords.notHandedOver(["Agents are paused.", "Agents are paused.", "It isn't in Ready for an agent that takes it"]),
                        "2 weren't handed over yet: Agents are paused. 1 wasn't handed over yet: It isn't in Ready for an agent that takes it.")
@@ -119,37 +118,24 @@ final class BoardGroupsTests: XCTestCase {
         let kept = try XCTUnwrap(DistilledFrom(json: from.json), "it keeps on the card as JSON")
         XCTAssertEqual(kept.byHand, true)
         XCTAssertEqual(kept.groupNote, spec)
-        // To the team: the note and by_hand only, so a Mac before this build reads no Distill part on it.
-        let team = try XCTUnwrap(from.teamJSON.object)
-        XCTAssertEqual(Set(team.keys), ["note", "by_hand"])
-        XCTAssertNil(team["distill"])
-        let back = try XCTUnwrap(DistilledFrom(team: from.teamJSON))
-        XCTAssertEqual(back.byHand, true)
-        XCTAssertEqual(back.note, spec)
-        XCTAssertEqual(back, from, "back from the team as it went")
     }
 
     func testACardDistillMadeIsInItsNotesGroupAndARequestIsInNone() {
         let made = DistilledFrom(note: spec, distill: UUID(), item: UUID(), section: "Payment form")
         XCTAssertTrue(made.isDistilled)
         XCTAssertEqual(made.groupNote, spec)
-        XCTAssertNil(made.teamJSON.object?["by_hand"], "no new key on a card Distill made")
         let asking = DistilledFrom(note: spec, distill: plan, item: plan, request: true)
         XCTAssertNil(asking.groupNote, "a card asking an agent to distill the note is about it, not part of its work")
         XCTAssertFalse(asking.isDistilled)
     }
 
     func testAnOldRecordWithoutTheParentStillReads() throws {
-        // As a card made before this lane keeps it, and as the team database has it.
+        // As a card made before this lane keeps it.
         let note = UUID(), distill = UUID(), item = UUID()
         let old = #"{"note":"\#(note.uuidString)","distill":"\#(distill.uuidString)","item":"\#(item.uuidString)","section":"Rollout","sectionHash":"abc"}"#
         let from = try XCTUnwrap(DistilledFrom(json: old))
         XCTAssertNil(from.byHand)
         XCTAssertTrue(from.isDistilled)
         XCTAssertEqual(from.groupNote, note)
-        let team = TeamJSON.object(["note": TeamJSON(note), "distill": TeamJSON(distill), "item": TeamJSON(item), "section": .string("Rollout")])
-        XCTAssertEqual(DistilledFrom(team: team)?.groupNote, note)
-        XCTAssertNil(DistilledFrom(team: .object(["note": TeamJSON(note)])), "a team part with neither an item nor by_hand isn't one")
-        XCTAssertNil(DistilledFrom(team: .object(["note": TeamJSON(note), "by_hand": false])))
     }
 }

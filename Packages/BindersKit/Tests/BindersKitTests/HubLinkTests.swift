@@ -106,13 +106,6 @@ final class HubLinkTests: XCTestCase {
         XCTAssertTrue(HubLink.newProjectID().hasPrefix("binder-"))
     }
 
-    func testMovedProjectIsTheSameOnEveryMac() {
-        let binder = UUID(uuidString: "6B0E8F52-3C1A-4D2B-9E7F-0A1B2C3D4E5F")!
-        XCTAssertEqual(HubLink.movedProjectID(binder), "binder-6b0e8f52-3c1a-4d2b-9e7f-0a1b2c3d4e5f")
-        XCTAssertEqual(HubLink.movedProjectID(binder), HubLink.movedProjectID(binder))
-        XCTAssertNotEqual(HubLink.movedProjectID(binder), HubLink.movedProjectID(UUID()))
-    }
-
     func testWhatTheHubSays() {
         let me = Data(#"{"user":{"login":"robin-h","name":"Robin"},"space":"team","spaces":[{"id":"team","name":"Team","role":"owner"},{"id":"lab","name":"Lab","role":"member"}]}"#.utf8)
         let spaces = HubLink.spaces(fromMe: me)

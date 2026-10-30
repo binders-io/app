@@ -37,9 +37,6 @@ struct BoardView: View {
     @State private var draggingIDs: Set<UUID> = []
     /// The column a card just landed in, for a short answer there.
     @State private var dropFlash: BoardColumn?
-    /// Giving cards to a teammate's agent, waiting for your yes (lane DB2), and the cards.
-    @State private var asking: TeamConsent?
-    @State private var askingFor: [UUID] = []
     @FocusState private var focused: Bool
     @FocusState private var draftFocused: Bool
     /// For self-tests: the layout the board last drew, and the width it had for it.
@@ -140,8 +137,6 @@ struct BoardView: View {
                     .padding(.horizontal, 24)
                     .padding(.bottom, 8)
             }
-            // Shared through a team database that's off or out of reach: what waits, what's kept, and what to do (lane DB8).
-            TeamReachLine(binderID: binder.id)
             // Several selected (lane DS5): what to do with them all, and what stays as it is.
             if selection.count > 1 {
                 let chosen = selectedCards
@@ -208,8 +203,7 @@ struct BoardView: View {
             .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: {
-            let going = cards(deleting)
-            Text(BoardBulkWords.deleteMessage(going.count, shared: going.filter { BoardBulk.sharedWithTeam($0, board: controller.board) }.count))
+            Text(BoardBulkWords.deleteMessage)
         }
         .confirmationDialog(giving.map { BoardBulkWords.giveQuestion($0.ids.count, to: $0.name) } ?? "",
                             isPresented: Binding(get: { giving != nil }, set: { if !$0 { giving = nil } }), titleVisibility: .visible, presenting: giving) { give in
@@ -220,11 +214,6 @@ struct BoardView: View {
             Button("Cancel", role: .cancel) {}
         } message: { give in
             Text(BoardBulkWords.giveMessage(give.ids.count, to: give.name))
-        }
-        .teamConsent($asking) { consent in
-            // The yes for a teammate's agent is the one question.
-            controller.teamBoard.agree(to: consent.agent)
-            act(BoardBulk.assign(cards(askingFor), to: .agent(consent.name), board: controller.board, undoManager: undoManager))
         }
         .onAppear(perform: takePendingSelection)
         .onChange(of: navigation.pendingBoardSelection) { takePendingSelection() }
@@ -510,22 +499,13 @@ struct BoardView: View {
                                    delete: { deleting = chosen.map(\.id) })
     }
 
-    /// Assign to: an agent asks once ("Give 5 cards to Claude Code?"), a teammate's agent asks for your yes the first time;
-    /// you, a teammate or anyone happen at once, with Undo.
+    /// Assign to: an agent asks once ("Give 5 cards to Claude Code?"); you, someone else or anyone happen at once, with Undo.
     private func assign(_ chosen: [TaskCard], _ choice: AssignChoice) {
         switch choice {
         case .who(.agent(let name)):
             giving = Giving(ids: chosen.map(\.id), name: name)
         case .who(let who):
             act(BoardBulk.assign(chosen, to: who, board: controller.board, undoManager: undoManager))
-        case .teammatesAgent(let agent):
-            let consent = controller.teamBoard.consent(for: agent)
-            if controller.teamBoard.agreed(to: agent) {
-                giving = Giving(ids: chosen.map(\.id), name: consent.name)
-            } else {
-                askingFor = chosen.map(\.id)
-                asking = consent
-            }
         }
     }
 
@@ -581,12 +561,6 @@ struct BoardView: View {
             rules.append("1 was put on the board from its note: it stays in that note's group.")
         } else if put > 1 {
             rules.append("\(put) were put on the board from their notes: they stay in their notes' groups.")
-        }
-        let shared = chosen.filter { BoardBulk.sharedWithTeam($0, board: controller.board) }.count
-        if shared == 1 {
-            rules.append("1 is on the team's board: deleting it deletes it for everyone.")
-        } else if shared > 1 {
-            rules.append("\(shared) are on the team's board: deleting them deletes them for everyone.")
         }
         return rules
     }

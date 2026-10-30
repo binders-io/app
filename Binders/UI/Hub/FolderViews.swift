@@ -270,8 +270,7 @@ enum NoteMoves {
 
 /// Moving meetings and captures, one or several, into a folder or to another binder (FiledMoves), each by the rules it
 /// has moved alone: a teammate's is theirs to move, and one still recording stays in its binder until it stops (any
-/// folder in it will do). A capture stays unshared wherever it goes, except in a binder shared through a team database,
-/// where putting it yourself shares it with the team (Store.move). One Undo puts the whole move back.
+/// folder in it will do). A capture stays unshared wherever it goes. One Undo puts the whole move back.
 @MainActor
 enum MeetingMoves {
     /// Into `folder`, or to the top of `binderID` when it's nil. A folder in another binder takes them there too.
@@ -313,14 +312,11 @@ enum MeetingMoves {
         return (["\(titles(theirs)) are teammates' \(kind): only they can move them."] + others).joined(separator: " ")
     }
 
-    /// What moving captures into a shared binder did to their sharing: the team has them now (a binder shared through a
-    /// team database), or they stay on this Mac (one shared through a team folder). Nil when none of them is a capture,
-    /// or the binder isn't shared.
+    /// What moving captures into a shared binder did to their sharing: they stay on this Mac. Nil when none of them is a
+    /// capture, or the binder isn't shared.
     static func captureSharing(_ moved: [UUID], in binder: BinderRecord) -> String? {
         let captures = moved.compactMap { Store.shared.meeting($0) }.filter(\.isConversation)
         guard !captures.isEmpty else { return nil }
-        let shared = captures.filter { TeamContent.current?.isShared($0) == true }.count
-        if shared > 0 { return shared == 1 ? "Your team can read its notes and transcript now." : "Your team can read their notes and transcripts now." }
         guard binder.sharedWithTeam else { return nil }
         return captures.count == 1 ? "It stays on this Mac: captures aren't shared." : "They stay on this Mac: captures aren't shared."
     }

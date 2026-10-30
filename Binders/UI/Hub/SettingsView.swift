@@ -132,9 +132,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .mcp: "Let Claude Code, Claude Desktop and other AI tools search, ask and add to your knowledge base."
         case .agents: "Agents that take cards from your boards: how Binders hands one over, and how it hears back."
         case .phone: "Pair your iPhone with Binders on this Mac, at home or anywhere through your VPN."
-        // The team database is held back from 0.10.0 behind its default (TeamDatabaseFeature): unnamed while it's off. On,
-        // it says how this Mac shares (lane DB7).
-        case .team: TeamDatabaseFeature.subtitle(TeamDatabaseFeature.way)
+        case .team: "Sharing binders through a hub, or a folder you already sync."
         case .privacy: "What is kept, for how long, and permissions."
         }
     }
@@ -1143,33 +1141,18 @@ private struct WritingCaptureSettings: View {
 private struct TeamSettings: View {
     @Environment(AppSettings.self) private var settings
     @Environment(TeamSyncService.self) private var team
-    @Environment(DictationController.self) private var controller
     @State private var confirmLeave = false
     @State private var teamError: String?
-    /// Move This Team to a Database… (lane DB3).
-    @State private var moving = false
-    /// Move to a Hub…, from the team database's part (HubMoveSheet), shown here so it stays once that part goes.
-    @State private var movingToHub = false
-    /// What came of joining a team here.
-    @State private var said: String?
-    /// The team database, held back from 0.10.0 behind its default (TeamDatabaseFeature), read as it changes.
-    @AppStorage(TeamDatabaseFeature.key, store: AppDefaults.store) private var teamDatabaseOn = false
+
+    /// Sharing through a folder synced by OneDrive, Dropbox, Google Drive or iCloud Drive, for a Mac without a hub.
+    static let folderWords = "Share meetings and notes with your team through a folder synced by OneDrive, Dropbox, Google Drive or iCloud Drive. There's no server. Only the notes and meetings in binders you share leave this Mac, with the files attached to those notes; captures and the audio Binders records never do. They're stored as Markdown, so the folder also opens as an Obsidian vault."
 
     var body: some View {
         @Bindable var settings = settings
-        // How this Mac shares, read with the default so the page follows it (lane DB7).
-        let way = teamDatabaseOn ? TeamDatabaseFeature.way(hasFolder: team.folderURL != nil) : .folderOnly
-        // A hub leads: it takes the place of a team database's server, login and VPN for a team starting now. A Mac
-        // already on a team database, or in a team folder, keeps its part below. The hub heads the part.
-        HubSignInSection(summary: TeamDatabaseFeature.subtitle(way))
+        // A hub leads; a Mac without one shares through a team folder, below.
+        HubSignInSection(summary: SettingsPage.team.summary)
         Section {
             StackedField(label: "Your name", text: $settings.teamMemberName, prompt: NSFullUserName(), probe: "field.team.name")
-            // An invite opened on this Mac (a link, or a file from Finder): it asks before it joins, and while team
-            // databases are off, whether to turn them on (lane DB7). A Mac on a team database has its team.
-            if way != .database, let invite = controller.teamBoard.pendingInvite {
-                TeamInviteQuestion(invite: invite, featureOn: teamDatabaseOn, folderTeam: team.folderURL != nil,
-                                   said: { said = $0; teamError = nil }, failed: { teamError = $0 }, move: { moving = true })
-            }
             if let folder = team.folderURL {
                 LabeledContent("Team space") {
                     HStack {
@@ -1197,56 +1180,30 @@ private struct TeamSettings: View {
                 if let error = team.status.error {
                     StatusLabel(error, .problem).font(.caption)
                 }
-                // A teammate moved the team to a team database (lane DB3). Held back from 0.10.0 with the team database.
-                if teamDatabaseOn, let moved = team.status.moved {
-                    StatusLabel(moved.line, .needsYou).font(.caption).fixedSize(horizontal: false, vertical: true)
-                }
                 HStack {
                     Button("Sync now") { Task { await team.syncNow() } }
-                    if teamDatabaseOn {
-                        Button("Move This Team to a Database…") { moving = true }
-                            .help("Everything the team folder shares goes into a team database once, and this Mac stops syncing the folder")
-                            .fitProbe("team.database")
-                    }
                     Spacer()
                     Button("Leave team space…", role: .destructive) { confirmLeave = true }
                 }
             } else {
-                // A Mac shares one way: a team folder, or a team database (lane DB2), while the team database is on.
-                let database = way == .database
                 HStack {
                     Button("Create team space…") { chooseTeamFolder(create: true) }
                     Button("Join team space…") { chooseTeamFolder(create: false) }
-                }
-                .disabled(database)
-                if database {
-                    Text("This Mac shares through a team database. A Mac shares one way: leave the team database first to use a team folder.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if let teamError {
                     StatusLabel(teamError, .problem).font(.caption)
                 }
             }
-            if let said { StatusLabel(said, .done).font(.caption).fixedSize(horizontal: false, vertical: true) }
         } header: {
-            Text(way == .database ? "Team database" : "Shared folder").font(.headline).foregroundStyle(.primary)
+            Text("Shared folder").font(.headline).foregroundStyle(.primary)
         } footer: {
-            // What's true for the way this Mac shares (lane DB7): the folder's words, the database's, or both.
-            Text(TeamDatabaseFeature.footer(way))
-                .fitProbe("team.footer.\(way.rawValue)")
+            Text(Self.folderWords)
+                .fitProbe("team.footer.folderOnly")
         }
-        .sheet(isPresented: $moving) { TeamMoveSheet() }
-        .sheet(isPresented: $movingToHub) { HubMoveSheet(team: controller.teamBoard) }
         .confirmationDialog("Leave the team space?", isPresented: $confirmLeave) {
             Button("Leave", role: .destructive) { Task { await team.leave() } }
         } message: {
             Text("Teammates' meetings and notes are removed from this Mac. What you already shared stays in the team folder.")
-        }
-        // Held back from 0.10.0 behind its default (TeamDatabaseFeature): only the shared-folder way while it's off. On,
-        // in a team folder or on a team database, its part. A team starting now goes to a hub, above.
-        if way == .folder || way == .database {
-            TeamDatabaseSection(moveToHub: { movingToHub = true })
-                .fitProbe("team.database")
         }
     }
 

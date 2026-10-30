@@ -402,16 +402,6 @@ struct AgentEditor: View {
                     } footer: {
                         Text(startFooter)
                     }
-                    // Lane DB2: a teammate's card meant for it, on a board shared through your team database. Held back from
-                    // 0.10.0 with the team database (TeamDatabaseFeature).
-                    if TeamDatabaseFeature.isOn {
-                        Section {
-                            Toggle("Take cards from teammates", isOn: Binding(get: { draft.takesTeammatesCards }, set: { draft.takesTeamCards = $0 ? nil : false }))
-                                .fitProbe("agents.takeTeammatesCards")
-                        } footer: {
-                            Text("On a board shared through your team database, a card a teammate means for this agent starts it on its own when Start on cards Binders sends it is on too. Off, such a card waits for your Give to. Teammates see whether it takes their cards, never how Binders starts it.")
-                        }
-                    }
                 }
                 if kind == "claudeCode" {
                     Section {

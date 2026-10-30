@@ -181,7 +181,6 @@ enum ManagerCommands {
             guard let card = card(field("id")) else { return .failure("No card with that id") }
             guard let column = BoardColumn(loose: field("column")) else { return .failure("column is backlog, ready, in_progress, review, blocked or done") }
             guard card.column != column else { return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is in that column already.") }
-            if let refusal = board.teamRefusal(.move(column), on: card, by: actor) { return .failure(refusal) }
             let from = card.column
             do {
                 try board.tidyMove(card, to: column, note: "Moved by the Manager (\(actor.name))" + (why.isEmpty ? "." : ": \(why)"))
@@ -202,11 +201,7 @@ enum ManagerCommands {
                 manager.record(ManagerChange(kind: .assignedCard, id: card.id, line: "Took “\(card.title)” from \(previous)", before: previous), for: id)
                 return InboxResult(ok: true, id: card.id.uuidString, message: "“\(card.title)” is meant for no one now.")
             }
-            let team = controller.teamBoard
-            if let theirs = team.teammatesAgent(named: to), !team.agreed(to: theirs) {
-                return .failure("\(to) is a teammate's agent, and Binders asks the user before their first card goes to it. Ask them to give it one themselves.")
-            }
-            let isAgent = AgentRegistry.shared.agent(named: to) != nil || team.teammatesAgent(named: to) != nil
+            let isAgent = AgentRegistry.shared.agent(named: to) != nil
             let handOff = isAgent ? board.give(card, to: to, by: .you) : nil
             if !isAgent { board.assign(card, to: to, by: .you) }
             board.note(card, text: "Given to \(to) by the Manager (\(actor.name))" + (why.isEmpty ? "." : ": \(why)"))
@@ -235,7 +230,7 @@ enum ManagerCommands {
             guard let noteID = UUID(uuidString: field("id")), let note = Store.shared.note(noteID) else { return .failure("No note with that id") }
             guard !why.isEmpty else { return .failure("why is required") }
             if note.isTeamCopy { return .failure("“\(note.title)” is a teammate's note: only they delete it.") }
-            if TeamNotes.current?.covers(note) == true || note.sharedWithTeam {
+            if note.sharedWithTeam {
                 return .failure("“\(note.title)” is shared with the team, so deleting it deletes it for everyone: the user does that themselves.")
             }
             MarkdownEditor.flushAll()
@@ -301,12 +296,9 @@ enum ManagerCommands {
         }
     }
 
-    /// Why the Manager can't change this card now, or nil. It manages every board as you would, a team's too, whose moves
-    /// go through the team's database, which may refuse them while it's out of reach. A card that's done stays done unless
-    /// it's moved with move_task.
+    /// Why the Manager can't change this card now, or nil. A card that's done stays done unless it's moved with move_task.
     static func refusal(_ card: TaskCard, board: BoardService, closing: Bool) -> String? {
         if card.column == .done { return "“\(card.title)” is done already." }
-        if closing, let refusal = board.teamRefusal(.move(.done), on: card, by: BoardActor(name: "Manager", kind: .agent)) { return refusal }
         return nil
     }
 }

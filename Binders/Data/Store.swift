@@ -117,8 +117,8 @@ final class BinderRecord {
     /// "Agents may place work items" (lane DS1): an agent's proposal from Distill goes on this board without a person
     /// reviewing it first, its cards meant for whom it suggests as a suggestion. Off unless you turn it on.
     var agentsMayPlace: Bool = false
-    /// Shared through a team database (lane DB2): the database's key on this Mac (`TeamDatabaseServer.key`), so its board
-    /// goes through it. Empty for a binder that isn't.
+    /// The team database an earlier build shared this binder through. No longer read: kept so a store an earlier Binders
+    /// saved opens as it was.
     var teamDatabaseKey: String = ""
     /// Who made it in the team, by name, when it wasn't you: "From Dana". Empty otherwise.
     var teamMadeBy: String = ""
@@ -301,7 +301,10 @@ final class CommitmentRecord {
     /// Where it came from, where to-dos show it: "Added by Claude Code", "Added by a link", "Promised to Sam in Mail"; a
     /// teammate's says whose: "From Dana: Added by voice".
     var sourceTitle: String {
-        if let teamAuthorName { return TeamTodoValues.source(teamSource ?? "", maker: teamAuthorName) }
+        if let teamAuthorName {
+            let source = (teamSource ?? "").trimmingCharacters(in: .whitespaces)
+            return source.isEmpty ? "From \(teamAuthorName)" : "From \(teamAuthorName): \(source)"
+        }
         if isTodo {
             switch todoOrigin {
             case .agent?:
@@ -837,14 +840,8 @@ final class Store {
         if moved { meeting.folderID = nil }
         meeting.binderID = binder.id
         if !meeting.isTeamCopy { meeting.sharedWithTeam = binder.sharedWithTeam && !meeting.isConversation }
-        // A capture you put in a binder shared through a team database yourself is one you share (lane DB4).
-        if moved, meeting.isConversation, !meeting.isTeamCopy { Self.capturesFiled?(meeting.id, binder.id) }
         save()
     }
-
-    /// Told when one of your captures moves into another binder, with its id and the binder (lane DB4): a person moved it,
-    /// as the router never files a capture into a binder shared through a team database.
-    static var capturesFiled: ((UUID, UUID) -> Void)?
 
     /// Conversations kept as trivial are deleted a week after they were heard; until then they can be brought back.
     func purgeTrivialConversations(olderThan days: Int = 7, now: Date = Date()) {

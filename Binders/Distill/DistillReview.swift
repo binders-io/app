@@ -17,8 +17,6 @@ struct DistillReviewSheet: View {
     /// Distill again's offers to take.
     @State private var taking: Set<UUID> = []
     @State private var placedLine: String?
-    /// An item meant for a teammate's agent you haven't said yes to giving cards (lane DB2): asked before placing.
-    @State private var asking: TeamConsent?
     /// Suggest Who Again is asking the decision model (lane AS1), and what it found.
     @State private var suggesting = false
     @State private var suggestedLine: String?
@@ -234,27 +232,13 @@ struct DistillReviewSheet: View {
                     dismiss()
                 }
                 .help("Leave the rest of this proposal out. What's on the board stays.")
-                Button(placeTitle(placing.count)) { placeAsking(placing) }
+                Button(placeTitle(placing.count)) { place(placing) }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(placing.isEmpty && taking.isEmpty)
             }
         }
         .padding(12)
-        .teamConsent($asking) { consent in
-            TeamBoard.current?.agree(to: consent.agent)
-            placeAsking(open.map { distill.items[$0] }.filter { chosen.contains($0.id) })
-        }
-    }
-
-    /// Place on Board, once you've said yes to each teammate's agent an item is meant for (asked once per agent).
-    private func placeAsking(_ placing: [DistillItem]) {
-        if let team = TeamBoard.current, team.covers(note.binderID),
-           let unsaid = placing.compactMap({ team.teammatesAgent(named: $0.meantFor) }).first(where: { !team.agreed(to: $0) }) {
-            asking = team.consent(for: unsaid)
-            return
-        }
-        place(placing)
     }
 
     private func placeTitle(_ count: Int) -> String {
@@ -297,9 +281,8 @@ struct DistillReviewSheet: View {
         Binding(get: { chosen.contains(id) }, set: { if $0 { chosen.insert(id) } else { chosen.remove(id) } })
     }
 
-    /// Who an item can be meant for: your agents that take the binder's cards, you, or no one; the team's people too: on a
-    /// board shared through the team database, teammates' agents that take its cards (with their owners) and teammates
-    /// (lane DB2), and the team folder's members for a binder shared through it (`DistillService.people(for:)`, as a name in
+    /// Who an item can be meant for: your agents that take the binder's cards, you, or no one; the team's people too: the
+    /// team folder's members for a binder shared through it (`DistillService.people(for:)`, as a name in
     /// `for` is matched); and whoever it's meant for now, if that's someone else.
     private func people(for item: DistillItem) -> [String] {
         var names = controller.distill.people(for: note.binderID)

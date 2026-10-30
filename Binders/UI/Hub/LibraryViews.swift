@@ -755,7 +755,7 @@ struct NotesView: View {
     }
 
     private func sharedWithTeam(_ note: NoteItem) -> Bool {
-        (team.isConfigured && (note.sharedWithTeam || note.isTeamCopy)) || TeamNotes.current?.covers(note) == true
+        team.isConfigured && (note.sharedWithTeam || note.isTeamCopy)
     }
 
     /// The note below these in the list, or above them at the end, so deleting several in a row is ⌫ ⏎ ⌫ ⏎.
@@ -1044,16 +1044,6 @@ struct NoteEditor: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 16)
                 }
-                // Lane DB3: who else has this shared note open now ("Dana is in this note").
-                if let here = controller.teamBoard.notes.presenceLine(note.id) {
-                    Label(here, systemImage: "person.wave.2")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.top, note.isTeamCopy ? 4 : 16)
-                        .accessibilityLabel(here)
-                }
                 if note.distill || DistillBoard.hasCards(note.id) {
                     // Lane DS1: how the work distilled from it is going, under its title. Lane DS6: any note with cards.
                     WorkBar(note: note, panelShown: Binding(get: { digestVisible && sidePanel == "work" && column != nil }, set: { shown in
@@ -1076,8 +1066,6 @@ struct NoteEditor: View {
                         .onChange(of: note.text) { previous, _ in
                             note.updatedAt = Date()
                             NoteHistory.changed(note.id, previous: previous)
-                            // A note shared through a team database: the typing goes to the team once it pauses.
-                            controller.teamBoard.notes.typed(note.id)
                             HubNotesSync.shared.typed(note.id)
                         }
                     if let column {
@@ -1130,11 +1118,8 @@ struct NoteEditor: View {
             controller.distill.settleNow(note.id)
             // Leaving the note ends your editing session in it: what it made is kept as a version.
             NoteHistory.endSession(note.id)
-            controller.teamBoard.notes.closed(note.id)
         }
-        // The team sees who's in a shared note (lane DB3).
         .onAppear {
-            controller.teamBoard.notes.opened(note.id)
             if let notice = Self.noticeOnOpen, notice.note == note.id { boardNotice = ([notice.card], notice.line) }
         }
         // Note → Put on Board with no editor of this note at the keyboard: the whole note (lane DS6).
@@ -1234,7 +1219,7 @@ struct NoteEditor: View {
                     .help("Copy the note as Markdown")
                     .accessibilityLabel("Copy")
                 Button(role: .destructive) {
-                    if (team.isConfigured && (note.sharedWithTeam || note.isTeamCopy)) || TeamNotes.current?.covers(note) == true { confirmDelete = true } else { delete() }
+                    if team.isConfigured && (note.sharedWithTeam || note.isTeamCopy) { confirmDelete = true } else { delete() }
                 } label: { face("Delete", symbol: "trash", words: words, icon: false) }
                     .help("Delete this note")
                     .accessibilityLabel("Delete")
@@ -1480,7 +1465,7 @@ struct NoteEditor: View {
 
     private func delete() {
         onDelete()
-        if (team.isConfigured && (note.sharedWithTeam || note.isTeamCopy)) || TeamNotes.current?.covers(note) == true {
+        if team.isConfigured && (note.sharedWithTeam || note.isTeamCopy) {
             Self.remove(note)
         } else {
             NoteTrash.shared.delete(note, undoManager: undoManager)

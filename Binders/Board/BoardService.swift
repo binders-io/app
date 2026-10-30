@@ -13,22 +13,15 @@ final class BoardService {
     @ObservationIgnored weak var commitments: CommitmentService?
     /// Wakes the agent a card is meant for; told of every change.
     @ObservationIgnored weak var dispatcher: AgentDispatcher?
-    /// Boards shared through a team database (lane DB2): a change to one of their cards is made here as on any board, then
-    /// handed to the database, its lines waiting for the answer.
-    @ObservationIgnored weak var team: TeamBoard?
     /// Boards of binders linked to a hub (HubBoard): a change to one of their cards is made here, then sent to the hub's
     /// log, which has the last word.
     @ObservationIgnored weak var hub: HubBoard?
     /// Changes to a hub's cards made while another was being made: they go after it, so the hub has the card first.
     @ObservationIgnored private var hubDeferred: [(() -> Void)?] = []
     /// The lines each change being made writes, while it's made (one list per change, as changes can nest).
-    @ObservationIgnored private var teamCaptures: [[TaskEvent]] = []
-    /// While Distill's placing makes its cards here: their lines, which go as one call (`batchForTeam`).
-    @ObservationIgnored private var teamBatch: [TaskEvent]?
-    /// Changes made while another was being made (a note the dispatcher writes as a card is created): they go after it.
-    @ObservationIgnored private var teamDeferred: [(call: TeamCall, lines: [TaskEvent], before: TeamCardBefore?)] = []
+    @ObservationIgnored private var changeLines: [[TaskEvent]] = []
     /// Why the changes being made might wake an agent: yours, unless an agent's placing (Agents may place work items).
-    @ObservationIgnored var wakeCause: TeamWakeCause = .yours
+    @ObservationIgnored var wakeCause: AgentWakeCause = .yours
 
     /// Every minute, cards whose agent went quiet go back to Ready. The dispatcher starts asking status addresses too.
     func start() {
@@ -63,34 +56,12 @@ final class BoardService {
         store.binder(card.binderID)?.agentsMayFinish ?? false
     }
 
-    // MARK: The team's boards
+    // MARK: The hub's boards
 
-    /// A change to a card: made here as on any board; on a board shared through a team database it's then handed over
-    /// (`call`, given the acting agent's id in the team and the change's operation), with the lines it wrote, which wait for
-    /// the answer. A card kept on this Mac, or on a board that isn't shared, changes here only.
-    /// `whenWritten`: only when the change wrote a line (an assignment that changed nothing sends nothing).
-    private func teamChange(_ card: TaskCard, by actor: BoardActor, whenWritten: Bool = false,
-                            _ call: (_ agent: UUID?, _ operation: UUID) -> TeamCall?, change: () throws -> Void) rethrows {
+    /// A change to a card: made here as on any board; on a binder linked to a hub it's then sent to the hub's log.
+    private func boardChange(_ card: TaskCard, by actor: BoardActor, change: () throws -> Void) rethrows {
         if let hub, hub.covers(card) { return try hubChange(card, by: actor, hub: hub, change: change) }
-        guard let team, team.sends(card) else { return try change() }
-        // The card as it was, to put it back if a change the database decides is taken back unsent (lane DB8).
-        let before = TeamCardBefore(card)
-        let topLevel = teamCaptures.isEmpty
-        teamCaptures.append([])
-        do {
-            try change()
-        } catch {
-            teamCaptures.removeLast()
-            if teamCaptures.isEmpty { flushDeferred() }
-            throw error
-        }
-        let lines = teamCaptures.removeLast()
-        if teamBatch != nil, topLevel {
-            teamBatch?.append(contentsOf: lines)
-        } else if !(whenWritten && lines.isEmpty), let made = call(team.agentID(for: actor), UUID()) {
-            sendOrDefer(made, lines: lines, before: before)
-        }
-        if teamCaptures.isEmpty { flushDeferred() }
+        try change()
     }
 
     /// A change to a card on a binder linked to a hub: made here, then sent to the hub with the lines it wrote
@@ -101,22 +72,17 @@ final class BoardService {
         // Its place among the changes being made, kept before the ones made inside it.
         let slot = hubDeferred.count
         hubDeferred.append(nil)
-        teamCaptures.append([])
+        changeLines.append([])
         do {
             try change()
         } catch {
-            teamCaptures.removeLast()
-            if teamCaptures.isEmpty { flushDeferred() }
+            changeLines.removeLast()
+            if changeLines.isEmpty { flushDeferred() }
             throw error
         }
-        let lines = teamCaptures.removeLast()
+        let lines = changeLines.removeLast()
         hubDeferred[slot] = { [weak hub] in hub?.sent(card, before: before, lines: lines, by: actor) }
-        if teamCaptures.isEmpty { flushDeferred() }
-    }
-
-    /// A change goes now, or, made inside another change (or while a placing gathers its cards), right after that one.
-    private func sendOrDefer(_ call: TeamCall, lines: [TaskEvent], before: TeamCardBefore? = nil) {
-        if teamCaptures.isEmpty, teamBatch == nil { team?.send(call, lines: lines, before: before) } else { teamDeferred.append((call, lines, before)) }
+        if changeLines.isEmpty { flushDeferred() }
     }
 
     private func flushDeferred() {
@@ -124,39 +90,7 @@ final class BoardService {
         let hubWaiting = hubDeferred
         hubDeferred = []
         for send in hubWaiting { send?() }
-        guard teamBatch == nil else { return }
-        let waiting = teamDeferred
-        teamDeferred = []
-        for (call, lines, before) in waiting { team?.send(call, lines: lines, before: before) }
     }
-
-    /// On a board shared through a team database, what the database decides (who holds a card, where it is, whether it's
-    /// done, an approval) waits for it (lane DB8): why `write` can't happen now, while it's turned off on this Mac or out
-    /// of reach, in words for whoever asked; nil when it can. Every change below that it decides is refused with this
-    /// before anything changes here, so nothing is queued that would land later and surprise anyone.
-    func teamRefusal(_ write: TeamBoardWrite, on card: TaskCard, by actor: BoardActor) -> String? {
-        team?.refusal(write, on: card, agent: actor.isAgent)
-    }
-
-    private func needsTeam(_ write: TeamBoardWrite, on card: TaskCard, by actor: BoardActor) throws {
-        if let refusal = teamRefusal(write, on: card, by: actor) { throw TeamWaitRefusal(words: refusal) }
-    }
-
-    /// What was made inside a placing (the dispatcher's notes), sent once the placing's own call has gone.
-    func sendDeferredTeamChanges() { flushDeferred() }
-
-    /// Distill's placing on a shared board: the cards are made here as one by one, and their lines are handed back to go
-    /// with the one call that places them all (`TeamBoard.place`).
-    func batchForTeam(_ work: () -> Void) -> [TaskEvent] {
-        teamBatch = []
-        work()
-        let lines = teamBatch ?? []
-        teamBatch = nil
-        return lines
-    }
-
-    /// Whether a card is on a board shared through the team database.
-    func isTeams(_ card: TaskCard) -> Bool { team?.covers(card) == true }
 
     // MARK: Waits
 
@@ -210,43 +144,13 @@ final class BoardService {
                 log(card, .edited, by: actor, text: CardWaits.line(waits(of: card)).map { $0 + "." } ?? "Waits for nothing now.")
             }
         }
-        let before = card.waitsFor
         card.waitsFor = wanted
         guard !quietly else {
             card.updatedAt = Date()
             store.save()
-            sendWaits(card, from: before, to: wanted, by: actor, lines: [])
             return
         }
-        // On the team's board, each wait added or taken away is a call of its own; the line waits with the first.
-        guard let team, team.sends(card) else {
-            log(card, .edited, by: actor, text: CardWaits.line(waits(of: card)).map { $0 + "." } ?? "Waits for nothing now.")
-            return
-        }
-        teamCaptures.append([])
         log(card, .edited, by: actor, text: CardWaits.line(waits(of: card)).map { $0 + "." } ?? "Waits for nothing now.")
-        let lines = teamCaptures.removeLast()
-        if teamBatch != nil, teamCaptures.isEmpty {
-            teamBatch?.append(contentsOf: lines)
-        } else {
-            sendWaits(card, from: before, to: wanted, by: actor, lines: lines)
-        }
-        if teamCaptures.isEmpty { flushDeferred() }
-    }
-
-    /// The waits a card gained or lost, to the team database, when it's on a shared board.
-    private func sendWaits(_ card: TaskCard, from before: [String], to after: [String], by actor: BoardActor, lines: [TaskEvent]) {
-        guard let team, team.sends(card) else { return }
-        let agent = team.agentID(for: actor)
-        var lines = lines
-        for id in after.filter({ !before.contains($0) }).compactMap(UUID.init(uuidString:)) {
-            sendOrDefer(.addDependency(card.id, waitsFor: id, agent: agent), lines: lines)
-            lines = []
-        }
-        for id in before.filter({ !after.contains($0) }).compactMap(UUID.init(uuidString:)) {
-            sendOrDefer(.removeDependency(card.id, waitsFor: id, agent: agent), lines: lines)
-            lines = []
-        }
     }
 
     // MARK: Changing
@@ -268,32 +172,13 @@ final class BoardService {
             card.sourceTitle = source.title
         }
         card.sourceRef = sourceRef
-        // Its note, as a card made with Put on Board has it (lane DS6): it goes to the team with the card.
+        // Its note, as a card made with Put on Board has it (lane DS6).
         if let distilled { card.distilledFrom = distilled }
         store.context.insert(card)
-        // On a shared board, one made from what your iPhone heard waits here until you share it.
-        let kept = team?.isShared(card) == true && team?.keepsHere(card) == true
-        if kept { card.teamShadow = TeamBoard.held }
-        teamChange(card, by: actor, { agent, operation in
-            guard let binder = card.binderID else { return nil }
-            return .createCard(card.id, binder: binder, title: card.title, fields: Self.teamFields(of: card), agent: agent, operation: operation)
-        }) {
+        boardChange(card, by: actor) {
             log(card, .created, by: actor, text: source.map { "From \($0.title)" } ?? "", to: card.column)
         }
-        if kept { note(card, text: TeamBoard.keptLine, toTeam: false) }
         return card
-    }
-
-    /// What `create_card` takes of a card made here.
-    private static func teamFields(of card: TaskCard) -> [String: TeamJSON] {
-        var fields: [String: TeamJSON] = ["details": .string(card.details), "column": .string(card.column.rawValue), "position": .number(card.position)]
-        if let due = card.dueAt { fields["due_at"] = TeamJSON(due) }
-        if let kind = card.sourceKind { fields["source_kind"] = .string(kind) }
-        if let id = card.sourceID { fields["source_id"] = .string(id) }
-        if let title = card.sourceTitle { fields["source_title"] = .string(title) }
-        if let todo = card.sourceRef.flatMap(UUID.init(uuidString:)) { fields["todo_id"] = TeamJSON(todo) }
-        if let distilled = card.distilledFrom { fields["distilled"] = distilled.teamJSON }
-        return fields
     }
 
     /// A card for a to-do, linked to it so the to-do is ticked off when the card is done. A to-do that already has a card
@@ -334,8 +219,7 @@ final class BoardService {
 
     /// Taking a card. `note` goes on the timeline when nothing else does: Binders holding a card for an agent says so.
     func claim(_ card: TaskCard, by actor: BoardActor, note: String = "") throws {
-        try needsTeam(.claim, on: card, by: actor)
-        try teamChange(card, by: actor, { .claimCard(card.id, agent: $0, note: note, operation: $1) }) {
+        try boardChange(card, by: actor) {
             try claimHere(card, by: actor, note: note)
         }
     }
@@ -357,8 +241,7 @@ final class BoardService {
     /// agent's status address said.
     func move(_ card: TaskCard, to column: BoardColumn, by actor: BoardActor, note: String = "") throws {
         guard card.column != column else { return }
-        try needsTeam(.move(column), on: card, by: actor)
-        try teamChange(card, by: actor, { .moveCard(card.id, to: column, agent: $0, note: note, operation: $1) }) {
+        try boardChange(card, by: actor) {
             try moveHere(card, to: column, by: actor, note: note)
         }
     }
@@ -379,7 +262,7 @@ final class BoardService {
     /// A progress report, with any links it brings. Keeps an agent's claim alive, unless it's the last word of a run that's
     /// ending (`renewing` false).
     func report(_ card: TaskCard, progress: String, links: [String] = [], by actor: BoardActor, renewing: Bool = true) {
-        teamChange(card, by: actor, { .report(card.id, progress: progress, links: links, agent: $0, renewing: renewing, operation: $1) }) {
+        boardChange(card, by: actor) {
             reportHere(card, progress: progress, links: links, by: actor, renewing: renewing)
         }
     }
@@ -399,10 +282,9 @@ final class BoardService {
     func keepAlive(_ card: TaskCard, by actor: BoardActor, at now: Date = Date()) {
         let next = BoardRules.renew(card.state, by: actor, at: now)
         guard next != card.state else { return }
-        teamChange(card, by: actor, { .keepAlive(card.id, agent: $0, operation: $1) }) {
+        boardChange(card, by: actor) {
             card.state = next
-            // On the team's board the database keeps the lease, and knows nothing of agents you move cards for.
-            if !isTeams(card), let holder = card.assignee, card.assigneeIsAgent, dispatcher?.registry.movedByHand(holder) == true {
+            if let holder = card.assignee, card.assigneeIsAgent, dispatcher?.registry.movedByHand(holder) == true {
                 card.claimExpiresAt = nil
             }
             store.save()
@@ -411,7 +293,7 @@ final class BoardService {
 
     /// An agent's question: the card waits in Blocked, and the question rings on this Mac with a box to answer it.
     func ask(_ card: TaskCard, question: String, by actor: BoardActor) throws {
-        try teamChange(card, by: actor, { .ask(card.id, question: question, agent: $0, operation: $1) }) {
+        try boardChange(card, by: actor) {
             try askHere(card, question: question, by: actor)
         }
     }
@@ -436,25 +318,14 @@ final class BoardService {
     /// Why an approval can't be asked or decided, in words for whoever tried.
     enum ApprovalProblem: LocalizedError {
         case notAnAgent, nothingWaits, changed, notYou
-        /// On a board shared with a team, someone else decides on it (BoardRules.deciders): who, in words.
-        case notYours(String)
         var errorDescription: String? {
             switch self {
             case .notAnAgent: "Only an agent asks for the user's approval."
             case .nothingWaits: "Nothing on this card waits for your approval now."
             case .changed: "It asks about something else now. Look at it again before you decide."
             case .notYou: "Only the user decides on an approval."
-            case .notYours(let who): who
             }
         }
-    }
-
-    /// Whether a person's words answer what a card waits on: always, but for an approval someone else decides on, on a
-    /// board shared with a team (BoardRules.deciders): then they're a comment, and the card keeps waiting.
-    private func answersWait(_ card: TaskCard, by actor: BoardActor) -> Bool {
-        guard !actor.isAgent, card.column == .blocked, let team, team.sends(card),
-              let waiting = card.waitingApproval(events: timeline(card.id)) else { return true }
-        return team.decides(card, askedBy: waiting.event.author) != false
     }
 
     /// An agent asks your approval before it sends, posts, buys or deletes something outside Binders: the card waits in
@@ -464,7 +335,7 @@ final class BoardService {
     func requestApproval(_ card: TaskCard, _ approval: AgentApproval, by actor: BoardActor) throws -> TaskEvent {
         guard actor.isAgent else { throw ApprovalProblem.notAnAgent }
         var asked: TaskEvent?
-        try teamChange(card, by: actor, { .requestApproval(card.id, text: approval.timelineText, agent: $0, operation: $1) }) {
+        try boardChange(card, by: actor) {
             lapseIfQuiet(card, before: actor)
             let before = card.column
             card.state = try BoardRules.ask(card.state, by: actor, at: Date())
@@ -484,22 +355,10 @@ final class BoardService {
     func decide(_ card: TaskCard, approval: UUID? = nil, approve: Bool, reason: String = "", by actor: BoardActor, on device: String) throws -> String {
         guard !actor.isAgent else { throw ApprovalProblem.notYou }
         guard let waiting = card.waitingApproval(events: timeline(card.id)) else { throw ApprovalProblem.nothingWaits }
-        try needsTeam(.decide, on: card, by: actor)
-        // On a board shared with a team, the asking agent's owner decides, or whoever the card is for: the team database
-        // refuses anyone else, so this Mac does first, in its own words.
-        if let team, team.sends(card), team.decides(card, askedBy: waiting.event.author) == false {
-            throw ApprovalProblem.notYours(team.onlyDeciders(card, askedBy: waiting.event.author))
-        }
-        // A request the team database has since given its own id is the same request.
-        if let approval, approval != waiting.event.id, team?.replaced(approval) != waiting.event.id { throw ApprovalProblem.changed }
+        if let approval, approval != waiting.event.id { throw ApprovalProblem.changed }
         let agent = waiting.event.author
         let now = Date()
-        // The team's receipt names who decided as the team knows them.
-        let teamReceipt = waiting.approval.receipt(approved: approve, reason: reason, by: team?.writingDirectory.teamName(actor.name) ?? actor.name, on: device, at: now)
-        let confirmed = waiting.event.teamOperation == nil ? waiting.event.id : nil
-        teamChange(card, by: actor, { _, operation in
-            .decide(card.id, approve: approve, reason: reason, device: device, approval: confirmed, receipt: teamReceipt, operation: operation)
-        }) {
+        boardChange(card, by: actor) {
             log(card, .decision, by: Self.binders, text: waiting.approval.receipt(approved: approve, reason: reason, by: actor.name, on: device, at: now))
             let before = card.column
             card.state = BoardRules.answered(card.state, by: actor, at: now)
@@ -510,20 +369,13 @@ final class BoardService {
 
     /// A comment. From a person on a blocked card, it's the answer, and the card goes back to work. On a card an agent
     /// holds in progress, it wakes that agent (`AgentDispatcher`), unless `wake` turns that off (a phone's comment).
-    /// Returns why it wasn't made, or nil: on a board shared through a team database that's off or out of reach, a
-    /// person's words on a card that waits for an approval they decide on are the decision, which waits for it (lane DB8).
+    /// Returns why it wasn't made, or nil.
     @discardableResult
     func comment(_ card: TaskCard, text: String, by actor: BoardActor, wake: CommentWake = .asTheBoardSays) -> String? {
-        if !actor.isAgent, card.column == .blocked, team?.reach(card).map({ $0 != .reachable }) == true,
-           card.waitingApproval(events: timeline(card.id)) != nil, answersWait(card, by: actor),
-           let refusal = teamRefusal(.answerApproval, on: card, by: actor) {
-            return refusal
-        }
-        teamChange(card, by: actor, { .answer(card.id, text: text, agent: $0, operation: $1) }) {
+        boardChange(card, by: actor) {
             let before = card.column
             let now = Date()
-            card.state = BoardRules.answered(BoardRules.renew(card.state, by: actor, at: now), by: actor, at: now,
-                                             decides: answersWait(card, by: actor))
+            card.state = BoardRules.answered(BoardRules.renew(card.state, by: actor, at: now), by: actor, at: now)
             let answered = before == .blocked && card.column != .blocked
             log(card, answered ? .answer : .comment, by: actor, text: text, from: answered ? before : nil, to: answered ? card.column : nil, wake: wake)
         }
@@ -531,8 +383,7 @@ final class BoardService {
     }
 
     func release(_ card: TaskCard, note: String = "", by actor: BoardActor) throws {
-        try needsTeam(.release, on: card, by: actor)
-        try teamChange(card, by: actor, { .release(card.id, agent: $0, note: note, operation: $1) }) {
+        try boardChange(card, by: actor) {
             let before = card.column
             card.state = try BoardRules.release(card.state, by: actor, at: Date())
             log(card, .released, by: actor, text: note, from: before, to: card.column)
@@ -540,8 +391,7 @@ final class BoardService {
     }
 
     func complete(_ card: TaskCard, summary: String, by actor: BoardActor) throws {
-        try needsTeam(.finish, on: card, by: actor)
-        try teamChange(card, by: actor, { .finish(card.id, summary: summary, agent: $0, operation: $1) }) {
+        try boardChange(card, by: actor) {
             try completeHere(card, summary: summary, by: actor)
         }
     }
@@ -560,15 +410,13 @@ final class BoardService {
     /// tap, and it never replaces your own choice: false when it was refused for that. The only writer of `meantFor`.
     /// `why`, for Binders' own suggestion, goes after it on the timeline: "Suggested for Codex: it looks like Codex's
     /// work."
-    /// `placedBy`: an agent placed the card under the binder's Agents may place work items (lane DB2): the assignment is by
+    /// `placedBy`: an agent placed the card under the binder's Agents may place work items: the assignment is by
     /// Binders, saying so ("Meant for X: placed by Y, which this binder lets place work items.").
     @discardableResult
     func assign(_ card: TaskCard, to name: String?, by actor: BoardActor, suggesting: Bool = false, why: String? = nil,
                 placedBy: String? = nil) -> Bool {
         var assigned = true
-        teamChange(card, by: actor, whenWritten: true, { agent, operation in
-            .assignCard(card.id, to: team?.writingDirectory.teamName(name) ?? name, agent: agent, suggesting: suggesting, why: why, operation: operation)
-        }) {
+        boardChange(card, by: actor) {
             assigned = assignHere(card, to: name, by: actor, suggesting: suggesting, why: why, placedBy: placedBy)
         }
         return assigned
@@ -598,11 +446,6 @@ final class BoardService {
     func give(_ card: TaskCard, to name: String, by actor: BoardActor) -> AgentDispatcher.HandOff {
         let before = (card.column, card.meantFor, card.meantForByAgent)
         assign(card, to: name, by: actor)
-        // On a board shared through a team database that's off or out of reach (lane DB8), who it's for is kept for it,
-        // and the hand-off (Ready, then the wake) waits for it: it moves nothing and wakes no one until it's back.
-        if let reach = team?.reach(card), reach != .reachable {
-            return .notWoken(TeamBoardWrites.kept(reach) + " Give it to \(name) again then to hand it over.")
-        }
         if card.column == .backlog { try? move(card, to: .ready, by: actor) }
         // Your Give to, for the router's record of what became of its decisions.
         if !actor.isAgent, actor.name != Self.binders.name {
@@ -619,13 +462,12 @@ final class BoardService {
 
     /// Why a card can't move to another binder now, in words for whoever asked; nil when it can.
     enum MoveProblem: LocalizedError {
-        case held(String), done, offTeam, hub
+        case held(String), done, hub
         var errorDescription: String? {
             switch self {
             case .hub: "A card doesn't move to or from a binder linked to a hub. Make a new card on the other board instead."
             case .held(let binder): "Someone is working on it, so it stays on the \(binder) board until they let it go."
             case .done: "It's done, so it stays where it was finished."
-            case .offTeam: "Only a person takes a card off the team's board."
             }
         }
     }
@@ -638,19 +480,7 @@ final class BoardService {
         let from = store.binder(card.binderID)?.name ?? "General"
         if BoardRules.isClaimed(card.state, at: Date()) { throw MoveProblem.held(from) }
         if card.column == .done { throw MoveProblem.done }
-        if actor.isAgent, isTeams(card), team?.isShared(binder: binder.id) != true { throw MoveProblem.offTeam }
         if let hub, hub.covers(card) || hub.covers(binder: binder.id) { throw MoveProblem.hub }
-        // Off a board shared through a team database, or between its boards, the database decides; onto one, while team
-        // databases are off here, nothing could take it there (lane DB8).
-        try needsTeam(.moveToBoard, on: card, by: actor)
-        if let refusal = team?.refusal(.moveToBoard, binder: binder.id, agent: actor.isAgent) { throw TeamWaitRefusal(words: refusal) }
-        let old = card.binderID
-        teamCaptures.append([])
-        defer {
-            let lines = teamCaptures.removeLast()
-            team?.moved(card, from: old, keepSuggestion: card.meantForByAgent && card.meantFor != nil, by: actor, lines: lines)
-            if teamCaptures.isEmpty { flushDeferred() }
-        }
         card.binderID = binder.id
         if let todo = card.sourceRef, let commitment = store.commitments().first(where: { $0.id.uuidString == todo }) {
             commitment.binderID = binder.id
@@ -691,21 +521,21 @@ final class BoardService {
 
     /// A note by Binders itself on the card's timeline: why a run didn't start, what Binders committed when a run ended. It
     /// changes nothing on the card and wakes no one, in whatever column the card is: unlike a comment, it never answers a
-    /// card that waits in Blocked, and never wakes the agent that holds the card. On a board shared through the team
-    /// database it stays on this Mac (what a run here did, where it wrote, why a change here didn't go through), unless
-    /// it's for the team (`toTeam`: why a teammate's card waits, which card is ready now). `sectionChange`: the line says
+    /// card that waits in Blocked, and never wakes the agent that holds the card. On a binder linked to a hub it stays on
+    /// this Mac (what a run here did, where it wrote, why a change here didn't go through), unless it's for the team
+    /// (`toTeam`: why a teammate's card waits, which card is ready now). `sectionChange`: the line says
     /// the card's section changed (`SectionChangeMark`), kept with it for what reaches an agent.
     func note(_ card: TaskCard, text: String, toTeam: Bool = false, sectionChange: SectionChangeMark? = nil) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard toTeam else {
-            teamCaptures.append([])
+            changeLines.append([])
             log(card, .comment, by: Self.binders, text: text, sectionChange: sectionChange)
-            teamCaptures.removeLast()
-            if teamCaptures.isEmpty { flushDeferred() }
+            changeLines.removeLast()
+            if changeLines.isEmpty { flushDeferred() }
             return
         }
-        teamChange(card, by: Self.binders, { .logCard(card.id, .note, text: text, operation: $1) }) {
+        boardChange(card, by: Self.binders) {
             log(card, .comment, by: Self.binders, text: text)
         }
     }
@@ -713,13 +543,13 @@ final class BoardService {
     /// The receipt for a wake: who was woken, how, and where its run writes what it says (linked on the card). By the
     /// agent, as a lapse is, so it wakes nothing.
     func woke(_ card: TaskCard, agent: String, text: String, log file: URL?) {
-        // On the team's board the receipt stays on this Mac, with its log file: it says how the agent was woken and where
-        // (a web hook's host, a run's folder), which isn't the team's. Teammates see the agent at work on the card.
+        // On a hub's board the receipt stays on this Mac, with its log file: it says how the agent was woken and where
+        // (a web hook's host, a run's folder), which isn't the team's.
         if let file, !card.links.contains(file.absoluteString) { card.links.append(file.absoluteString) }
-        teamCaptures.append([])
+        changeLines.append([])
         log(card, .woke, by: BoardActor(name: agent, kind: .agent), text: text)
-        teamCaptures.removeLast()
-        if teamCaptures.isEmpty { flushDeferred() }
+        changeLines.removeLast()
+        if changeLines.isEmpty { flushDeferred() }
     }
 
     // MARK: The Manager's tidying (lane MG1)
@@ -749,23 +579,16 @@ final class BoardService {
         store.save()
     }
 
-    /// Returns why it wasn't deleted, or nil: on a board shared through a team database that's off or out of reach, a
-    /// deletion waits for it (lane DB8).
+    /// Returns why it wasn't deleted, or nil.
     @discardableResult
     func delete(_ card: TaskCard) -> String? {
-        if let refusal = teamRefusal(.delete, on: card, by: .you) { return refusal }
         // On a hub's board, it goes for everyone.
         if let hub, hub.covers(card) { hub.deleted(card) }
-        // On the team's board, it goes for everyone (a person deletes it).
-        if let team, team.sends(card) {
-            team.send(.deleteCard(card.id), lines: [])
-            team.latest[card.id] = nil
-        }
         removeHere(card)
         return nil
     }
 
-    /// A card gone from this Mac only: deleted here, or by the team (`TeamBoard`).
+    /// A card gone from this Mac only: deleted here, or by the hub (`HubBoard`).
     func removeHere(_ card: TaskCard) {
         // Its window goes first, with what it shows, so no view reads the card once it's gone.
         CardWindows.shared.cardDeleted(card.id)
@@ -786,15 +609,6 @@ final class BoardService {
         let held = (try? store.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.assigneeIsAgent }))) ?? []
         var cleared = false
         for card in held {
-            if isTeams(card) {
-                // The team's board: the database lets a quiet claim go when someone next acts. Until then it reads as
-                // Ready here, without a line or a call, as the database reads it.
-                if let next = BoardRules.expire(card.state, at: now) {
-                    card.state = next
-                    cleared = true
-                }
-                continue
-            }
             if card.claimExpiresAt != nil, let holder = card.assignee, dispatcher?.registry.movedByHand(holder) == true {
                 // An agent whose cards you move yourself has no time limit on them, one set before it was told so included.
                 card.claimExpiresAt = nil
@@ -811,8 +625,7 @@ final class BoardService {
 
     /// A card whose agent went quiet is let go before someone else acts on it, as the sweep would within the minute.
     private func lapseIfQuiet(_ card: TaskCard, before actor: BoardActor) {
-        // The team's board: the database does this, as part of the change.
-        guard !isTeams(card), card.assignee != actor.name, card.assignee.map({ dispatcher?.registry.movedByHand($0) == true }) != true,
+        guard card.assignee != actor.name, card.assignee.map({ dispatcher?.registry.movedByHand($0) == true }) != true,
               let next = BoardRules.expire(card.state, at: Date()) else { return }
         lapse(card, to: next)
     }
@@ -837,7 +650,7 @@ final class BoardService {
     private func log(_ card: TaskCard, _ kind: TaskEvent.Kind, by actor: BoardActor, text: String = "", from: BoardColumn? = nil, to: BoardColumn? = nil,
                      wake: CommentWake = .asTheBoardSays, sectionChange: SectionChangeMark? = nil) -> TaskEvent {
         // An agent whose cards you move yourself has no lease to keep: a claim, an answer or a send-back doesn't start one.
-        if card.claimExpiresAt != nil, card.assigneeIsAgent, let holder = card.assignee, !isTeams(card),
+        if card.claimExpiresAt != nil, card.assigneeIsAgent, let holder = card.assignee,
            dispatcher?.registry.movedByHand(holder) == true {
             card.claimExpiresAt = nil
         }
@@ -845,8 +658,8 @@ final class BoardService {
         let event = TaskEvent(taskID: card.id, kind: kind, author: actor, text: text, from: from, to: to)
         event.sectionChange = sectionChange?.json
         store.context.insert(event)
-        // A line of a change being made on the team's board waits with it; what Binders found in your binders stays here.
-        if !teamCaptures.isEmpty, kind != .context { teamCaptures[teamCaptures.count - 1].append(event) }
+        // A line of a change being made on a hub's board waits with it; what Binders found in your binders stays here.
+        if !changeLines.isEmpty, kind != .context { changeLines[changeLines.count - 1].append(event) }
         store.save()
         // Answered, moved, taken over or let go: the question it was waiting on no longer needs you.
         if from == .blocked, card.column != .blocked { MacNotifications.shared.withdrawQuestion(card.id) }

@@ -653,7 +653,7 @@ final class LinkServer {
     /// `momentAuto`: whether it has Auto (`MomentPayload.autoFeature`): list_agents then says what Auto can hand over now,
     /// from the router's own decision model, and to which agents.
     fileprivate func runTool(_ message: [String: Any], askProgress: MCPServer.AskProgressSink? = nil, doing: Bool, momentAgreed: Bool = false,
-                             asksFirst: Bool = false, momentAuto: Bool = false, soloAuto: Bool = false, teamAgents: Bool = false) async -> [String: Any]? {
+                             asksFirst: Bool = false, momentAuto: Bool = false, soloAuto: Bool = false) async -> [String: Any]? {
         guard let controller else { return MCPCore.failure(id: message["id"], code: -32603, message: "Binders is shutting down") }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         return await MCPCore.handle(message, serverName: "binders", serverVersion: version, instructions: MCPServer.instructions,
@@ -663,7 +663,7 @@ final class LinkServer {
             return try await MCPServer.call(name, arguments, knowledge: controller.knowledge, write: MCPServer.writeInApp(controller: controller, arguments: arguments),
                                             actor: .you, askProgress: askProgress, doing: doing, momentAgreed: momentAgreed, momentAuto: momentAuto,
                                             soloAuto: soloAuto,
-                                            decisionModels: controller.router.models, commentWake: asksFirst ? .only(to) : .none, teamAgents: teamAgents)
+                                            decisionModels: controller.router.models, commentWake: asksFirst ? .only(to) : .none)
         })
     }
 
@@ -1315,7 +1315,7 @@ private final class LinkSession {
             let progress = AskProgressRelay(message, to: self)
             let result = await server.runTool(message, askProgress: progress.map { relay in { relay.send($0, sources: $1, text: $2) } },
                                               doing: readsDoing, momentAgreed: readsMomentAgreed, asksFirst: readsCommentsAskFirst, momentAuto: readsMomentAuto,
-                                              soloAuto: readsSoloAuto, teamAgents: reads.contains(LinkFeatures.teamAgents))
+                                              soloAuto: readsSoloAuto)
             progress?.finish()
             reply(result)
         }

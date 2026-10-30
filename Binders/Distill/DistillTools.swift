@@ -278,15 +278,8 @@ enum DistillCommands {
             }
         case "propose_work_items":
             let card = UUID(uuidString: field("card")).flatMap { controller.board.card($0) }
-            let team = controller.teamBoard
-            let before = team.sentTotal
             switch await service.propose(itemsJSON: request.fields["items"] ?? "", for: note, by: actor, card: card) {
             case .success(let (record, placed)):
-                // On a shared board the database places them, checking the binder lets agents: the agent hears what it said.
-                if !placed.isEmpty, team.covers(note.binderID), team.isConnected {
-                    let answer = await team.answers(to: team.sent(since: before), within: .seconds(10))
-                    if let refused = answer.refused { return .failure(refused) }
-                }
                 return InboxResult(ok: true, id: record.id.uuidString, message: message(record, note: note, placed: placed))
             case .failure(let problem):
                 return .failure(problem.errorDescription ?? "Couldn't take the items")

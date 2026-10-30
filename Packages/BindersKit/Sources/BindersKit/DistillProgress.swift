@@ -35,7 +35,7 @@ public enum DistillProgress {
         /// Closed by Distill again, its section gone: left out of every count.
         public var closed: Bool
         /// In Blocked or Review, who it waits on when that isn't you: on a shared board, the teammate its question, request
-        /// for approval or review is for (`TeamDirectory.waitsOn`). Nil for you.
+        /// for approval or review is for. Nil for you.
         public var waitsOn: String?
         /// When its last progress report was made.
         public var lastReportAt: Date?
@@ -553,20 +553,6 @@ public enum DistillAsk {
             }
         }
         return tied ? nil : best?.title
-    }
-}
-
-extension TeamDirectory {
-    /// Whom a card that waits on a person waits on, on a board shared through the team database, as the board rings for
-    /// it (`rings`): a question or a request for approval an agent asked, its owner; anything else (a review, a reason, a
-    /// person's question), whoever the card is meant for, or that agent's owner. Nil for this Mac's member, or for no one
-    /// the team knows: then it waits on you.
-    public func waitsOn(asker: String?, askerIsAgent: Bool, meantFor: String?) -> String? {
-        var member: UUID?
-        if askerIsAgent, let asker { member = memberFor(meantFor: asker) }
-        if member == nil { member = memberFor(meantFor: meantFor) }
-        guard let member, member != me else { return nil }
-        return memberName(member)
     }
 }
 

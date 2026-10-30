@@ -70,8 +70,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Typing an editor hasn't handed to its note yet, and whatever isn't saved.
         MarkdownEditor.flushAll()
         Store.shared.save()
-        // What waits for the team database, all of it on disk (lane DB10).
-        TeamBoard.current?.flushToDisk()
         HubNotesSync.shared.flushToDisk()
         // Deleted meetings' recordings waited for Undo, which goes with the window: they go now.
         MeetingTrash.forgetWaiting(keepingThisRun: false)
@@ -103,11 +101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A Binders file from the iPhone (AirDrop, Files, Mail), or a binders:// link.
             if url.isFileURL, url.pathExtension.lowercased() == BindersTransfer.fileExtension {
                 BindersFiles.open(url, controller: controller)
-            } else if url.isFileURL, url.pathExtension.lowercased() == TeamInvite.fileExtension {
-                // An invite to a team database: Settings → Team asks before it joins.
-                if let data = try? Data(contentsOf: url), let invite = TeamInvite(fileData: data) {
-                    URLCommands.openInvite(invite, controller: controller)
-                }
             } else {
                 URLCommands.handle(url, controller: controller)
             }

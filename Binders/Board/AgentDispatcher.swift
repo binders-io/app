@@ -149,11 +149,10 @@ final class AgentDispatcher {
     /// Binders itself is a comment by a person named Binders: it's never yours, so it wakes no one. `wake` narrows what a
     /// phone's comment may wake (`CommentWake`). A comment that comes while a stronger wake gathers (an answer, a
     /// send-back, made ready) keeps that wake's reason, and both sets of words go with it.
-    /// `cause`: whose change it is. Yours (made on this Mac) wakes as it always did; a teammate's, from the team database,
-    /// or an agent's placing under Agents may place work items, wakes the agent only as its switches say
-    /// (`TeamWakeRule`), and otherwise the card waits for your Give to.
+    /// `cause`: whose change it is. Yours wakes as it always did; an agent's placing under Agents may place work items wakes
+    /// the agent only as its start switch says (`AgentWakeRule`), and otherwise the card waits for your Give to.
     func noticed(_ card: TaskCard, _ kind: TaskEvent.Kind, by actor: BoardActor, from: BoardColumn?, to: BoardColumn?,
-                 wake: CommentWake = .asTheBoardSays, cause: TeamWakeCause = .yours) {
+                 wake: CommentWake = .asTheBoardSays, cause: AgentWakeCause = .yours) {
         // Done: the cards that waited for it may be ready for their agents now.
         if to == .done, from != .done, let board {
             for other in board.waiting(on: card) { waitEnded(on: other) }
@@ -220,11 +219,10 @@ final class AgentDispatcher {
         refusals[id] = outcomes[id]?.at
     }
 
-    /// Whether a change that wasn't yours may wake `agent` (TeamWakeRule): nil when it may; else why the card waits for
+    /// Whether a change that wasn't yours may wake `agent` (AgentWakeRule): nil when it may; else why the card waits for
     /// your Give to, which a card made ready for it says once, on its timeline.
-    private func waitsForYou(_ card: TaskCard, agent: AgentProfile, cause: TeamWakeCause, reason: AgentWake.Reason) -> String? {
-        guard case .waits(let line) = TeamWakeRule.verdict(cause, agent: agent.name, takesTeammatesCards: agent.takesTeammatesCards,
-                                                           startsOnItsOwn: registry.startsOnItsOwn(agent)) else { return nil }
+    private func waitsForYou(_ card: TaskCard, agent: AgentProfile, cause: AgentWakeCause, reason: AgentWake.Reason) -> String? {
+        guard case .waits(let line) = AgentWakeRule.verdict(cause, agent: agent.name, startsOnItsOwn: registry.startsOnItsOwn(agent)) else { return nil }
         guard reason == .ready || reason == .manual else { return line }
         waitingForYou.insert(card.id)
         record(card.id, ok: false, line)
@@ -234,7 +232,7 @@ final class AgentDispatcher {
         return line
     }
 
-    /// A teammate's card that waits for your Give to: still in Ready, meant for one of your agents, by a person.
+    /// A card an agent placed that waits for your Give to: still in Ready, meant for one of your agents, by a person.
     func waitsForYourGiveTo(_ card: TaskCard) -> Bool {
         guard waitingForYou.contains(card.id) else { return false }
         guard card.column == .ready, !card.meantForByAgent, let meant = card.meantFor, registry.agent(named: meant) != nil else {
@@ -464,11 +462,6 @@ final class AgentDispatcher {
         let what = finished.count == 1 ? "\(finished[0]) is done" : finished.isEmpty ? "What it waited for is gone" : "What it waited for is done"
         board.note(card, text: "\(what), so this card is ready for \(agent.name).", toTeam: true)
         guard registry.wakeable(agent) else { return }
-        // On the team's board, a card a teammate gave it, or an agent placed, wakes it only as its switches say.
-        if let team = board.team, team.covers(card), let given = board.timeline(card.id).last(where: { $0.kind == .assigned }) {
-            let cause = team.cause(of: given, incoming: false)
-            if cause != .yours, waitsForYou(card, agent: agent, cause: cause, reason: .ready) != nil { return }
-        }
         let id = card.id
         pending[id]?.cancel()
         pendingReasons[id] = .ready

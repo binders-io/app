@@ -82,23 +82,16 @@ struct ApprovalBox: View {
                     Button("Cancel") { declining = false }
                 }
             } else {
-                // On a board shared with a team, someone else may decide on it (BoardRules.deciders): greyed, saying who.
-                let others = decidedElsewhere
                 HStack(spacing: 8) {
                     Button("Approve") { decide(true) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.regular)
-                        .help(others ?? "\(event.author) goes ahead with exactly this")
+                        .help("\(event.author) goes ahead with exactly this")
                     Button("Decline…") { declining = true }
                         .buttonStyle(.bordered)
                         .controlSize(.regular)
-                        .help(others ?? "")
                     if let problem { StatusLabel(problem, .problem).font(.caption).lineLimit(2) }
                     Spacer(minLength: 0)
-                }
-                .disabled(others != nil)
-                if let others {
-                    Text(others).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Text("Approving tells \(event.author) to go ahead with exactly this. Binders can't stop an agent from using its own tools.")
@@ -120,13 +113,6 @@ struct ApprovalBox: View {
             }
         }
         .onAppear { if startsDeclining { declining = true } }
-    }
-
-    /// Who decides on it instead, when that's someone else in the team: nil when it's yours to decide (or this Mac can't
-    /// tell, and the team database decides).
-    private var decidedElsewhere: String? {
-        guard controller.teamBoard.decides(card, askedBy: event.author) == false else { return nil }
-        return controller.teamBoard.onlyDeciders(card, askedBy: event.author)
     }
 
     /// Room for a short text as it is, and a box to scroll for a long one.

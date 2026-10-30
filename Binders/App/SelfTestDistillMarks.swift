@@ -95,7 +95,6 @@ extension SelfTest {
         let form = placed[0], apple = placed[1], google = placed[2], retry = placed[3], log = placed[4], ship = placed[5]
         run.check(form.distilledFrom?.quote == "Put address, delivery and card on one page instead of three." && log.distilledFrom?.quote == nil,
                   "each card keeps the words it came from")
-        run.check(form.distilledFrom?.teamJSON.object?["quote"]?.string == form.distilledFrom?.quote, "and shares them with the team in its distilled part")
         let task = run.object((await run.call("get_task", ["id": form.id.uuidString], as: echoActor)).text)
         run.check((task["distilled_from"] as? [String: Any])?["quote"] as? String == form.distilledFrom?.quote, "get_task says them in distilled_from")
 

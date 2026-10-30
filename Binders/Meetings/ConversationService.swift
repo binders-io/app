@@ -6,8 +6,7 @@ import BindersKit
 /// Conversations the iPhone heard during the day, as they come in over the phone link. Each becomes a record of its own
 /// kind: notes written the way a meeting's are, its promises as to-dos, filed in the binder it belongs to, and searchable
 /// and askable like a meeting. Only text ever arrives; the audio stayed on the phone. Conversations never go to a team
-/// folder, whatever binder they land in; to a team database, one goes only when you put it in a shared binder yourself, or
-/// choose Share It on it (lane DB4), and never its audio.
+/// folder, whatever binder they land in.
 @MainActor
 @Observable
 final class ConversationService {
@@ -55,9 +54,9 @@ final class ConversationService {
         record.duration = payload.duration
         record.status = "processing"
         record.speakerNames = payload.speakers
-        // Filed where new things go until it's been read; never shared, so never in a binder shared through a team
-        // database, where a capture goes to the team only when you put it there (lane DB4).
-        record.binderID = TeamContent.privateHome(preferring: Store.shared.binder(settings.currentBinderID)).id
+        // Filed where new things go until it's been read; never shared, so never in a teammate's binder.
+        let current = Store.shared.binder(settings.currentBinderID)
+        record.binderID = (current.flatMap { $0.isTeamCopy ? nil : $0 } ?? Store.shared.defaultBinder()).id
         record.sharedWithTeam = false
         if overLink, soloAuto, let vouch = SoloVouch(payload, device: phone?.uuidString) { record.soloJSON = vouch.json }
         Store.shared.insert(record)
@@ -483,8 +482,7 @@ final class ConversationService {
     /// so it stays.
     func route(_ record: MeetingRecord) async {
         guard Store.shared.shownFolder(record.folderID, in: record.binderID) == nil else { return }
-        // Never into a binder shared through a team database: a capture joins the team only when you put it there (lane DB4).
-        let binders = Store.shared.binders().filter { !$0.isTeamCopy && !$0.sharedThroughDatabase }
+        let binders = Store.shared.binders().filter { !$0.isTeamCopy }
         guard binders.count > 1, let client = model() else { return }
         let hints = binders.map { ConversationPrompts.BinderHint(name: $0.name, titles: recentTitles(in: $0.id, excluding: record.id), about: MomentService.about($0)) }
         let prompt = ConversationPrompts.routingUserPrompt(binders: hints, title: record.title, summary: String(record.summary.prefix(2_000)))

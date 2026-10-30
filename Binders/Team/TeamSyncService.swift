@@ -147,8 +147,6 @@ final class TeamSyncService {
         var waitingForFolders: [String] = []
         /// Member files that are there but can't be read yet, which hold that back too.
         var unreadableMembers = 0
-        /// A teammate moved the team to a team database (lane DB3): what their Mac left in the folder.
-        var moved: TeamMoveMarker?
     }
 
     private struct Removals {
@@ -350,30 +348,6 @@ final class TeamSyncService {
         status = Status()
     }
 
-    /// The team moved to a team database (lane DB3): one last sync, then this Mac stops syncing the folder and leaves it as
-    /// it is, a Markdown copy that still opens in Obsidian. Teammates' items stay on this Mac: they're the database's now.
-    /// A marker in the folder tells a newer Binders still on folder sync what happened (an older one never reads it); the
-    /// first Mac to move writes it.
-    func stopForMove(_ marker: TeamMoveMarker) async {
-        while syncing { try? await Task.sleep(for: .milliseconds(100)) }
-        await syncNow()
-        if let folder = folderURL {
-            let url = dataURL(folder, TeamMoveMarker.fileName, file: true)
-            if !FileManager.default.fileExists(atPath: url.path), let data = try? TeamCoding.encoder().encode(marker) {
-                try? data.write(to: url, options: .atomic)
-            }
-        }
-        pending?.cancel()
-        settings.teamFolderPath = nil
-        identityOverride = nil
-        watcher = nil
-        state = TeamSyncState()
-        localCache = [:]
-        remoteCache = [:]
-        saveState()
-        status = Status()
-    }
-
     /// Sharing is decided per binder: everything in it syncs, and whatever lands in it later is shared too. Conversations
     /// the iPhone heard, and notes made from what you said to yourself (`NoteItem.staysUnshared`, marked on the note, so
     /// deleting History doesn't unmark one), are the exception: they stay on this Mac.
@@ -539,7 +513,6 @@ final class TeamSyncService {
         next.filesMove = filesMayMove
         next.waitingForFolders = TeamFeatures.waitingForFolders(members: members, me: me.id)
         next.unreadableMembers = scan.unreadableMembers
-        next.moved = (try? Data(contentsOf: dataURL(folder, TeamMoveMarker.fileName, file: true))).flatMap { try? TeamCoding.decoder().decode(TeamMoveMarker.self, from: $0) }
         status = next
         updateCounts()
         if let first = lastAnnouncements.first {

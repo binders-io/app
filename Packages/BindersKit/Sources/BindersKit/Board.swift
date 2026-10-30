@@ -249,10 +249,8 @@ public enum BoardRules {
     }
 
     /// A person's answer to a blocked card sends it back to work, and the agent that has it gets a fresh lease.
-    /// `decides`: false when what the card waits on is an approval this person doesn't decide (`deciders`): their words
-    /// are a comment then, and the card keeps waiting for whoever does.
-    public static func answered(_ card: CardState, by actor: BoardActor, at now: Date, decides: Bool = true) -> CardState {
-        guard !actor.isAgent, decides, card.column == .blocked else { return card }
+    public static func answered(_ card: CardState, by actor: BoardActor, at now: Date) -> CardState {
+        guard !actor.isAgent, card.column == .blocked else { return card }
         var next = card
         next.column = card.assignee == nil ? .ready : .inProgress
         if next.assigneeIsAgent { next.claimExpires = now.addingTimeInterval(lease) }
@@ -349,38 +347,6 @@ public enum BoardRules {
 
     /// A name no agent may act under: the user's own. Every rule here tells people and agents apart by name.
     public static func isReserved(_ name: String) -> Bool { isNamed(name, as: BoardActor.you.name) }
-}
-
-// MARK: Who decides on an approval
-
-extension BoardRules {
-    /// Who decides on what an agent asked approval for, as the plan has approvals ring "for the agent's owner and whoever
-    /// the card is for": the agent's owner (`askerOwner`), and the person the card is meant for (`meantFor`: a person, or
-    /// the owner of the agent it's meant for), unless an agent or Binders only suggested who it's for (`suggested`): a
-    /// suggestion makes no one a decider. Anyone else is refused, by the team database's `decide` too (migration 8), and
-    /// what they write on the card is a comment, not its answer, so the board greys out what the database would refuse.
-    /// On a board that isn't shared, both are you. People however the caller tells them apart (names, member ids), the
-    /// owner first.
-    public static func deciders<Person: Equatable>(askerOwner: Person?, meantFor: Person?, suggested: Bool) -> [Person] {
-        var people: [Person] = []
-        for person in [askerOwner, suggested ? nil : meantFor].compactMap({ $0 }) where !people.contains(person) { people.append(person) }
-        return people
-    }
-
-    /// Who decides, in words for someone who doesn't: "Only Sam can decide on this: it's their agent asking."
-    public static func onlyDeciders(owner: String?, meantFor: String?) -> String {
-        let owner = owner?.trimmingCharacters(in: .whitespaces).nilIfBlank, meant = meantFor?.trimmingCharacters(in: .whitespaces).nilIfBlank
-        switch (owner, meant) {
-        case let (owner?, meant?) where owner.localizedCaseInsensitiveCompare(meant) != .orderedSame:
-            return "Only \(owner), whose agent is asking, or \(meant), who the card is for, can decide on this."
-        case let (owner?, _):
-            return "Only \(owner) can decide on this: it's their agent asking."
-        case let (nil, meant?):
-            return "Only \(meant) can decide on this: the card is for them."
-        case (nil, nil):
-            return "No one in the team can decide on this now: the agent's owner isn't in the team any more. Choose who the card is for, and they can."
-        }
-    }
 }
 
 /// Word of a card that's worth a quiet notification.

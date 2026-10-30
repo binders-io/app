@@ -141,20 +141,6 @@ final class AppSettings {
     var teamMemberName: String { didSet { defaults.set(teamMemberName, forKey: "teamMemberName") } }
     var shareMeetingsByDefault: Bool { didSet { defaults.set(shareMeetingsByDefault, forKey: "shareMeetingsByDefault") } }
     var shareNotesByDefault: Bool { didSet { defaults.set(shareNotesByDefault, forKey: "shareNotesByDefault") } }
-    /// The team database this Mac shares binders through (lane DB2): the server and this Mac's login, as JSON
-    /// (`TeamDatabaseServer`), never a password, which is in the Keychain. Nil when there's none. Kept under a key of its
-    /// own: "teamDatabase" is the default that turns the team database on (TeamDatabaseFeature).
-    var teamDatabase: String? { didSet { defaults.set(teamDatabase, forKey: Self.teamDatabaseServerKey) } }
-    static let teamDatabaseServerKey = "teamDatabaseServer"
-
-    /// A team database saved by a build before its switch, under "teamDatabase", where that key now turns it on: moved to
-    /// its own key, once, so turning it on never overwrites it. A switch already set (a bool) is left as it is.
-    static func moveTeamDatabaseServer(in defaults: UserDefaults) {
-        guard defaults.object(forKey: teamDatabaseServerKey) == nil, let saved = defaults.object(forKey: TeamDatabaseFeature.key) as? String else { return }
-        defaults.set(saved, forKey: teamDatabaseServerKey)
-        defaults.removeObject(forKey: TeamDatabaseFeature.key)
-    }
-
     var openAIKey: String {
         get { Keychain.read("openai-compatible-key") ?? "" }
         set { Keychain.write(newValue, for: "openai-compatible-key") }
@@ -260,8 +246,6 @@ final class AppSettings {
         teamMemberName = defaults.string(forKey: "teamMemberName") ?? ""
         shareMeetingsByDefault = defaults.bool(forKey: "shareMeetingsByDefault")
         shareNotesByDefault = defaults.bool(forKey: "shareNotesByDefault")
-        Self.moveTeamDatabaseServer(in: defaults)
-        teamDatabase = defaults.string(forKey: Self.teamDatabaseServerKey)
     }
 
     var languageHint: String? { language == "auto" ? nil : language }

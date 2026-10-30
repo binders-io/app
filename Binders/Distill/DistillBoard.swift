@@ -73,16 +73,14 @@ enum DistillBoard {
 
     /// One card as the progress reads it: its column and who has it, what it waits for, what waits on whom in Blocked or
     /// Review, its last report and when, when it was finished, and its section's change since it was made, with whether
-    /// it caught up. `team`: who's who on a board shared through the team database, for whom a card there waits on.
-    static func card(_ card: TaskCard, events: [TaskEvent], waits: [CardWaits.Wait], doing: String?,
-                     team: TeamDirectory? = nil) -> DistillProgress.Card {
-        var question: String?, asker: String?, askerIsAgent = false, approval = false, reason: String?, blockedBy: String?
+    /// it caught up.
+    static func card(_ card: TaskCard, events: [TaskEvent], waits: [CardWaits.Wait], doing: String?) -> DistillProgress.Card {
+        var question: String?, asker: String?, approval = false, reason: String?, blockedBy: String?
         if card.column == .blocked {
             let shapes = events.map { (kind: $0.kindRaw, to: $0.toColumn ?? "") }
             if let index = BoardRules.waitingAsk(in: shapes) {
                 let event = events[index]
                 asker = event.author
-                askerIsAgent = event.authorIsAgent
                 if event.kind == .approval {
                     approval = true
                     question = AgentApproval(timeline: event.text)?.action ?? event.text
@@ -94,11 +92,6 @@ enum DistillBoard {
                 reason = moved?.text
                 blockedBy = moved?.author
             }
-        }
-        // On a shared board, whom it waits on, as the board rings for it: a teammate, or you (nil).
-        var waitsOn: String?
-        if let team, card.column == .blocked || card.column == .review, !card.teamShadow.isEmpty, card.teamShadow != TeamBoard.held {
-            waitsOn = team.waitsOn(asker: asker, askerIsAgent: askerIsAgent, meantFor: card.meantFor)
         }
         let report = events.last { $0.kind == .progress }
         let finished = card.column == .done ? events.last { $0.toColumn == BoardColumn.done.rawValue }?.createdAt ?? card.updatedAt : nil
@@ -115,14 +108,7 @@ enum DistillBoard {
                                     meantForByAgent: card.meantForByAgent, waits: waits, question: question, asker: asker, approval: approval,
                                     blockedReason: reason, doing: doing, lastReport: report?.text, lastReportBy: report?.author,
                                     updated: card.updatedAt, finished: finished, section: from?.section, sectionChange: change,
-                                    closed: from?.closed != nil, waitsOn: waitsOn, lastReportAt: report?.createdAt, blockedBy: blockedBy)
-    }
-
-    /// Who's who on the team, when any of these cards is on a board shared through the team database: the app's, or what
-    /// it last kept for `Binders --mcp`. Nil otherwise.
-    static func teamDirectory(for cards: [TaskCard]) -> TeamDirectory? {
-        guard cards.contains(where: { !$0.teamShadow.isEmpty && $0.teamShadow != TeamBoard.held }) else { return nil }
-        return TeamBoard.current?.directory ?? TeamBoard.savedDirectory()
+                                    closed: from?.closed != nil, lastReportAt: report?.createdAt, blockedBy: blockedBy)
     }
 
     /// Every card placed from the note, as the progress reads them. `doing`: what runs say they're doing, from the feed
@@ -135,10 +121,9 @@ enum DistillBoard {
         let found = waited.isEmpty ? [] : (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { waited.contains($0.id) }))) ?? []
         let byID = Dictionary(found.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { a, _ in a })
         let doing = lines ?? (readDoing ? AgentDoing.lines(for: cards, on: Store.shared.context, now: now) : [:])
-        let team = teamDirectory(for: cards)
         return cards.map { card in
             let waits = card.waitsFor.compactMap { byID[$0] }.map { CardWaits.Wait(id: $0.id.uuidString, title: $0.title, column: $0.column) }
-            return Self.card(card, events: timelines[card.id] ?? [], waits: waits, doing: doing[card.id], team: team)
+            return Self.card(card, events: timelines[card.id] ?? [], waits: waits, doing: doing[card.id])
         }
     }
 

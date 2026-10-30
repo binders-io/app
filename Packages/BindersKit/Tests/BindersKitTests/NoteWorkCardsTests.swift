@@ -75,32 +75,6 @@ final class NoteWorkCardsTests: XCTestCase {
                      "a Distill part a later build wrote says nothing")
     }
 
-    // MARK: To and from the team
-
-    func testPutCardsReachTheTeamAsByHandWithTheirWords() {
-        let put = DistilledFrom.put(note: spec, section: "Auth", sectionText: "Sign in", quote: "Sign in")
-        let team = put.teamJSON.object ?? [:]
-        XCTAssertEqual(Set(team.keys), ["note", "by_hand", "put", "section", "section_hash", "quote"])
-        let back = DistilledFrom(team: put.teamJSON)
-        XCTAssertEqual(back?.put, true)
-        XCTAssertEqual(back?.quote, "Sign in")
-        XCTAssertEqual(back?.section, "Auth")
-        XCTAssertEqual(back?.sectionHash, put.sectionHash)
-        XCTAssertNil(back?.byHand)
-        // What this Mac noticed of it stays when the team's part comes back.
-        var noticed = put
-        noticed.noticedHash = "abc"
-        noticed.seenText = "Sign in, now with a passkey"
-        let kept = DistilledFrom(team: put.teamJSON, keeping: noticed)
-        XCTAssertEqual(kept?.noticedHash, "abc")
-        XCTAssertEqual(kept?.seenText, "Sign in, now with a passkey")
-        // A Mac before this build, which knows by_hand only, reads it as put in by hand.
-        let older = DistilledFrom.byHand(note: spec)
-        XCTAssertEqual(older.teamJSON.object?["by_hand"], team["by_hand"])
-        let whole = DistilledFrom.put(note: spec).teamJSON.object ?? [:]
-        XCTAssertEqual(Set(whole.keys), ["note", "by_hand", "put"])
-    }
-
     func testAnOldPartWithoutPutReadsAsBefore() throws {
         let old = #"{"note":"\#(spec.uuidString)","distill":"\#(spec.uuidString)","item":"\#(spec.uuidString)","byHand":true}"#
         let from = try XCTUnwrap(DistilledFrom(json: old))
