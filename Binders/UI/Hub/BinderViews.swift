@@ -39,6 +39,9 @@ struct BinderPage: View {
     @State private var tidying = false
     /// What Tidy just did, said for a few seconds with Undo.
     @State private var tidied: String?
+    /// Link to Hub…, open (HubLinkSheet).
+    @State private var linkingToHub = false
+    @State private var confirmUnlink = false
     @Environment(\.undoManager) private var undoManager
 
     private var binder: BinderRecord? {
@@ -125,6 +128,18 @@ struct BinderPage: View {
                         Label("Shared by \(binder.teamAuthorName ?? "a teammate") · read-only", systemImage: "person.2")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                    } else if let place = HubLinks.place(of: binder) {
+                        Button {
+                            linkingToHub = true
+                        } label: {
+                            Label(place.uploaded ? "On the hub · \(place.binderName)" : "On the hub · not all sent",
+                                  systemImage: place.uploaded ? "network" : "exclamationmark.icloud")
+                        }
+                        .buttonStyle(.plain)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .help("Linked to \(place.binderName) in \(place.spaceName) on \(HubSignInSection.shown(place.hub))")
+                        .fitProbe("binder.hubLink")
                     } else if team.isConfigured {
                         Toggle("Share with team", isOn: Binding(get: { binder.sharedWithTeam }, set: { team.setShared(binder, $0) }))
                             .toggleStyle(.switch)
@@ -144,6 +159,14 @@ struct BinderPage: View {
                                 tidying = true
                             }
                             .help("Make a folder for each prefix your titles share, such as “DevOps | …”, and take it off the titles")
+                        }
+                        if !binder.isTeamCopy {
+                            if HubLinks.place(of: binder) == nil {
+                                Button("Link to Hub…") { linkingToHub = true }
+                                    .help("Send its notes, folders and cards to a project on the hub you're signed in to")
+                            } else {
+                                Button("Unlink from Hub…") { confirmUnlink = true }
+                            }
                         }
                         Divider()
                         if !binder.isTeamCopy {
@@ -238,6 +261,14 @@ struct BinderPage: View {
                     if tidied == line { withAnimation { tidied = nil } }
                 }
             }
+        }
+        .sheet(isPresented: $linkingToHub) {
+            HubLinkSheet(binder: binder)
+        }
+        .confirmationDialog("Unlink “\(binder.name)” from the hub?", isPresented: $confirmUnlink) {
+            Button("Unlink") { HubLinks.shared.unlink(binder) }
+        } message: {
+            Text("It stays on this Mac with everything in it, and its project stays on the hub. Changes stop going between them.")
         }
         .confirmationDialog("Delete “\(binder.name)”?", isPresented: $confirmDelete) {
             Button("Delete Binder", role: .destructive) {

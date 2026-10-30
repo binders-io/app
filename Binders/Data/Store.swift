@@ -122,6 +122,8 @@ final class BinderRecord {
     var teamDatabaseKey: String = ""
     /// Who made it in the team, by name, when it wasn't you: "From Dana". Empty otherwise.
     var teamMadeBy: String = ""
+    /// Linked to a project on a hub (HubLinks): where (`HubLink.Place`, as JSON). Empty for a binder that isn't.
+    var hubLink: String = ""
 
     static let paletteSize = 8
 
