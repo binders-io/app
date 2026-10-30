@@ -99,7 +99,10 @@ final class HubLinks {
         binder.hubLink = place.json
         binder.updatedAt = Date()
         store.save()
-        return await send(binder)
+        let sent = await send(binder)
+        // The tools set up for the hub's cards take this project's work too (HubAgentSetup).
+        await HubAgentSetup.shared.refresh()
+        return sent
     }
 
     /// Sends what's left of a link that didn't finish. Nothing goes twice.
@@ -150,6 +153,7 @@ final class HubLinks {
         problems[binder.id] = nil
         done[binder.id] = nil
         working[binder.id] = nil
+        Task { await HubAgentSetup.shared.refresh() }
     }
 
     // MARK: Asking the hub

@@ -62,6 +62,10 @@ enum DistillTools {
         guard let found else {
             throw MCPCore.ToolFailure(cardOnly ? "No card with that id. Give the id of the card you're working on." : "No note or distilled card with that id.")
         }
+        // A linked binder's notes and cards are the hub's: an agent distills them there.
+        if let actor, MCPServer.onHub(found.0.binderID, for: actor) {
+            throw MCPServer.onHubFailure("notes", binder: found.0.binderID, id: found.1?.id ?? found.0.id)
+        }
         if found.0.isTeamCopy, !reads.team {
             throw MCPCore.ToolFailure("Teammates' items aren't shared with this tool. The user can allow them in Binders' Settings → MCP.")
         }
@@ -92,6 +96,7 @@ enum DistillTools {
                 guard let binder = all.first(where: { $0.id.uuidString == string("binder") || $0.name.localizedCaseInsensitiveCompare(string("binder")) == .orderedSame }) else {
                     throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.")
                 }
+                if MCPServer.onHub(binder.id, for: actor) { throw MCPServer.onHubFailure("notes", binder: binder.id) }
                 let list = DistillBoard.workList(in: binder.id).filter { entry in
                     UUID(uuidString: entry.note).flatMap { Store.shared.note($0) }.map { (reads.team || !$0.isTeamCopy) && (reads.captures || !$0.staysUnshared) } ?? false
                 }
@@ -160,7 +165,7 @@ enum DistillTools {
             return json(reply)
         case "distill_note":
             guard !cardOnly else { throw MCPCore.ToolFailure("This server reaches the board only. Ask the user to distill the note in Binders.") }
-            let (note, _) = try self.note(string("id"), cardOnly: false, reads: reads)
+            let (note, _) = try self.note(string("id"), cardOnly: false, reads: reads, actor: actor)
             guard note.distill else { throw MCPCore.ToolFailure("Distill is off for “\(note.title)”. The user turns it on with Distill This Note, in the note's menu.") }
             return proposal(try await write("distill_note", ["id": note.id.uuidString, "actor": actor.name, "actor_kind": actor.kind.rawValue]), note: note)
         case "propose_work_items":

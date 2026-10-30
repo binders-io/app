@@ -135,6 +135,7 @@ enum InboxCommands {
                 return .failure("That folder is in \(store.binder(folder.binderID)?.name ?? "another binder"), not \(named.name). Give one or the other.")
             }
             guard let binder = folder.flatMap({ store.binder($0.binderID) }) ?? binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
+            if let refused = onHub(binder.id, "notes", field: field) { return refused }
             if folder == nil, !folderGone, !FolderTree.components(folderField).isEmpty {
                 folder = store.ensureFolder(path: FolderTree.components(folderField), in: binder.id)
             }
@@ -179,6 +180,7 @@ enum InboxCommands {
             guard let note = (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.id == id })))?.first else {
                 return .failure("No note with that id")
             }
+            if let refused = onHub(note.binderID, "notes", id: note.id, field: field) { return refused }
             let appended = note.text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n" + text
             if let refused = agentCorrecting(note, to: appended, request) { return refused }
             NoteHistory.willChange(note, to: appended, always: true, by: historyAuthor(request))
@@ -192,6 +194,7 @@ enum InboxCommands {
         case "update_note":
             guard let id = UUID(uuidString: field("id")) else { return .failure("id must be a note id") }
             guard let note = store.note(id) else { return .failure("No note with that id") }
+            if let refused = onHub(note.binderID, "notes", id: note.id, field: field) { return refused }
             let find = request.fields["find"] ?? "", replace = request.fields["replace"] ?? "", whole = field("text")
             let updated: String
             if !find.isEmpty {
@@ -494,6 +497,14 @@ enum InboxCommands {
     /// threshold), else the current binder, as the tool says. Who it's for is `for`, as before (from an agent, a suggestion
     /// that waits for your tap); without it, the router suggests the agent whose work it is a moment later. Nothing from
     /// MCP or the iPhone starts an agent without your tap.
+    /// An agent's write to a linked binder's notes: refused, as the MCP server refuses it, since they're the hub's. A write
+    /// without an actor is yours (the iPhone's).
+    private static func onHub(_ binderID: UUID?, _ what: String, id: UUID? = nil, field: (String) -> String) -> InboxResult? {
+        let actor = BoardActor(name: field("actor"), kind: BoardActor.Kind(rawValue: field("actor_kind")) ?? .person)
+        guard MCPServer.onHub(binderID, for: actor) else { return nil }
+        return .failure(MCPServer.onHubWords(what, binder: binderID, id: id))
+    }
+
     private static func createTask(field: (String) -> String, controller: DictationController) async -> InboxResult {
         let board = controller.board
         let actor = BoardActor(name: field("actor").isEmpty ? "AI agent" : field("actor"),
@@ -507,6 +518,8 @@ enum InboxCommands {
             guard let todo = Todos.find(field("todo")) else { return .failure(todoGone) }
             if !field("binder").isEmpty, binder(named: field("binder")) == nil { return .failure(noBinder(field("binder"))) }
             let target = field("binder").isEmpty ? nil : binder(named: field("binder"))?.id
+            let into = target ?? todo.binderID
+            if MCPServer.onHub(into, for: actor) { return .failure(MCPServer.onHubWords("cards", binder: into)) }
             let made = board.create(from: todo, column: column, binderID: target, title: field("title").isEmpty ? nil : field("title"),
                                     details: field("details"), by: actor)
             if !made.existed, !field("for").isEmpty {
@@ -538,6 +551,7 @@ enum InboxCommands {
             guard let named = binder(named: field("binder")) else { return .failure(noBinder(field("binder"))) }
             target = named
         }
+        if MCPServer.onHub(target.id, for: actor) { return .failure(MCPServer.onHubWords("cards", binder: target.id)) }
         // On a shared board an agent acts as itself in the team, which this Mac has to know first (lane DB2).
         if actor.isAgent, controller.teamBoard.isShared(binder: target.id), !controller.teamBoard.knowsItself { return .failure(Self.teamNotReached) }
         let card: TaskCard
@@ -590,6 +604,7 @@ enum InboxCommands {
         guard let id = UUID(uuidString: field("id")), let card = board.card(id) else {
             return .failure("No card with that id. list_tasks shows them.")
         }
+        if MCPServer.onHub(card.binderID, for: actor) { return .failure(MCPServer.onHubWords("cards", binder: card.binderID, id: card.id)) }
         let team = controller.teamBoard
         let shared = team.sends(card)
         if shared, actor.isAgent, !team.knowsItself { return .failure(Self.teamNotReached) }
