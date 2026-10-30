@@ -407,6 +407,8 @@ private struct PopoutNoteView: View {
             NoteHistory.changed(note.id, previous: previous)
             // A note shared through a team database: the typing goes to the team once it pauses (lane DB3).
             TeamNotes.current?.typed(note.id)
+            // A note in a binder linked to a hub: to the hub the same way.
+            HubNotesSync.shared.typed(note.id)
         }
         // The team sees who's in a shared note.
         .onAppear { TeamNotes.current?.opened(note.id) }
