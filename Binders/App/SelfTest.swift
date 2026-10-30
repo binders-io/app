@@ -1366,6 +1366,11 @@ open reports/import.html
             return await hubLinkSelfTest(drawingTo: value("--selftest-hub-link").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
 
+        if args.contains("--selftest-hub-board") {
+            // A linked binder's board through the hub: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
+            return await hubBoardSelfTest()
+        }
+
         if let step = value("--selftest-join-copies-mac") {
             // One of the other Macs of `--selftest-teamdb-join-copies` (lane DB9), started by it in a folder of its own.
             return await joinCopiesMac(step)
