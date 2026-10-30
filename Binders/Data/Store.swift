@@ -358,6 +358,10 @@ final class MeetingRecord {
     var teamAuthorID: String?
     /// The folder it's filed in, in its binder (FolderRecord); nil at the top. A capture's too.
     var folderID: UUID?
+    /// Sent to a linked binder as a note (MeetingNotes): that note, and its words as they were last sent, so sending again
+    /// updates the same note and can tell when someone changed it since. Nil for a meeting that wasn't sent.
+    var sentNoteID: UUID?
+    var sentNoteText: String = ""
 
     init(title: String, appName: String?, templateID: String) {
         self.id = UUID()

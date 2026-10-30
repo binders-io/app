@@ -1361,6 +1361,11 @@ open reports/import.html
             return await hubSignInSelfTest(drawingTo: value("--selftest-hub-signin").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
 
+        if args.contains("--selftest-meeting-note") {
+            // Send to Binder: a meeting as a note in a linked binder on a running hub (scripts/hub-sync-test.sh).
+            return await meetingNoteSelfTest()
+        }
+
         if args.contains("--selftest-hub-sync") {
             // Linked notes and folders both ways with a running hub, offline included (scripts/hub-sync-test.sh).
             return await hubSyncSelfTest()

@@ -152,6 +152,21 @@ final class MeetingPostProcessingTests: XCTestCase {
         XCTAssertTrue(markdown.contains("**[01:05] You:** Hello"))
     }
 
+    func testMeetingNoteLeavesOutMyNotesAndTheTranscriptUnlessAsked() {
+        let summary = "## Summary\nAll good.\n## Decisions\n- Ship Friday\n## Action items\n- [ ] Dana — send the deck"
+        let segments = [TranscriptSegment(channel: .microphone, start: 65, end: 67, text: "Hello")]
+        let note = MeetingMarkdown.note(title: "Sync", dateText: "Sep 13", duration: 1_500, appName: "Zoom", attendees: ["Dana", "Robin"],
+                                        summary: summary, segments: nil, names: [:])
+        XCTAssertEqual(note, "# Sync\n\n*Sep 13 · 25 min · Zoom*\n\n**Attendees:** Dana, Robin\n\n\(summary)\n")
+        XCTAssertFalse(note.contains("My notes"))
+        let withTranscript = MeetingMarkdown.note(title: "Sync", dateText: "Sep 13", duration: 1_500, appName: nil, attendees: [],
+                                                  summary: summary, segments: segments, names: [:])
+        XCTAssertTrue(withTranscript.hasPrefix("# Sync\n\n*Sep 13 · 25 min*\n\n## Summary"))
+        XCTAssertTrue(withTranscript.hasSuffix("## Transcript\n\n**[01:05] You:** Hello\n"))
+        XCTAssertTrue(MeetingMarkdown.note(title: "  ", dateText: "Sep 13", duration: 0, appName: nil, attendees: [], summary: "",
+                                           segments: [], names: [:]).hasPrefix("# Meeting\n"))
+    }
+
     func testMeetingDetectorPrefersNativeApps() {
         XCTAssertEqual(MeetingDetector.meetingApp(capturingInput: ["com.google.Chrome.helper", "us.zoom.xos"])?.name, "Zoom")
         XCTAssertEqual(MeetingDetector.meetingApp(capturingInput: ["com.google.Chrome.helper"])?.name, "Chrome (web meeting)")
