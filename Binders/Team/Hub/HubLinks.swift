@@ -33,10 +33,11 @@ final class HubLinks {
 
     static func place(of binder: BinderRecord) -> HubLink.Place? { HubLink.Place(json: binder.hubLink) }
 
-    /// Why a binder can't be linked, in words, or nil when it can.
-    func whyNot(_ binder: BinderRecord) -> String? {
+    /// Why a binder can't be linked, in words, or nil when it can. `moving`: Move to a Hub, which takes a binder off the
+    /// team database once it's on the hub (HubMove), so one on it can go.
+    func whyNot(_ binder: BinderRecord, moving: Bool = false) -> String? {
         if binder.isTeamCopy { return "This binder is a teammate's copy. Only its owner can link it to a hub." }
-        if binder.sharedWithTeam || !binder.teamDatabaseKey.isEmpty {
+        if binder.sharedWithTeam || (!binder.teamDatabaseKey.isEmpty && !moving) {
             return "This binder is shared with your team already. Stop sharing it first, so it doesn't reach the team twice."
         }
         if !account.isSignedIn { return "Sign in to a hub in Settings → Team first." }
@@ -100,6 +101,38 @@ final class HubLinks {
         binder.updatedAt = Date()
         store.save()
         return await send(binder)
+    }
+
+    /// Move to a Hub, for one binder on the team database: to its project in `space` (`HubLink.movedProjectID`). The
+    /// first Mac to move it makes the project and sends everything up; a teammate's Mac that finds the project there
+    /// (`existing`) joins it, and from then on takes the hub's words and cards, sending only what the hub doesn't have.
+    /// A move cut short goes on where it stopped. True when the binder is on the hub.
+    @discardableResult
+    func move(_ binder: BinderRecord, space: HubLink.Space, existing: HubLink.Project?) async -> Bool {
+        if let place = Self.place(of: binder) { return place.uploaded ? true : await send(binder) }
+        if let why = whyNot(binder, moving: true) {
+            problems[binder.id] = why
+            return false
+        }
+        guard let hub = account.address else { return false }
+        let projectID = HubLink.movedProjectID(binder.id)
+        var place = HubLink.Place(hub: hub, space: space.id, spaceName: space.name, binder: projectID,
+                                  binderName: existing?.name ?? binder.name, client: HubLink.newClient(), newProject: existing == nil)
+        problems[binder.id] = nil
+        guard existing != nil else {
+            binder.hubLink = place.json
+            binder.updatedAt = Date()
+            store.save()
+            return await send(binder)
+        }
+        place.uploaded = true
+        binder.hubLink = place.json
+        binder.updatedAt = Date()
+        store.save()
+        done[binder.id] = "Joined \(place.binderName), which a teammate moved first."
+        HubBoard.shared.follow()
+        HubNotesSync.shared.refresh()
+        return true
     }
 
     /// Sends what's left of a link that didn't finish. Nothing goes twice.
