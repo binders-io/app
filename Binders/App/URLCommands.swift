@@ -15,6 +15,8 @@ import BindersKit
 ///                           Application Support/Binders/link-pairing.txt (yours only), for a phone that isn't at the Mac
 ///     binders://team/join?… an invite to a team database (TeamInvite.link): Settings → Team comes forward and asks
 ///                           before it joins, as anything on this Mac can open a link
+///     binders://auth?token=bnp_…&state=…&hub=…   a hub's hand-back of Sign In (HubAccount): kept only for the sign-in
+///                           this Mac started
 @MainActor
 enum URLCommands {
     static func handle(_ url: URL, controller: DictationController) {
@@ -123,6 +125,12 @@ enum URLCommands {
             // An invite never joins by itself: Settings → Team comes forward and asks.
             guard let invite = TeamInvite(link: url) else { return warn("binders://team/join needs an invite's server, login and password") }
             openInvite(invite, controller: controller)
+        case "auth":
+            // A hub handing back the person token Settings → Team's Sign In asked for. Kept only when it carries the
+            // state of the sign-in this Mac started; Settings → Team comes forward to say who's signed in.
+            hub.navigation.pendingSettingsPage = .team
+            hub.show(section: .settings)
+            Task { await HubAccount.shared.finish(url) }
         case "apply":
             // A write from the MCP server or another local tool, waiting in the inbox.
             guard let name = query["file"] else { return warn("binders://apply needs ?file=") }

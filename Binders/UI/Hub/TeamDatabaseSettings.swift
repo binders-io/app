@@ -6,9 +6,9 @@ import BindersKit
 /// Settings → Team's team database (lane DB2): the status line, with what to check when it's offline; an update the
 /// team's database needs, which an admin runs (lane DB5); the members and their agents, which an admin adds, gives new
 /// one-time passwords and removes, with each of your headless agents' Auto; and the binders shared through it, with
-/// everyone or with some members. A Mac shares through a team folder or a team database, never both. Setting one up and
-/// joining with an invite lead Settings → Team on a Mac with no team yet (lane DB7: TeamJoinSheet, TeamSetUpChoiceSheet,
-/// TeamInviteQuestion).
+/// everyone or with some members. A Mac shares through a team folder or a team database, never both. A team starting now
+/// signs in to a hub instead (HubSignInSection); an invite to a team that's still on a database asks in Settings → Team
+/// (TeamInviteQuestion).
 struct TeamDatabaseSection: View {
     @Environment(DictationController.self) private var controller
     @State private var updating = false
@@ -506,14 +506,6 @@ struct TeamInviteLinkSheet: View {
 
 // MARK: Joining and setting up (lane DB7)
 
-/// Where Settings → Team goes once Join a Team… or Set Up a Team… closes.
-enum TeamNextStep: Equatable {
-    /// Set Up a Team Database….
-    case database
-    /// A shared folder: Create team space…, or Join through a shared folder….
-    case createFolder, joinFolder
-}
-
 /// An invite opened on this Mac (a link, or a file from Finder), asking before it joins. While team databases are off it
 /// asks once whether to turn them on too: Turn On and Join, or Cancel, which changes nothing. A Mac in a team folder goes
 /// on to Move This Team to a Database…, where the invite waits.
@@ -558,167 +550,6 @@ struct TeamInviteQuestion: View {
             }
             working = false
         }
-    }
-}
-
-/// Join a Team…: the invite a teammate sent, its link pasted or its file chosen, joined straight to the team's database.
-/// A team that shares a folder is the second way, at the bottom: Join through a shared folder….
-struct TeamJoinSheet: View {
-    @Environment(DictationController.self) private var controller
-    @Environment(\.dismiss) private var dismiss
-    let joined: (String) -> Void
-    /// Join through a shared folder…: Settings → Team asks for the folder once this closes.
-    let throughFolder: () -> Void
-    @State private var link: String
-    @State private var invite: TeamInvite?
-    @State private var problem: String?
-    @State private var working = false
-
-    /// `link`: an invite link already in the field (the self-tests draw it so).
-    init(link: String = "", joined: @escaping (String) -> Void, throughFolder: @escaping () -> Void) {
-        _link = State(initialValue: link)
-        _invite = State(initialValue: Self.invite(in: link))
-        self.joined = joined
-        self.throughFolder = throughFolder
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Join a team").font(.headline)
-            Text("Open the invite a teammate sent you, and this Mac joins your team's database. Paste its link, or choose its file.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                TextField("Invite link", text: $link, prompt: Text("binders://team/join?…"))
-                    .textFieldStyle(.roundedBorder)
-                    .labelsHidden()
-                    .onChange(of: link) { read() }
-                Text("or").foregroundStyle(.secondary)
-                Button("Choose Invite File…") { choose() }
-            }
-            if let invite {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(TeamDatabaseFeature.question(invite, turningOn: false)).font(.body.weight(.semibold))
-                    Text(TeamDatabaseFeature.detail(invite, turningOn: false, folderTeam: false))
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(BindersTheme.surface))
-            }
-            if let problem { StatusLabel(problem, .problem).font(.caption).fixedSize(horizontal: false, vertical: true) }
-            Divider()
-            HStack {
-                Button("Join through a shared folder…") {
-                    throughFolder()
-                    dismiss()
-                }
-                .help("For a team that shares a folder synced by OneDrive, Dropbox, Google Drive or iCloud Drive")
-                .fitProbe("team.join.folder")
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button(working ? "Joining…" : "Join") { join() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(invite == nil || working)
-                    .fitProbe("team.join.join")
-            }
-        }
-        .padding(20)
-        .frame(width: 560)
-    }
-
-    /// The invite in what was pasted, if it is one.
-    static func invite(in text: String) -> TeamInvite? {
-        URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap(TeamInvite.init(link:))
-    }
-
-    /// What the field holds, read as it changes.
-    private func read() {
-        let text = link.trimmingCharacters(in: .whitespacesAndNewlines)
-        invite = Self.invite(in: text)
-        problem = text.isEmpty || invite != nil ? nil : Self.notALink
-    }
-
-    static let notALink = "That isn't a Binders invite link. One starts with binders://team/join."
-
-    /// Choose Invite File…: a .binders-invite file a teammate sent. Its link goes in the field, so what's joined is shown.
-    private func choose() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [UTType(filenameExtension: TeamInvite.fileExtension) ?? .json, .json]
-        panel.message = "Choose the invite a teammate sent you privately."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let data = try? Data(contentsOf: url), let found = TeamInvite(fileData: data), let text = found.link?.absoluteString else {
-            problem = "That file isn't a Binders invite."
-            return
-        }
-        link = text
-        invite = found
-        problem = nil
-    }
-
-    private func join() {
-        guard let invite else { return }
-        working = true
-        Task { @MainActor in
-            do {
-                let words = try await controller.teamBoard.join(invite)
-                joined(words)
-                dismiss()
-            } catch {
-                problem = error.localizedDescription
-            }
-            working = false
-        }
-    }
-}
-
-/// Set Up a Team…: on a team database (Set Up a Team Database…) or in a shared folder (Create team space…), the database
-/// first. Choosing one closes this and goes on to it.
-struct TeamSetUpChoiceSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let chose: (TeamNextStep) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Set up a team").font(.headline)
-            choice("A team database", detail: "A server your team runs, which Binders reaches through your own network or VPN. Changes reach your teammates' Macs in about a second, and you invite each of them from Settings → Team.",
-                   button: "Set Up a Team Database…", step: .database, probe: "team.setUp.database")
-            Divider()
-            choice("A shared folder", detail: "A folder in OneDrive, Dropbox, Google Drive or iCloud Drive that you share with your team. There's no server: teammates join by choosing the folder.",
-                   button: "Create team space…", step: .createFolder, probe: "team.setUp.folder")
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-            }
-        }
-        .padding(20)
-        .frame(width: 540)
-    }
-
-    private func choice(_ title: String, detail: String, button: String, step: TeamNextStep, probe: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.body.weight(.semibold))
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            Group {
-                if step == .database {
-                    Button(button) { go(step) }.buttonStyle(.borderedProminent)
-                } else {
-                    Button(button) { go(step) }
-                }
-            }
-            .fitProbe(probe)
-        }
-    }
-
-    private func go(_ step: TeamNextStep) {
-        chose(step)
-        dismiss()
     }
 }
 
