@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if controller.settings.phoneLink { controller.link.start() }
         controller.board.start()
         controller.distill.start()
+        // Linked binders' notes and folders, both ways with the hub.
+        HubNotesSync.shared.refresh()
 
         // The library didn't open: the window comes up with its banner, so it's seen before anything seems to be saved.
         if !AppSettings.shared.hasCompletedSetup || !Permissions.accessibility || Permissions.microphone != .authorized || Store.shared.isFallback {
@@ -70,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Store.shared.save()
         // What waits for the team database, all of it on disk (lane DB10).
         TeamBoard.current?.flushToDisk()
+        HubNotesSync.shared.flushToDisk()
         // Deleted meetings' recordings waited for Undo, which goes with the window: they go now.
         MeetingTrash.forgetWaiting(keepingThisRun: false)
         guard let controller else { return .terminateNow }

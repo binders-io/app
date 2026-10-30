@@ -1078,6 +1078,7 @@ struct NoteEditor: View {
                             NoteHistory.changed(note.id, previous: previous)
                             // A note shared through a team database: the typing goes to the team once it pauses.
                             controller.teamBoard.notes.typed(note.id)
+                            HubNotesSync.shared.typed(note.id)
                         }
                     if let column {
                         // Drag the edge to make the digest wider or narrower; most of the way closed, it hides. Dragged out

@@ -104,6 +104,7 @@ final class HubAccount {
             }
             setPerson(found)
             problem = nil
+            HubNotesSync.shared.refresh()
         } catch {
             problem = "Couldn't reach \(address?.host ?? "the hub"): \(error.localizedDescription)"
         }
@@ -132,6 +133,7 @@ final class HubAccount {
         setPerson(nil)
         pending = nil
         HubBoard.shared.follow()
+        HubNotesSync.shared.refresh()
     }
 
     // MARK: Asking the hub

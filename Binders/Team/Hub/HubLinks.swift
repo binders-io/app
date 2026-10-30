@@ -135,8 +135,9 @@ final class HubLinks {
             binder.hubLink = place.json
             store.save()
             done[id] = "Sent \(HubLink.counted(changes)) to \(place.binderName)."
-            // From now on its board follows the hub's.
+            // From now on its board follows the hub's, and its notes are kept the same both ways.
             HubBoard.shared.follow()
+            HubNotesSync.shared.refresh()
             return true
         } catch {
             problems[id] = (error as? Problem)?.words ?? "Couldn't reach \(place.hub.host ?? "the hub"): \(error.localizedDescription)"
@@ -150,6 +151,7 @@ final class HubLinks {
         binder.updatedAt = Date()
         store.save()
         HubBoard.shared.follow()
+        HubNotesSync.shared.refresh()
         problems[binder.id] = nil
         done[binder.id] = nil
         working[binder.id] = nil

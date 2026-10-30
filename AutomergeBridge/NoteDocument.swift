@@ -87,6 +87,14 @@ public final class NoteDocument {
         try self.init(note: note, actor: actor, document: document)
     }
 
+    /// A note's document as a hub (the Binders server) saved it, whole: its skeleton is the hub's, made under the note's
+    /// own id, which for a note the web app made isn't a UUID, so it isn't started from this Mac's.
+    public convenience init(note: UUID, loading saved: Data, actor: UUID) throws {
+        let document = try Document(saved)
+        document.actor = ActorId(uuid: actor)
+        try self.init(note: note, actor: actor, document: document)
+    }
+
     private static func skeleton(_ note: UUID) throws -> Document {
         let document = Document()
         document.actor = ActorId(uuid: note)
