@@ -578,6 +578,26 @@ public enum SummaryParser {
 public enum MeetingMarkdown {
     public static func document(title: String, dateText: String, duration: TimeInterval, appName: String?, attendees: [String],
                                 summary: String, notes: String, segments: [TranscriptSegment], names: [String: String]) -> String {
+        var output = header(title: title, dateText: dateText, duration: duration, appName: appName, attendees: attendees, summary: summary)
+        let noteBody = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !noteBody.isEmpty { output += "## My notes\n\n\(noteBody)\n\n" }
+        output += transcript(segments, names: names)
+        return output
+    }
+
+    /// A meeting as an ordinary note in a linked binder (Send to Binder): its title, when, who was there and its summary,
+    /// whose template has its decisions and action items, then the transcript when `segments` are given. Your own notes
+    /// on it stay on this Mac.
+    public static func note(title: String, dateText: String, duration: TimeInterval, appName: String?, attendees: [String],
+                            summary: String, segments: [TranscriptSegment]?, names: [String: String]) -> String {
+        let named = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = header(title: named.isEmpty ? "Meeting" : named, dateText: dateText, duration: duration, appName: appName,
+                            attendees: attendees, summary: summary)
+        return (output + transcript(segments ?? [], names: names)).trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
+    }
+
+    private static func header(title: String, dateText: String, duration: TimeInterval, appName: String?, attendees: [String],
+                               summary: String) -> String {
         var output = "# \(title)\n\n"
         var meta = [dateText, "\(max(1, Int((duration / 60).rounded()))) min"]
         if let appName { meta.append(appName) }
@@ -585,15 +605,14 @@ public enum MeetingMarkdown {
         if !attendees.isEmpty { output += "**Attendees:** \(attendees.joined(separator: ", "))\n\n" }
         let summaryBody = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !summaryBody.isEmpty { output += summaryBody + "\n\n" }
-        let noteBody = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !noteBody.isEmpty { output += "## My notes\n\n\(noteBody)\n\n" }
-        let blocks = TranscriptFormatter.blocks(segments, names: names)
-        if !blocks.isEmpty {
-            output += "## Transcript\n\n"
-            output += blocks.map { "**[\(TranscriptFormatter.timestamp($0.start))] \($0.speaker):** \($0.text)" }.joined(separator: "\n\n")
-            output += "\n"
-        }
         return output
+    }
+
+    private static func transcript(_ segments: [TranscriptSegment], names: [String: String]) -> String {
+        let blocks = TranscriptFormatter.blocks(segments, names: names)
+        guard !blocks.isEmpty else { return "" }
+        return "## Transcript\n\n"
+            + blocks.map { "**[\(TranscriptFormatter.timestamp($0.start))] \($0.speaker):** \($0.text)" }.joined(separator: "\n\n") + "\n"
     }
 }
 

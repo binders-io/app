@@ -1376,6 +1376,11 @@ open reports/import.html
             return await hubHistorySelfTest(drawingTo: value("--selftest-hub-history").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
 
+        if args.contains("--selftest-meeting-note") {
+            // Send to Binder: a meeting as a note in a linked binder on a running hub (scripts/hub-sync-test.sh).
+            return await meetingNoteSelfTest()
+        }
+
         if args.contains("--selftest-hub-link") {
             // Linking a binder to a hub's project: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
             return await hubLinkSelfTest(drawingTo: value("--selftest-hub-link").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
