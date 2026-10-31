@@ -40,6 +40,7 @@ extension SelfTest {
         account.openPage = { _ in }
         hubBoard.retry = .milliseconds(100)
         hubBoard.decisionWait = .milliseconds(500)
+        hubBoard.putRetry = .milliseconds(300)
 
         // MARK: The stand-in hub: its log, the state it makes, and its live feed.
         var log: [HubCards.Entry] = []
@@ -50,6 +51,8 @@ extension SelfTest {
         var liveOpened = 0
         /// Before the next claim from this Mac: another agent's claim, applied first.
         var claimFirst: String?
+        /// Changes posted don't reach the hub, as when this Mac is offline; the rest still does.
+        var offline = false
         func value(_ object: Any) -> JSONValue { try! JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: object)) }
         func json(_ value: JSONValue) -> Any { try! JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: .fragmentsAllowed) }
         func message(_ entries: [HubCards.Entry]) -> Data {
@@ -90,6 +93,7 @@ extension SelfTest {
                               ["id": "agent-pennant", "name": "Pennant", "owner": "robin-h"]]
                 return answer(200, ["version": log.count, "state": ["binders": projects, "folders": [], "notes": [], "cards": cards, "agents": agents]])
             case ("POST", "/api/changes"):
+                if offline { throw URLError(.notConnectedToInternet) }
                 guard let body = request.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
                       let client = body["client"] as? String, let changes = body["changes"] as? [[String: Any]] else { return answer(400, ["error": "?"]) }
                 // A person sends only what the web app may; this stand-in also takes a claim for an agent of theirs, as a
@@ -258,6 +262,71 @@ extension SelfTest {
         check(timeline(shed).filter { $0.kind == .created }.count == 1, "with its created line once here")
         board.delete(shed)
         check(await sent() && hub.cards[HubLink.hubID(shed.id)] == nil, "a card deleted here goes from the hub")
+
+        // MARK: Made here offline: it waits, and goes up when the hub is back.
+        offline = true
+        let rake = board.create(title: "Rake the leaves", details: "Before the rain", binderID: garden.id, column: .ready, by: .you)
+        board.comment(rake, text: "Both lawns", by: .you)
+        _ = await sent()
+        check(!rake.hubPut.isEmpty && hub.cards[HubLink.hubID(rake.id)] == nil, "a card made here offline waits for the hub, kept on the card")
+        check(timeline(rake).filter { $0.text.hasPrefix("Not on the hub yet: Couldn't reach the hub") }.count == 1,
+              "and says so, once: \(timeline(rake).map(\.text))")
+        // The hub's state read whole, the feed dropped and opened again, while posting still fails.
+        var reopened = liveOpened
+        live?.finish(throwing: URLError(.networkConnectionLost))
+        live = nil
+        check(await until { liveOpened > reopened && hubBoard.live.contains("team") }, "the feed opens again while changes still don't reach the hub")
+        _ = await sent()
+        check(board.card(rake.id) != nil && !rake.hubPut.isEmpty, "a card the hub doesn't have yet isn't taken from here for not being there")
+        offline = false
+        let wentUp = await until { hub.cards[HubLink.hubID(rake.id)] != nil }
+        check(await sent() && wentUp && rake.hubPut.isEmpty, "back online, it goes up with the same change id, and is the hub's")
+        check(hub.cards[HubLink.hubID(rake.id)]?.activity.map(\.kind) == ["created", "comment"]
+                && hub.cards[HubLink.hubID(rake.id)]?.activity.contains { $0.text.hasPrefix("Not on the hub yet") } == false,
+              "with its lines, not Binders' own: \(hub.cards[HubLink.hubID(rake.id)]?.activity.map(\.text) ?? [])")
+        check(board.card(rake.id) != nil && timeline(rake).filter { $0.text == "Both lawns" }.count == 1, "and each line once here")
+        append(["type": "card.delete", "id": HubLink.hubID(rake.id)])
+        check(await until { board.card(rake.id) == nil }, "once the hub has had it, deleted there it goes from here")
+
+        // MARK: Bulk Delete, then Undo: back on the hub as it was there.
+        append(["type": "card.put", "card": ["id": "card-hub2", "binderId": project, "title": "Mend the fence", "brief": "", "doneWhen": "",
+                                             "size": "S", "stage": "working", "agentId": "agent-codex", "createdAt": HubCards.iso(Date()),
+                                             "createdBy": "sam-k", "updatedAt": HubCards.iso(Date()),
+                                             "activity": [["at": HubCards.iso(Date()), "by": "sam-k", "kind": "created", "text": "Made it"]]]])
+        let fenceID = HubCards.localID("card-hub2")
+        check(await until { board.card(fenceID) != nil }, "a card made on the hub is here")
+        if let fence = board.card(fenceID) { board.comment(fence, text: "Posts are loose", by: .you) }
+        check(await sent() && hub.cards["card-hub2"]?.activity.count == 2, "with a comment from here on it")
+        let bulb = board.create(title: "Plant bulbs", binderID: garden.id, column: .backlog, by: .you)
+        check(await sent() && hub.cards[HubLink.hubID(bulb.id)] != nil && bulb.hubPut.isEmpty, "and one made here is on the hub")
+        let bulbID = bulb.id, bulbHub = HubLink.hubID(bulb.id)
+        let fenceWas = hub.cards["card-hub2"], bulbWas = hub.cards[bulbHub]
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        let deleted = BoardBulk.delete([board.card(fenceID), bulb].compactMap { $0 }, board: board, undoManager: undo)
+        undo.endUndoGrouping()
+        check(await sent() && hub.cards["card-hub2"] == nil && hub.cards[bulbHub] == nil && deleted.undoable, "Bulk Delete takes both from the hub, with Undo")
+        undo.undo()
+        check(await sent() && hub.cards["card-hub2"] == fenceWas && hub.cards[bulbHub] == bulbWas,
+              "Undo puts both back on the hub as it had them: the same ids, stage, agent and lines")
+        _ = await until(0.4) { false }
+        let fence = board.card(fenceID)
+        check(fence?.hubCard == "card-hub2" && fence?.column == .inProgress && fence?.assignee == "Codex" && fence?.hubPut == "",
+              "and here, still the hub's card-hub2, Codex's")
+        check(fence.map { timeline($0).filter { $0.text == "Posts are loose" }.count } == 1 && fence.map { timeline($0).filter { $0.kind == .created }.count } == 1,
+              "with each line once: \(fence.map { timeline($0).map(\.text) } ?? [])")
+        check(board.card(bulbID)?.hubCard == bulbHub && board.card(bulbID).map { timeline($0).filter { $0.kind == .created }.count } == 1,
+              "the one made here too")
+        undo.redo()
+        check(await sent() && hub.cards["card-hub2"] == nil && board.card(fenceID) == nil, "Redo deletes it again")
+        undo.undo()
+        check(await sent() && hub.cards["card-hub2"] == fenceWas && board.card(fenceID) != nil, "and Undo puts it back again, by a change of its own")
+        reopened = liveOpened
+        live?.finish(throwing: URLError(.networkConnectionLost))
+        live = nil
+        check(await until { liveOpened > reopened && hubBoard.live.contains("team") } && board.card(fenceID) != nil && board.card(bulbID) != nil,
+              "and the hub's state read whole keeps them")
 
         // MARK: Deleted on the hub.
         append(["type": "card.delete", "id": "card-hub1"])
