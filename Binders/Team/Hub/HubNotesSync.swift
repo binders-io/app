@@ -259,7 +259,9 @@ final class HubNotesSync {
                 space.failures = 0
                 space.problem = nil
                 shown += 1
-                // Back after being away: what waited goes now.
+                // Back after being away: what waited goes now, pictures included.
+                HubPictures.shared.backOnline()
+                sweepSoon()
                 Task { await self.flush(space) }
             }
             guard let entries = HubSync.entries(fromLive: message) else { continue }
@@ -400,6 +402,7 @@ final class HubNotesSync {
 
     private func set(_ note: NoteItem, to text: String, by author: NoteAuthor) {
         guard note.text != text else { return }
+        HubPictures.shared.fetchMissing(in: text)
         NoteHistory.willChange(note, to: text, always: true, by: author)
         note.text = text
         note.updatedAt = Date()
@@ -408,6 +411,7 @@ final class HubNotesSync {
     private func make(_ hub: HubSync.Note, in binder: UUID, space: Space) {
         let note = NoteItem(text: hub.text)
         note.id = HubSync.localID(hub.id)
+        HubPictures.shared.fetchMissing(in: hub.text, space: space.id)
         note.binderID = binder
         // In its folder, which may not have come yet: it shows at the top of its binder until it does.
         note.folderID = hub.folderId.map(HubSync.localID)
@@ -464,10 +468,12 @@ final class HubNotesSync {
         func hubID(_ id: UUID) -> String { ids[id] ?? HubLink.hubID(id) }
         var everywhere: [UUID: Set<String>] = [:]
         var notesHere: [UUID: [NoteItem]] = [:]
-        for (binder, _) in links {
+        for (binder, place) in links {
             let notes = notes(in: binder.id)
             notesHere[binder.id] = notes
             everywhere[binder.id] = Set(notes.map { hubID($0.id) })
+            // Pictures only on this Mac go up first; the note's words follow, naming the hub's copies.
+            for note in notes { HubPictures.shared.send(note, hubID: hubID(note.id), link: place) }
         }
         var changed = false
         for (binder, place) in links {
@@ -507,7 +513,9 @@ final class HubNotesSync {
                     changed = true
                 }
                 let byID = Dictionary(notes.map { (hubID($0.id), $0) }, uniquingKeysWith: { first, _ in first })
-                for id in plan.edited { if let note = byID[id], capture(note, hubID: id, space: space) { changed = true } }
+                for id in plan.edited {
+                    if let note = byID[id], !HubPictures.shared.isSending(note.id), capture(note, hubID: id, space: space) { changed = true }
+                }
                 for note in notes { space.state.shared.insert(hubID(note.id)) }
                 for folder in folders { space.state.shared.insert(hubID(folder.id)) }
                 break
