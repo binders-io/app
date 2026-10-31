@@ -855,8 +855,10 @@ struct MeetingDetailView: View {
 
     @Environment(MeetingService.self) private var service
     @Environment(TeamSyncService.self) private var team
+    @Environment(HubNavigation.self) private var navigation: HubNavigation?
     @Environment(\.undoManager) private var undoManager
     @ReducedMotion private var reduceMotion
+    @AppStorage(MeetingNotes.transcriptKey, store: AppDefaults.store) private var sendsTranscript = false
     @Bindable var meeting: MeetingRecord
     let onDelete: () -> Void
     @State private var tab: DetailTab = .summary
@@ -866,6 +868,8 @@ struct MeetingDetailView: View {
     @State private var copied = false
     @State private var rescuing = false
     @State private var editingSummary = false
+    /// Send Again, asked first when the note it was sent as has changed since.
+    @State private var confirmResend = false
 
     init(meeting: MeetingRecord, onDelete: @escaping () -> Void, initialTab: DetailTab = .summary) {
         _meeting = Bindable(meeting)
@@ -903,6 +907,17 @@ struct MeetingDetailView: View {
                 }
                 if !meeting.attendees.isEmpty {
                     Text("With " + meeting.attendees.joined(separator: ", ")).font(.callout).foregroundStyle(.secondary)
+                }
+                if let note = MeetingNotes.note(of: meeting) {
+                    Button {
+                        navigation?.open(note: note)
+                    } label: {
+                        Label("Sent as a note to \(Store.shared.binder(note.binderID)?.name ?? "a binder")", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                    .disabled(navigation == nil)
+                    .help(MeetingNotes.changedSince(meeting) ? "Open the note. It was changed since it was sent." : "Open the note")
                 }
                 if let error = meeting.errorMessage {
                     StatusLabel(error, .problem).font(.callout)
@@ -975,6 +990,49 @@ struct MeetingDetailView: View {
             Text(MeetingDeletes.isShared(meeting, team: team) ? "This can't be undone." : "Undo puts it back.")
         }
         .sheet(isPresented: $rescuing) { MicRescueSheet(meeting: meeting) }
+        .confirmationDialog("Replace the note’s words?", isPresented: $confirmResend) {
+            Button("Send Again", role: .destructive) { send(to: nil) }
+        } message: {
+            Text("“\(MeetingNotes.note(of: meeting)?.title ?? meeting.title)” was changed since you sent it. Sending again puts the meeting’s words in its place, and those changes go.")
+        }
+    }
+
+    /// Send to Binder (MeetingNotes): the meeting as a note in a binder linked to a hub, or, once it's been sent, that note
+    /// updated.
+    @ViewBuilder
+    private var sendMenu: some View {
+        let ready = !isRecording && !isBusy && !editingSummary
+        if let note = MeetingNotes.note(of: meeting) {
+            Menu("Note in \(Store.shared.binder(note.binderID)?.name ?? "a Binder")") {
+                Button("Open the Note") { navigation?.open(note: note) }
+                    .disabled(navigation == nil)
+                Button("Send Again") {
+                    if MeetingNotes.changedSince(meeting) { confirmResend = true } else { send(to: nil) }
+                }
+                .disabled(!ready)
+                .help("Updates the note with the meeting as it is now")
+                Toggle("Include the Transcript", isOn: $sendsTranscript)
+            }
+        } else {
+            Menu("Send to Binder") {
+                let binders = MeetingNotes.binders()
+                if binders.isEmpty {
+                    Button("Link a binder to a hub first, in its ⋯ menu") {}
+                        .disabled(true)
+                }
+                ForEach(binders, id: \.id) { binder in
+                    Button(binder.name) { send(to: binder) }
+                }
+                Divider()
+                Toggle("Include the Transcript", isOn: $sendsTranscript)
+            }
+            .disabled(!ready)
+            .help("Writes the meeting as a note in a binder linked to a hub, for the team. The meeting stays on this Mac.")
+        }
+    }
+
+    private func send(to binder: BinderRecord?) {
+        MeetingNotes.send(meeting, to: binder, transcript: sendsTranscript)
     }
 
     /// Which binder and folder it's in, and whether the team sees it.
@@ -1079,6 +1137,7 @@ struct MeetingDetailView: View {
     private var moreMenu: some View {
         Menu {
             Button("Export Markdown…") { service.export(meeting) }
+            if MeetingNotes.canSend(meeting) { sendMenu }
             let audio = meeting.audioURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
             if !audio.isEmpty {
                 Button("Show Audio in Finder") { NSWorkspace.shared.activateFileViewerSelecting(audio) }

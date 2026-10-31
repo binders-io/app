@@ -40,6 +40,9 @@ final class MeetingTrash {
         let sharedWithTeam: Bool
         let teamAuthorName: String?
         let teamAuthorID: String?
+        /// The note it was sent to a linked binder as, so sending it again still updates that note.
+        let sentNoteID: UUID?
+        let sentNoteText: String
         let segments: [TranscriptSegment]
         /// Its recordings, by their names in Meetings, and where each waits for Undo.
         let held: [Held]
@@ -73,6 +76,8 @@ final class MeetingTrash {
             chatJSON = meeting.chatJSON
             micAudioFile = meeting.micAudioFile
             systemAudioFile = meeting.systemAudioFile
+            sentNoteID = meeting.sentNoteID
+            sentNoteText = meeting.sentNoteText
             errorMessage = meeting.errorMessage
             sharedWithTeam = meeting.sharedWithTeam
             teamAuthorName = meeting.teamAuthorName
@@ -142,6 +147,8 @@ final class MeetingTrash {
             record.errorMessage = entry.errorMessage
             record.teamAuthorName = entry.teamAuthorName
             record.teamAuthorID = entry.teamAuthorID
+            record.sentNoteID = entry.sentNoteID
+            record.sentNoteText = entry.sentNoteText
             // Back in its own binder, shared as it was; one whose binder has gone comes back unshared, in General.
             record.sharedWithTeam = binder != nil && entry.sharedWithTeam
             for held in entry.held {

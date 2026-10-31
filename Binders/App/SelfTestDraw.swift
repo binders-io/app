@@ -7,7 +7,7 @@ extension SelfTest {
     /// Draws one page of the hub, on the demo data, to a PNG, to look at a change: `--selftest-draw home out.png`, or
     /// `today`, `binder`, `board`, `note` (one open in the binder), `card` (a card opened, at its window's default size),
     /// `card:<state>` and `cards` (the card window's states, `SelfTestCardDrawings`), `meeting` (a meeting's
-    /// transcript in the binder), `ask` (its Ask tab, with a question asked), `knowledge` (the binder's Knowledge, a
+    /// transcript in the binder; `meeting-sent` once it's been sent to a binder as a note), `ask` (its Ask tab, with a question asked), `knowledge` (the binder's Knowledge, a
     /// person open), `meetings` (the binder's Meetings tab, its Record button), `slash` (a note's slash menu, as it opens on
     /// the binder's pages), `settings:<page>`, `agent-editor` (an agent's sheet). With `--colour <0-7>` the demo binder wears
     /// that binder colour. `settings:ai` takes `--decision-folder <folder>`, a decision model's folder put in as Tev1 0.8B's
@@ -105,11 +105,12 @@ extension SelfTest {
                 .defaultAppStorage(throwawayDefaults))
             size = NSSize(width: CardLayout.defaultWidth, height: CardLayout.defaultHeight)
         }
-        if page == "meeting" || page == "ask" {
+        if page == "meeting" || page == "meeting-sent" || page == "ask" {
             // The launch review as the binder's Meetings tab shows it, on its transcript or, with a question asked and
             // answered, on Ask.
             let meetings = (try? Store.shared.context.fetch(FetchDescriptor<MeetingRecord>())) ?? []
             guard let review = meetings.first(where: { $0.title == DemoData.meetingTitle }) else { return 1 }
+            if page == "meeting-sent" { MeetingNotes.send(review, to: harbor, transcript: false) }
             if page == "ask" {
                 review.chat = [.init(role: "user", text: "What did we decide about the launch date?"),
                                .init(role: "assistant", text: "It stays the **28th**. A slip is decided on Monday, not before.")]
