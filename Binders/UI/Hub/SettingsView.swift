@@ -1148,12 +1148,7 @@ private struct TeamSettings: View {
     @State private var teamError: String?
     /// Move This Team to a Database… (lane DB3).
     @State private var moving = false
-    /// Join a Team… and Set Up a Team… (lane DB7), Set Up a Team Database… from it, and where to go once a sheet closes.
-    @State private var joining = false
-    @State private var choosingSetUp = false
-    @State private var settingUpDatabase = false
-    @State private var next: TeamNextStep?
-    /// What came of joining or setting up a team here.
+    /// What came of joining a team here.
     @State private var said: String?
     /// The team database, held back from 0.10.0 behind its default (TeamDatabaseFeature), read as it changes.
     @AppStorage(TeamDatabaseFeature.key, store: AppDefaults.store) private var teamDatabaseOn = false
@@ -1162,6 +1157,9 @@ private struct TeamSettings: View {
         @Bindable var settings = settings
         // How this Mac shares, read with the default so the page follows it (lane DB7).
         let way = teamDatabaseOn ? TeamDatabaseFeature.way(hasFolder: team.folderURL != nil) : .folderOnly
+        // A hub leads: it takes the place of a team database's server, login and VPN for a team starting now. A Mac
+        // already on a team database, or in a team folder, keeps its part below. The hub heads the part.
+        HubSignInSection(summary: TeamDatabaseFeature.subtitle(way))
         Section {
             StackedField(label: "Your name", text: $settings.teamMemberName, prompt: NSFullUserName(), probe: "field.team.name")
             // An invite opened on this Mac (a link, or a file from Finder): it asks before it joins, and while team
@@ -1211,23 +1209,6 @@ private struct TeamSettings: View {
                     Spacer()
                     Button("Leave team space…", role: .destructive) { confirmLeave = true }
                 }
-            } else if way == .either {
-                // No team yet, with team databases on (lane DB7): joining first, then setting one up, the database
-                // first in each; a shared folder is the second way in both.
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Button("Join a Team…") { joining = true }
-                            .buttonStyle(.borderedProminent)
-                            .fitProbe("team.join")
-                        Button("Set Up a Team…") { choosingSetUp = true }
-                            .fitProbe("team.setUp")
-                    }
-                    Text("Join with the invite a teammate sent you, or set up a team and invite them.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let teamError {
-                    StatusLabel(teamError, .problem).font(.caption)
-                }
             } else {
                 // A Mac shares one way: a team folder, or a team database (lane DB2), while the team database is on.
                 let database = way == .database
@@ -1246,39 +1227,23 @@ private struct TeamSettings: View {
             }
             if let said { StatusLabel(said, .done).font(.caption).fixedSize(horizontal: false, vertical: true) }
         } header: {
-            SettingsHeading(part: .team, summary: TeamDatabaseFeature.subtitle(way))
+            Text(way == .database ? "Team database" : "Shared folder").font(.headline).foregroundStyle(.primary)
         } footer: {
             // What's true for the way this Mac shares (lane DB7): the folder's words, the database's, or both.
             Text(TeamDatabaseFeature.footer(way))
                 .fitProbe("team.footer.\(way.rawValue)")
         }
         .sheet(isPresented: $moving) { TeamMoveSheet() }
-        .sheet(isPresented: $joining, onDismiss: goOn) {
-            TeamJoinSheet(joined: { said = $0; teamError = nil }, throughFolder: { next = .joinFolder })
-        }
-        .sheet(isPresented: $choosingSetUp, onDismiss: goOn) { TeamSetUpChoiceSheet { next = $0 } }
-        .sheet(isPresented: $settingUpDatabase) { TeamDatabaseSetUpSheet { said = $0; teamError = nil } }
         .confirmationDialog("Leave the team space?", isPresented: $confirmLeave) {
             Button("Leave", role: .destructive) { Task { await team.leave() } }
         } message: {
             Text("Teammates' meetings and notes are removed from this Mac. What you already shared stays in the team folder.")
         }
         // Held back from 0.10.0 behind its default (TeamDatabaseFeature): only the shared-folder way while it's off. On,
-        // with no team yet, joining and setting up lead above (lane DB7); in a team folder or on a team database, its part.
+        // in a team folder or on a team database, its part. A team starting now goes to a hub, above.
         if way == .folder || way == .database {
             TeamDatabaseSection()
                 .fitProbe("team.database")
-        }
-    }
-
-    /// Where a sheet that just closed goes on to: Set Up a Team Database…, or a shared folder to create or join.
-    private func goOn() {
-        guard let step = next else { return }
-        next = nil
-        switch step {
-        case .database: settingUpDatabase = true
-        case .createFolder: chooseTeamFolder(create: true)
-        case .joinFolder: chooseTeamFolder(create: false)
         }
     }
 

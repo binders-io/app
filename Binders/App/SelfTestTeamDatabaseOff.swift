@@ -11,7 +11,8 @@ extension SelfTest {
     /// shared through the database doesn't say so. On: each of those as lanes DB2–DB4 built them, and the MCP instructions
     /// say binders shared with a team are on its database. Turned off while Binders runs (lane DB5), it disconnects at once
     /// and hides everything, as at launch; on again, it connects. Then a teammate's Mac with no team (lane DB7,
-    /// `teammateJoinsChecks`). Draws Settings → Team in each state, and the two sheets, to `directory`, when one is given.
+    /// `teammateJoinsChecks`), offered a hub's Sign In rather than a new team database. Draws Settings → Team in each state
+    /// to `directory`, when one is given.
     ///
     ///     BINDERS_DATA_DIR=$(mktemp -d) Binders --selftest-team-database-off [dir] -notesShowMarkdown NO
     @MainActor
@@ -180,12 +181,13 @@ extension SelfTest {
         }
 
         // Off, no team: as it always was.
-        check(TeamDatabaseFeature.way == .folderOnly && SettingsPage.team.summary == "Sharing binders through a folder you already sync."
+        check(TeamDatabaseFeature.way == .folderOnly && SettingsPage.team.summary == "Sharing binders through a hub, or a folder you already sync."
                 && TeamDatabaseFeature.footer(.folderOnly).hasPrefix("Share meetings and notes with your team through a folder synced by OneDrive"),
               "off: Settings → Team names the shared folder alone, in its subtitle and its footer, as before")
         let off = await page("team-off")
-        check(off.contains("team.footer.folderOnly") && !off.contains("team.join") && !off.contains("team.database") && !off.contains("team.invite.turnOn"),
-              "off: Settings → Team is the shared folder alone: no Join a Team…, no team database part")
+        check(off.contains("team.footer.folderOnly") && off.contains("team.hub.signIn") && !off.contains("team.join") && !off.contains("team.database")
+                && !off.contains("team.invite.turnOn"),
+              "off: Settings → Team is a hub's Sign In and the shared folder: no Join a Team…, no team database part")
 
         // An invite while it's off asks once.
         if let link = invite.link { URLCommands.handle(link, controller: controller) }
@@ -249,43 +251,22 @@ extension SelfTest {
         await team.leaveDatabase()
         TeamDatabase.forget(invite.server)
 
-        // On, no team yet: joining and setting up lead, the database first.
-        check(TeamDatabaseFeature.isOn && TeamDatabaseFeature.way == .either
-                && SettingsPage.team.summary == "Sharing binders through a team database, or a folder you already sync.",
-              "on with no team: the subtitle names both ways, the database first")
-        let either = TeamDatabaseFeature.footer(.either)
-        check(either.hasPrefix("A team database is a Postgres server your team runs, which Binders reaches directly, through your own network or VPN.")
-                && either.contains("their notes, meetings, cards, to-dos and what Binders learned from them, and captures only when you put them in a shared binder")
-                && either.contains("A shared folder is synced by OneDrive, Dropbox, Google Drive or iCloud Drive, and there's no server.")
-                && either.contains("the audio Binders records never goes to your team") && !either.contains("!")
-                && either.components(separatedBy: "Postgres").count == 2,
-              "its footer says both ways plainly, naming the server once")
+        // On, no team yet: a hub leads, and the shared folder; no new team database (the hub's sign-in replaces its
+        // server, login and VPN).
+        check(TeamDatabaseFeature.isOn && TeamDatabaseFeature.way == .folderOnly
+                && SettingsPage.team.summary == "Sharing binders through a hub, or a folder you already sync.",
+              "on with no team: the subtitle names the folder, as off")
         let lead = await page("team-on-no-team")
-        check(lead.contains("team.join") && lead.contains("team.setUp") && lead.contains("team.footer.either") && !lead.contains("team.database"),
-              "on with no team: Settings → Team leads with Join a Team… and Set Up a Team…")
+        check(lead.contains("team.hub") && lead.contains("team.hub.signIn") && lead.contains("team.footer.folderOnly")
+                && !lead.contains("team.join") && !lead.contains("team.setUp") && !lead.contains("team.database"),
+              "on with no team: Settings → Team leads with the hub's Sign In, and offers no Join a Team… or Set Up a Team…")
         URLCommands.openInvite(invite, controller: controller)
         let invited = await page("team-on-invite")
-        check(invited.contains("team.invite.join") && invited.contains("team.join")
+        check(invited.contains("team.invite.join")
                 && TeamDatabaseFeature.question(invite, turningOn: false) == "Join “Harbor team” as robin?"
                 && TeamDatabaseFeature.detail(invite, turningOn: false, folderTeam: false) == "Sam invited you. Its database is binders on 192.0.2.11.",
-              "on: an invite opened from a link or Finder asks “Join “Harbor team” as robin?” at the top")
+              "on: an invite to a team still on its database, opened from a link or Finder, asks “Join “Harbor team” as robin?” at the top")
         team.declineInvite()
-
-        // The two sheets.
-        let link = invite.link?.absoluteString ?? ""
-        check(TeamJoinSheet.invite(in: "  \(link)\n") == invite && TeamJoinSheet.invite(in: "https://binders.io/team/join?host=x") == nil
-                && TeamJoinSheet.invite(in: "binders://team/join?host=h&database=d") == nil,
-              "Join a Team… reads a pasted invite link, and nothing else")
-        let sheet = await drawnAlone(TeamJoinSheet(link: link, joined: { _ in }, throughFolder: {}), controller: controller, name: "team-join-sheet",
-                                     size: NSSize(width: 560, height: 262), directory: directory)
-        check(sheet["team.join.join"] != nil && sheet["team.join.folder"] != nil, "its sheet joins the database, with Join through a shared folder… second")
-        let setUp = await drawnAlone(TeamSetUpChoiceSheet { _ in }, controller: controller, name: "team-set-up-sheet",
-                                     size: NSSize(width: 540, height: 268), directory: directory)
-        if let database = setUp["team.setUp.database"], let folder = setUp["team.setUp.folder"] {
-            check(database.minY > folder.minY, "Set Up a Team… offers a team database first, then a shared folder")
-        } else {
-            check(false, "Set Up a Team… offers a team database and a shared folder")
-        }
         AppSettings.shared.teamMemberName = "Sam"
         return failed
     }

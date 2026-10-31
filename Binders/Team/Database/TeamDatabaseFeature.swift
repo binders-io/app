@@ -68,10 +68,9 @@ extension BinderRecord {
 extension TeamDatabaseFeature {
     /// How this Mac shares, which Settings → Team's subtitle and footer say.
     enum Way: String, Equatable {
-        /// Team databases are off: a shared folder is the one way.
+        /// Team databases are off, or on with no team here: a shared folder, beside a hub. A team starting now goes to
+        /// a hub rather than a new team database.
         case folderOnly
-        /// On, and this Mac has no team yet: a team database or a shared folder, the database first.
-        case either
         /// In a team folder.
         case folder
         /// On a team database.
@@ -83,7 +82,7 @@ extension TeamDatabaseFeature {
     static func way(hasFolder: Bool) -> Way {
         guard isOn else { return .folderOnly }
         if hasFolder { return .folder }
-        return TeamBoard.savedServer() != nil ? .database : .either
+        return TeamBoard.savedServer() != nil ? .database : .folderOnly
     }
 
     @MainActor static var way: Way { way(hasFolder: AppSettings.shared.teamFolderPath != nil) }
@@ -91,8 +90,8 @@ extension TeamDatabaseFeature {
     /// The line under Settings → Team's name.
     static func subtitle(_ way: Way) -> String {
         switch way {
-        case .folderOnly, .folder: "Sharing binders through a folder you already sync."
-        case .either: "Sharing binders through a team database, or a folder you already sync."
+        case .folderOnly: "Sharing binders through a hub, or a folder you already sync."
+        case .folder: "Sharing binders through a folder you already sync."
         case .database: "Sharing binders through a team database."
         }
     }
@@ -105,20 +104,10 @@ extension TeamDatabaseFeature {
     /// put it in a shared binder or choose Share It; no meeting row has a field for audio.
     static let databaseWords = "Share binders with your team through a team database: a Postgres server your team runs, which Binders reaches directly, through your own network or VPN. Only the binders you share go to it: their notes, meetings, cards, to-dos and what Binders learned from them, and captures only when you put them in a shared binder. The audio Binders records never goes to it, and neither do notes made from what you said to yourself."
 
-    /// Both ways, for a Mac with no team yet, the database first.
-    static let eitherWords = """
-        A team database is a Postgres server your team runs, which Binders reaches directly, through your own network or VPN. Only the binders you share go to it: their notes, meetings, cards, to-dos and what Binders learned from them, and captures only when you put them in a shared binder.
-
-        A shared folder is synced by OneDrive, Dropbox, Google Drive or iCloud Drive, and there's no server. Only the notes and meetings in binders you share go into it, with the files attached to those notes, never captures. It opens as an Obsidian vault too.
-
-        Either way, the audio Binders records never goes to your team, and neither do notes made from what you said to yourself.
-        """
-
     /// The words under Settings → Team's first part.
     static func footer(_ way: Way) -> String {
         switch way {
         case .folderOnly, .folder: folderWords
-        case .either: eitherWords
         case .database: databaseWords
         }
     }
