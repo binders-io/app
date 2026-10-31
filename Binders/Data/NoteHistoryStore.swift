@@ -278,6 +278,13 @@ struct NoteHistorySheet: View {
     @State private var name = ""
     /// A note shared through a team database: its versions are the team's (lane DB3), with names, compare and distills.
     @State private var team = false
+    /// A note in a binder linked to a hub: its versions are the hub's commits of it (lane HB8), each with what the hub
+    /// said it did, by commit.
+    @State private var hub = false
+    @State private var commits: [String: HubHistory.Commit] = [:]
+    @State private var loading = false
+    /// Why the hub's versions couldn't be read, in words.
+    @State private var problem: String?
 
     var body: some View {
         // A note with "## " headings says which sections each version touched; one without has only its opening.
@@ -290,15 +297,21 @@ struct NoteHistorySheet: View {
             }
             .padding(16)
             Divider()
-            if versions.isEmpty {
+            if loading {
+                ProgressView("Reading this note's history from the hub…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let problem {
+                ContentUnavailableView("Couldn't read this note's history", systemImage: "exclamationmark.triangle",
+                                       description: Text(problem))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if versions.isEmpty {
                 ContentUnavailableView("No earlier versions yet", systemImage: "clock.arrow.circlepath",
-                                       description: Text(team ? "The team's versions of this note show here, each with who made it." : note.distill ? "Binders keeps every version of a note with Distill on, with who made it." : "Binders keeps a note as it was before each time you edit it, every few minutes while you write, and before a teammate's or an agent's change lands. Versions stay for 30 days."))
+                                       description: Text(hub ? "The hub keeps a version of this note each time its edits pause, whether they're made here, in the web app or by an agent." : team ? "The team's versions of this note show here, each with who made it." : note.distill ? "Binders keeps every version of a note with Distill on, with who made it." : "Binders keeps a note as it was before each time you edit it, every few minutes while you write, and before a teammate's or an agent's change lands. Versions stay for 30 days."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
                     // Who wrote the note as it is now, above the versions kept before it.
-                    if note.distill || team, let now = entries[NoteVersions.nowID] {
+                    if note.distill || team, !hub, let now = entries[NoteVersions.nowID] {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Now").font(.callout.weight(.semibold))
                             Label(now.by.label, systemImage: now.by.isAgent ? BindersTheme.agentSymbol : "person")
@@ -323,8 +336,13 @@ struct NoteHistorySheet: View {
                                         .background(Capsule().fill(TintFill().opacity(0.14)))
                                 }
                             }
+                            // What the hub said it did, and the commit.
+                            if let commit = commits[version.stem] {
+                                Text([commit.subject, commit.short].filter { !$0.isEmpty }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
                             if let entry = entries[version.stem] {
-                                if note.distill || team {
+                                if note.distill || team, !hub {
                                     Label(entry.by.label, systemImage: entry.by.isAgent ? BindersTheme.agentSymbol : "person")
                                         .font(.caption)
                                         .foregroundStyle(entry.by.isAgent ? AnyShapeStyle(BindersTheme.agent) : AnyShapeStyle(.secondary))
@@ -364,7 +382,7 @@ struct NoteHistorySheet: View {
                             Divider()
                             HStack {
                                 Button("Copy") { TextInserter.copyToClipboard(selected.text) }
-                                if note.distill || team {
+                                if note.distill || team || hub {
                                     // Compare it with any other version, or with the note now; or just read it.
                                     Picker("Compare", selection: $compareTo) {
                                         Text("Read It").tag("")
@@ -378,17 +396,20 @@ struct NoteHistorySheet: View {
                                     .fixedSize()
                                     .help("What changed from this version to another, or to the note as it is now")
                                     .onChange(of: compareTo) { showingChanges = !compareTo.isEmpty }
-                                    Button("Name…") {
-                                        name = entries[selected.stem]?.name ?? ""
-                                        naming = true
-                                    }
-                                    .help("Give this version a name, such as Approved or v2")
-                                    .popover(isPresented: $naming) {
-                                        HStack {
-                                            TextField("Approved, v2…", text: $name).frame(width: 180).onSubmit(saveName)
-                                            Button("Save", action: saveName).keyboardShortcut(.defaultAction)
+                                    // A name is kept on this Mac, which the hub's versions aren't.
+                                    if !hub {
+                                        Button("Name…") {
+                                            name = entries[selected.stem]?.name ?? ""
+                                            naming = true
                                         }
-                                        .padding(12)
+                                        .help("Give this version a name, such as Approved or v2")
+                                        .popover(isPresented: $naming) {
+                                            HStack {
+                                                TextField("Approved, v2…", text: $name).frame(width: 180).onSubmit(saveName)
+                                                Button("Save", action: saveName).keyboardShortcut(.defaultAction)
+                                            }
+                                            .padding(12)
+                                        }
                                     }
                                 } else {
                                     Toggle("Show Changes Since", isOn: $showingChanges)
@@ -400,7 +421,7 @@ struct NoteHistorySheet: View {
                                     NoteHistory.restore(selected, to: note)
                                     dismiss()
                                 }
-                                .help(note.distill || team ? "Puts this version back as a new version. Nothing in the history is taken away."
+                                .help(note.distill || team || hub ? "Puts this version back as a new version. Nothing in the history is taken away."
                                       : "Puts this version back. What's there now is kept as a version, so you can go back to it.")
                             }
                             .padding(12)
@@ -412,7 +433,20 @@ struct NoteHistorySheet: View {
         .frame(width: 820, height: 560)
         .pageGround()
         .task {
-            if let notes = TeamNotes.current, notes.keepsHistory(of: note) {
+            if HubNoteHistory.keepsHistory(of: note) {
+                hub = true
+                loading = true
+                do {
+                    let read = try await HubNoteHistory.versions(of: note)
+                    commits = Dictionary(read.map { ($0.commit.sha, $0.commit) }, uniquingKeysWith: { first, _ in first })
+                    versions = read.map {
+                        NoteHistory.Version(url: URL(fileURLWithPath: "/hub-versions/\($0.commit.sha).md"), date: $0.commit.at, text: $0.text)
+                    }
+                } catch {
+                    problem = (error as? HubNotesSync.Problem)?.words ?? error.localizedDescription
+                }
+                loading = false
+            } else if let notes = TeamNotes.current, notes.keepsHistory(of: note) {
                 team = true
                 versions = await notes.versions(of: note).map {
                     NoteHistory.Version(url: URL(fileURLWithPath: "/team-versions/\($0.id.uuidString).md"), date: $0.at, text: $0.text)
@@ -428,7 +462,7 @@ struct NoteHistorySheet: View {
             if before != nil { compareTo = NoteVersions.nowID }
         }
         .onChange(of: selected) {
-            guard note.distill || team else { return }
+            guard note.distill || team || hub else { return }
             compareTo = ""
             showingChanges = false
         }
@@ -440,7 +474,8 @@ struct NoteHistorySheet: View {
 
     /// Every version's own change and sections, for any note; who made each, its name and its distills, for a Distill note.
     private func reloadEntries() {
-        entries = Dictionary(NoteHistory.entries(of: note).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let list = hub ? HubNoteHistory.entries(of: versions, now: note.text) : NoteHistory.entries(of: note)
+        entries = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     private func saveName() {

@@ -158,7 +158,7 @@ extension SelfTest {
         store.save()
         account.signIn(to: "hub.example.com")
         await account.finish(URL(string: "binders://auth?token=bnp_robin00001&state=\(account.pending?.state ?? "")")!)
-        let linked = await links.link(garden, space: HubLink.Space(id: "team", name: "Team"), to: nil)
+        let linked = await links.link(garden, on: URL(string: "https://hub.example.com")!, space: HubLink.Space(id: "team", name: "Team"), to: nil)
         let project = HubLinks.place(of: garden)?.binder ?? ""
         check(linked && hubBoard.covers(stakes), "Garden is linked, and its board follows the hub: \(links.problems[garden.id] ?? "")")
         check(await until { hubBoard.live.contains("team") }, "the hub's Binder is followed live")
@@ -339,6 +339,34 @@ extension SelfTest {
         append(["type": "card.update", "id": stakesID, "fields": ["title": "Buy long stakes"]])
         check(await until { liveOpened > opened && stakes.title == "Buy long stakes" }, "after a drop the feed opens again and catches up")
 
+        // MARK: A to-do here becomes a card on the hub's board, and keeps a link to it.
+        let promise = CommitmentRecord(task: "Sharpen the shears", kind: "todo", owner: "You")
+        promise.binderID = elsewhere.id
+        store.insert(promise)
+        store.save()
+        check(hubBoard.linkedBinders.map(\.binder.id) == [garden.id] && hubBoard.linkedBinders.first?.place.spaceName == "Team",
+              "the to-do list offers Garden, on the hub's Team, as a hub's board")
+        if let todo = Todos.find(promise.id.uuidString) {
+            let made = board.create(from: todo, column: .ready, binderID: garden.id, by: .you)
+            let shearsID = HubLink.hubID(made.card.id)
+            check(await sent() && hub.cards[shearsID]?.title == "Sharpen the shears" && hub.cards[shearsID]?.binderId == project
+                    && hub.cards[shearsID]?.stage == "ready", "a to-do turned into a card in Garden is on the hub's board, ready: \(hub.cards[shearsID]?.stage ?? "not there")")
+            check(board.card(forTodo: promise.id.uuidString)?.id == made.card.id && made.card.hubCard == shearsID && promise.binderID == elsewhere.id
+                    && promise.status == "open", "the to-do links to the card and stays open on this Mac, in its own binder")
+            check(hubBoard.webAddress(of: made.card)?.absoluteString == "https://hub.example.com/team/#/work/\(shearsID)",
+                  "and opens it in the web app: \(hubBoard.webAddress(of: made.card)?.absoluteString ?? "-")")
+            check(board.create(from: todo, column: .ready, binderID: garden.id, by: .you).existed && hub.cards.values.filter { $0.title == "Sharpen the shears" }.count == 1,
+                  "asked again, it's the same card, made once")
+            append(["type": "card.update", "id": shearsID, "fields": HubCards.moveFields(to: .done).mapValues { json($0) },
+                    "activity": ["at": HubCards.iso(Date()), "by": "agent-claude", "kind": "completed", "text": "Sharp"]])
+            check(await until { made.card.column == .done && promise.status == "done" }, "finished on the hub, its to-do is ticked off here")
+            append(["type": "card.update", "id": shearsID, "fields": HubCards.moveFields(to: .ready).mapValues { json($0) }])
+            check(await until { made.card.column == .ready && promise.status == "open" }, "and opened again when the hub reopens the card")
+        } else {
+            check(false, "the promise reads as a to-do")
+        }
+        check(hubBoard.webAddress(of: TaskCard(title: "Local", binderID: elsewhere.id)) == nil, "a card on an unlinked board has no address on the hub")
+
         // MARK: Unlinked, it stops following.
         links.unlink(garden)
         check(!hubBoard.covers(stakes) && hubBoard.live.isEmpty, "unlinked, Garden's board is its own again")
@@ -388,7 +416,7 @@ extension SelfTest {
             check(false, "the hub says which Binders you're in")
             return failed
         }
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name): \(links.done[binder.id] ?? links.problems[binder.id] ?? "")")
         func until(_ seconds: Double, _ condition: () -> Bool) async -> Bool {
             let end = Date().addingTimeInterval(seconds)
@@ -427,6 +455,21 @@ extension SelfTest {
         let there = state?.cards[HubLink.hubID(card.id)]
         check(there?.stage == "ready" && there?.agentId == nil, "on the hub it's back in Ready, out of the agent's hands: \(there?.stage ?? "?")")
         check(there?.activity.contains { $0.kind == "comment" && $0.text == "Commented on a Mac at \(stamp)" } == true, "with the comment made here")
+
+        // A to-do made into a card in the linked binder: the hub's state has it, and the to-do links to it.
+        let promise = CommitmentRecord(task: "To-do from a Mac \(stamp)", kind: "todo", owner: "You")
+        store.insert(promise)
+        store.save()
+        if let todo = Todos.find(promise.id.uuidString) {
+            let made = board.create(from: todo, column: .ready, binderID: binder.id, by: .you).card
+            _ = await until(5) { hubBoard.sending == 0 }
+            let after = (try? await URLSession.shared.data(for: read).0).flatMap { HubCards.Board(state: $0) }
+            let card = after?.cards[HubLink.hubID(made.id)]
+            check(card?.title == promise.task && card?.binderId == place.binder, "a to-do turned into a card is on the hub's board: \(card?.stage ?? "not there")")
+            check(board.card(forTodo: promise.id.uuidString)?.id == made.id, "and the to-do links to it: \(hubBoard.webAddress(of: made)?.absoluteString ?? "-")")
+        } else {
+            check(false, "the promise reads as a to-do")
+        }
         print("NOTE: real hub: open \(hub) and the project “\(binder.name)” in \(space.name) to see it in the web app")
         return failed
     }

@@ -277,11 +277,14 @@ struct TaskBoard: View {
             }
             Spacer(minLength: 0)
             if let card, !task.done {
+                // On a hub's board, the badge names it: the card is the team's there, the to-do stays yours here.
+                let hubBoard = HubBoard.shared.covers(card) ? Store.shared.binder(card.binderID)?.name : nil
                 Button { CardWindows.shared.open(card) } label: {
-                    Badge(text: "On board · \(card.column.title)", tinted: true)
+                    Badge(text: "\(hubBoard.map { "On \($0)" } ?? "On board") · \(card.column.title)", tinted: true)
                 }
                 .buttonStyle(.plain)
-                .help("Open the card. The to-do is ticked off when the card is done.")
+                .help(hubBoard == nil ? "Open the card. The to-do is ticked off when the card is done."
+                      : "Open the card, which is on the hub's board. The to-do stays on this Mac and is ticked off when the card is done.")
             } else if !task.done {
                 // Shown on hover, so the list stays quiet.
                 Button { moveToBoard(task) } label: {
@@ -309,8 +312,20 @@ struct TaskBoard: View {
         .contextMenu {
             if let card, !task.done {
                 Button("Open Card") { CardWindows.shared.open(card) }
+                if let address = HubBoard.shared.webAddress(of: card) {
+                    Button("Open on the Hub") { NSWorkspace.shared.open(address) }
+                }
             } else if !task.done {
                 Button("Add to Board") { moveToBoard(task) }
+                // A to-do stays on this Mac; a card made from it can go to a binder linked to a hub, for the team.
+                let linked = HubBoard.shared.linkedBinders.filter { $0.binder.id != task.todo.binderID }
+                if !linked.isEmpty {
+                    Menu("Add to a Hub's Board") {
+                        ForEach(linked, id: \.binder.id) { link in
+                            Button("\(link.binder.name) (\(link.place.spaceName))") { moveToBoard(task, binder: link.binder.id) }
+                        }
+                    }
+                }
             }
             // A to-do of its own (one you said or added, not a checklist item in a note or a meeting) moves with its card.
             if !task.done, task.todo.sourceKind == "commitment", let id = UUID(uuidString: task.todo.id) {
@@ -321,10 +336,11 @@ struct TaskBoard: View {
         }
     }
 
-    /// Puts a to-do on its binder's board, in Ready. It stays open here, marked as on the board, until its card is done.
-    private func moveToBoard(_ task: TaskEntry) {
-        let made = controller.board.create(from: task.todo, column: .ready, by: .you)
-        if !made.existed { controller.router.suggestLater(for: made.card, origin: .toBoard) }
+    /// Puts a to-do on its binder's board, or on `binder`'s, in Ready. It stays open here, marked as on the board, until its
+    /// card is done. On a binder linked to a hub the card goes up to the hub's board, where the hub's agents take it.
+    private func moveToBoard(_ task: TaskEntry, binder: UUID? = nil) {
+        let made = controller.board.create(from: task.todo, column: .ready, binderID: binder, by: .you)
+        if !made.existed, !HubBoard.shared.covers(made.card) { controller.router.suggestLater(for: made.card, origin: .toBoard) }
     }
 
     private func chip(_ label: String, count: Int, selected: Bool, action: @escaping () -> Void) -> some View {

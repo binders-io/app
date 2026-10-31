@@ -329,7 +329,7 @@ extension SelfTest {
             check(false, "the hub says which Binders you're in")
             return failed
         }
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name): \(links.done[binder.id] ?? links.problems[binder.id] ?? "")")
 
         // This Mac's server refuses the card to an agent.

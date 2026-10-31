@@ -75,7 +75,7 @@ extension SelfTest {
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let (spaces, current) = try? await links.spaces(),
+        guard let (spaces, current, hub) = try? await links.spaces(),
               let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
@@ -136,7 +136,7 @@ extension SelfTest {
         let para = note("# Paragraph\n\nThe quick fox jumps.")
         let away = note("# Away\n\nWritten before going offline.")
         store.save()
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name)")
         guard let place = HubLinks.place(of: binder) else { return 1 }
         let id = { (note: NoteItem) in HubLink.hubID(note.id) }
