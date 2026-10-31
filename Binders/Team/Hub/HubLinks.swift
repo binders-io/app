@@ -6,7 +6,8 @@ import BindersKit
 /// Binders and a project in it, or makes a new project named as the binder is, and sends up the binder's folders, notes
 /// and cards (HubLink.firstUpload), then reads the hub's state back to check they all arrived. A link that didn't finish
 /// is kept, with Send Again: its changes have the same ids under the link's own client, so the hub puts none of them
-/// twice. Unlinking keeps the binder here as it is, and the project on the hub as it is. Keeping them the same both ways
+/// twice, and what changed here since has new ones, so it goes as it is now. Everything a link sends and reads goes to
+/// the hub it was made on, and only while this Mac is signed in to that hub: signed in to another one, it waits. Unlinking keeps the binder here as it is, and the project on the hub as it is. Keeping them the same both ways
 /// from then on builds on the link (`place(of:)`).
 ///
 /// Notes from what you said to yourself stay on this Mac, as they do with a team folder; meetings and captures aren't the
@@ -43,15 +44,34 @@ final class HubLinks {
         return nil
     }
 
-    /// The hub's Binders you're in, and the one it opens first.
-    func spaces() async throws -> (spaces: [HubLink.Space], current: String?) {
-        let (data, _) = try await ask("api/me", space: nil)
-        return HubLink.spaces(fromMe: data)
+    /// Why a link that didn't finish can't be finished now, in words, or nil when Send Again can go.
+    func whyNotSendAgain(_ binder: BinderRecord) -> String? {
+        guard let place = Self.place(of: binder), !place.uploaded else { return nil }
+        return whyNotOn(place.hub)
     }
 
-    /// The projects in one of the hub's Binders.
-    func projects(in space: String) async throws -> [HubLink.Project] {
-        let (data, _) = try await ask("api/state", space: space)
+    /// Why this Mac can't ask `hub` now: it isn't signed in, or it's signed in to another hub.
+    private func whyNotOn(_ hub: URL) -> String? {
+        let shown = HubSignInSection.shown(hub)
+        guard account.isSignedIn, let address = account.address else { return "Sign in to \(shown) in Settings → Team first." }
+        guard HubLink.sameHub(address, hub) else {
+            return "This goes to \(shown), and this Mac is signed in to \(HubSignInSection.shown(address)) now. Sign in to \(shown) in Settings → Team first."
+        }
+        return nil
+    }
+
+    /// The hub's Binders you're in, the one it opens first, and the hub that said so: what's chosen from them is linked
+    /// there, not on whichever hub this Mac is signed in to by then.
+    func spaces() async throws -> (spaces: [HubLink.Space], current: String?, hub: URL) {
+        guard let hub = account.address, account.isSignedIn else { throw Problem("Sign in to a hub in Settings → Team first.") }
+        let (data, _) = try await ask("api/me", on: hub, space: nil)
+        let found = HubLink.spaces(fromMe: data)
+        return (found.spaces, found.current, hub)
+    }
+
+    /// The projects in one of `hub`'s Binders.
+    func projects(in space: String, on hub: URL) async throws -> [HubLink.Project] {
+        let (data, _) = try await ask("api/state", on: hub, space: space)
         guard let projects = HubLink.projects(fromState: data) else { throw Problem("The hub sent something that isn't its state.") }
         return projects
     }
@@ -61,7 +81,7 @@ final class HubLinks {
     /// What a binder sends the first time, to `project` (a new one when `newName` is given).
     func firstUpload(_ binder: BinderRecord, to project: String, newName: String?) -> [HubLink.Outgoing] {
         let binderID = binder.id
-        let folders = store.folders(in: binderID).map { HubLink.LocalFolder(id: $0.id, parent: $0.parentID, name: $0.name) }
+        let folders = store.folders(in: binderID).map { HubLink.LocalFolder(id: $0.id, parent: $0.parentID, name: $0.name, editedAt: $0.updatedAt) }
         let notes = ((try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID }))) ?? [])
             .filter { !$0.staysUnshared }
             .sorted { $0.createdAt < $1.createdAt }
@@ -82,16 +102,15 @@ final class HubLinks {
                                    notes: notes, cards: cards)
     }
 
-    /// Links a binder to `project` in `space`, or to a new project named as the binder is when `project` is nil, and
-    /// sends up what's in it. True when everything arrived.
+    /// Links a binder to `project` in `space` on `hub`, or to a new project named as the binder is when `project` is nil,
+    /// and sends up what's in it. True when everything arrived.
     @discardableResult
-    func link(_ binder: BinderRecord, space: HubLink.Space, to project: HubLink.Project?) async -> Bool {
+    func link(_ binder: BinderRecord, on hub: URL, space: HubLink.Space, to project: HubLink.Project?) async -> Bool {
         guard Self.place(of: binder) == nil else { return false }
-        if let why = whyNot(binder) {
+        if let why = whyNot(binder) ?? whyNotOn(hub) {
             problems[binder.id] = why
             return false
         }
-        guard let hub = account.address else { return false }
         let projectID = project?.id ?? HubLink.newProjectID()
         let place = HubLink.Place(hub: hub, space: space.id, spaceName: space.name, binder: projectID,
                                   binderName: project?.name ?? binder.name, client: HubLink.newClient(), newProject: project == nil)
@@ -106,6 +125,11 @@ final class HubLinks {
     @discardableResult
     func sendAgain(_ binder: BinderRecord) async -> Bool {
         guard let place = Self.place(of: binder), !place.uploaded else { return false }
+        if let why = whyNotOn(place.hub) {
+            problems[binder.id] = why
+            done[binder.id] = nil
+            return false
+        }
         return await send(binder)
     }
 
@@ -121,10 +145,10 @@ final class HubLinks {
         do {
             for (index, batch) in batches.enumerated() {
                 working[id] = batches.count == 1 ? "Sending \(HubLink.counted(changes))…" : "Sending \(index + 1) of \(batches.count)…"
-                _ = try await ask("api/changes", space: place.space, body: HubLink.body(client: place.client, changes: batch))
+                _ = try await ask("api/changes", on: place.hub, space: place.space, body: HubLink.body(client: place.client, changes: batch))
             }
             working[id] = "Checking the hub has them…"
-            let (state, _) = try await ask("api/state", space: place.space)
+            let (state, _) = try await ask("api/state", on: place.hub, space: place.space)
             guard let missing = HubLink.missing(changes, fromState: state, binder: place.binder) else {
                 throw Problem("The hub sent something that isn't its state.")
             }
@@ -137,7 +161,7 @@ final class HubLinks {
             done[id] = "Sent \(HubLink.counted(changes)) to \(place.binderName)."
             return true
         } catch {
-            problems[id] = (error as? Problem)?.words ?? "Couldn't reach \(place.hub.host ?? "the hub"): \(error.localizedDescription)"
+            problems[id] = (error as? Problem)?.words ?? "Couldn't reach \(HubSignInSection.shown(place.hub)): \(error.localizedDescription)"
             return false
         }
     }
@@ -159,9 +183,13 @@ final class HubLinks {
         init(_ words: String) { self.words = words }
     }
 
-    /// A GET, or a POST of `body`, to the hub in one of its Binders; the hub's answer when it's 200, or its words for why not.
-    private func ask(_ path: String, space: String?, body: Data? = nil) async throws -> (Data, Int) {
-        guard var request = account.authorized(path) else { throw Problem("Sign in to a hub in Settings → Team first.") }
+    /// A GET, or a POST of `body`, to `hub` in one of its Binders; the hub's answer when it's 200, or its words for why not.
+    /// Asked again for each request, so one that started on a hub never goes on to another: this Mac's token is only
+    /// ever for the hub it's signed in to, and a link's notes and cards only for the hub it was made on.
+    private func ask(_ path: String, on hub: URL, space: String?, body: Data? = nil) async throws -> (Data, Int) {
+        // Checked and made with nothing in between, on the main actor: the request goes to `hub` with its own token.
+        if let why = whyNotOn(hub) { throw Problem(why) }
+        guard var request = account.authorized(path) else { throw Problem("Sign in to \(HubSignInSection.shown(hub)) in Settings → Team first.") }
         if let space { request.setValue(space, forHTTPHeaderField: "x-binders-space") }
         if let body {
             request.httpMethod = "POST"
