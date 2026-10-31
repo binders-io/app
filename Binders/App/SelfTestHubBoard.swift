@@ -6,8 +6,9 @@ import BindersKit
 /// keeps a log as binders-server does, applies it (`HubCards.Board`), answers /api/state, feeds /api/live, and takes from a
 /// person only what the hub does: a hub agent's claim shows on the board, as do a card made on the hub, a question and a
 /// deletion; a move, a comment, an answer, an approval of what's in review, an edit, a new card and a deletion made here
-/// reach the hub, each line once on both sides; a claim the hub refuses, or gives someone else first, is shown and not
-/// sent again; a dropped feed catches up; an unlinked binder stops following.
+/// reach the hub, each line once on both sides; a claim made here is refused here, as the hub takes none from a person's
+/// app; a new card the hub didn't get is kept and goes again; a dropped feed catches up; an unlinked binder stops
+/// following.
 ///
 /// With BINDERS_TEST_HUB (a hub's address), BINDERS_TEST_HUB_TOKEN (a bnp_ token there) and BINDERS_TEST_HUB_AGENT_TOKEN
 /// (an agent's bnd_ token in the same Binder), it links a binder to a new project on that hub, has the agent claim its card
@@ -40,6 +41,7 @@ extension SelfTest {
         account.openPage = { _ in }
         hubBoard.retry = .milliseconds(100)
         hubBoard.decisionWait = .milliseconds(500)
+        hubBoard.putRetry = .milliseconds(300)
 
         // MARK: The stand-in hub: its log, the state it makes, and its live feed.
         var log: [HubCards.Entry] = []
@@ -48,8 +50,8 @@ extension SelfTest {
         var kept_: Set<String> = []
         var live: AsyncThrowingStream<Data, Error>.Continuation?
         var liveOpened = 0
-        /// Before the next claim from this Mac: another agent's claim, applied first.
-        var claimFirst: String?
+        /// Changes posted don't reach the hub, as when this Mac is offline; the rest still does.
+        var offline = false
         func value(_ object: Any) -> JSONValue { try! JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: object)) }
         func json(_ value: JSONValue) -> Any { try! JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: .fragmentsAllowed) }
         func message(_ entries: [HubCards.Entry]) -> Data {
@@ -90,14 +92,13 @@ extension SelfTest {
                               ["id": "agent-pennant", "name": "Pennant", "owner": "robin-h"]]
                 return answer(200, ["version": log.count, "state": ["binders": projects, "folders": [], "notes": [], "cards": cards, "agents": agents]])
             case ("POST", "/api/changes"):
+                if offline { throw URLError(.notConnectedToInternet) }
                 guard let body = request.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
                       let client = body["client"] as? String, let changes = body["changes"] as? [[String: Any]] else { return answer(400, ["error": "?"]) }
-                // A person sends only what the web app may; this stand-in also takes a claim for an agent of theirs, as a
-                // hub that lets people's apps claim for their agents would, to see the log decide.
+                // A person sends only what the web app may, as binders-server's hub.ts: a card.claim isn't one of them.
                 for outgoing in changes {
                     let type = (outgoing["change"] as? [String: Any])?["type"] as? String ?? ""
-                    let agent = (outgoing["change"] as? [String: Any])?["agentId"] as? String ?? ""
-                    if !fromPeople.contains(type), !(type == "card.claim" && hub.agents[agent]?.owner == "robin-h") {
+                    if !fromPeople.contains(type) {
                         return answer(422, ["error": "That can’t be sent from the web app (\(type))."])
                     }
                 }
@@ -109,10 +110,6 @@ extension SelfTest {
                         continue
                     }
                     posted.append(type)
-                    if type == "card.claim", let other = claimFirst {
-                        claimFirst = nil
-                        append(["type": "card.claim", "id": change["id"] ?? "", "agentId": other, "at": HubCards.iso(Date())])
-                    }
                     versions.append(append(change))
                 }
                 return answer(200, ["versions": versions, "version": log.count])
@@ -154,7 +151,7 @@ extension SelfTest {
         store.save()
         account.signIn(to: "hub.example.com")
         await account.finish(URL(string: "binders://auth?token=bnp_robin00001&state=\(account.pending?.state ?? "")")!)
-        let linked = await links.link(garden, space: HubLink.Space(id: "team", name: "Team"), to: nil)
+        let linked = await links.link(garden, on: URL(string: "https://hub.example.com")!, space: HubLink.Space(id: "team", name: "Team"), to: nil)
         let project = HubLinks.place(of: garden)?.binder ?? ""
         check(linked && hubBoard.covers(stakes), "Garden is linked, and its board follows the hub: \(links.problems[garden.id] ?? "")")
         check(await until { hubBoard.live.contains("team") }, "the hub's Binder is followed live")
@@ -213,33 +210,18 @@ extension SelfTest {
         check(await sent() && hub.cards["card-hub1"]?.stage == "live" && hub.cards["card-hub1"]?.agentId == "agent-codex",
               "approved here, it's live on the hub, still Codex's work")
 
-        // MARK: Claims: the hub decides.
+        // MARK: Claims: the hub takes none from this Mac.
         let before = posted.count
-        try? board.claim(seeds, by: .you)
+        for actor in [BoardActor.you, BoardActor(name: "Claude", kind: .agent), BoardActor(name: "Pennant", kind: .agent)] {
+            var claimRefused = false
+            do { try board.claim(seeds, by: actor) } catch { claimRefused = error.localizedDescription.contains("claim_task on the hub's /mcp") }
+            check(claimRefused, "a claim here by \(actor.name) is refused, saying cards are taken on the hub")
+        }
         _ = await sent()
-        check(posted.count == before && seeds.column == .ready, "a person doesn't take a card on a hub's board: nothing goes, and it's back in Ready")
-        check(timeline(seeds).last?.text.hasPrefix("Not done on the hub: On a hub's board only agents take cards") == true, "and the card says why")
-
-        claimFirst = "agent-codex"
-        try? board.claim(seeds, by: BoardActor(name: "Claude", kind: .agent))
-        check(await sent() && hub.cards[HubLink.hubID(seeds.id)]?.agentId == "agent-codex", "Claude's claim from here loses to Codex's, which the log had first")
-        check(await until { seeds.assignee == "Codex" } && timeline(seeds).last?.text == "Not done on the hub: Codex took it first on the hub.",
-              "and the board here shows Codex, saying why: \(timeline(seeds).last?.text ?? "")")
-        let claims = posted.filter { $0 == "card.claim" }.count
-        _ = await until(0.4) { false }
-        check(posted.filter { $0 == "card.claim" }.count == claims, "the claim isn't sent again")
-
-        try? board.move(seeds, to: .ready, by: .you)
-        _ = await sent()
-        try? board.claim(seeds, by: BoardActor(name: "Gemini", kind: .agent))
-        _ = await sent()
-        check(await until { seeds.column == .ready && seeds.assignee == nil } && timeline(seeds).last?.text.contains("can’t be sent from the web app (card.claim)") == true,
-              "an agent the hub doesn't know is refused by the hub, and the card is put back: \(timeline(seeds).last?.text ?? "")")
-
-        try? board.claim(seeds, by: BoardActor(name: "Pennant", kind: .agent))
-        check(await sent() && hub.cards[HubLink.hubID(seeds.id)]?.agentId == "agent-pennant" && seeds.assignee == "Pennant",
-              "a claim the hub takes is Pennant's on both sides")
-        check(timeline(seeds).filter { $0.kind == .claimed && $0.author == "Pennant" }.count == 1, "with one claimed line")
+        check(posted.count == before && seeds.column == .ready && seeds.assignee == nil && !timeline(seeds).contains { $0.kind == .claimed },
+              "nothing goes to the hub, and the card is in Ready with no one, as the hub has it")
+        append(["type": "card.claim", "id": HubLink.hubID(seeds.id), "agentId": "agent-pennant", "at": HubCards.iso(Date())])
+        check(await until { seeds.assignee == "Pennant" && seeds.column == .inProgress }, "Pennant takes it on the hub, and it's Pennant's here")
 
         // MARK: Edited, made and deleted here.
         board.edit(seeds, title: "Order seeds and bulbs", by: .you)
@@ -259,6 +241,71 @@ extension SelfTest {
         board.delete(shed)
         check(await sent() && hub.cards[HubLink.hubID(shed.id)] == nil, "a card deleted here goes from the hub")
 
+        // MARK: Made here offline: it waits, and goes up when the hub is back.
+        offline = true
+        let rake = board.create(title: "Rake the leaves", details: "Before the rain", binderID: garden.id, column: .ready, by: .you)
+        board.comment(rake, text: "Both lawns", by: .you)
+        _ = await sent()
+        check(!rake.hubPut.isEmpty && hub.cards[HubLink.hubID(rake.id)] == nil, "a card made here offline waits for the hub, kept on the card")
+        check(timeline(rake).filter { $0.text.hasPrefix("Not on the hub yet: Couldn't reach the hub") }.count == 1,
+              "and says so, once: \(timeline(rake).map(\.text))")
+        // The hub's state read whole, the feed dropped and opened again, while posting still fails.
+        var reopened = liveOpened
+        live?.finish(throwing: URLError(.networkConnectionLost))
+        live = nil
+        check(await until { liveOpened > reopened && hubBoard.live.contains("team") }, "the feed opens again while changes still don't reach the hub")
+        _ = await sent()
+        check(board.card(rake.id) != nil && !rake.hubPut.isEmpty, "a card the hub doesn't have yet isn't taken from here for not being there")
+        offline = false
+        let wentUp = await until { hub.cards[HubLink.hubID(rake.id)] != nil }
+        check(await sent() && wentUp && rake.hubPut.isEmpty, "back online, it goes up with the same change id, and is the hub's")
+        check(hub.cards[HubLink.hubID(rake.id)]?.activity.map(\.kind) == ["created", "comment"]
+                && hub.cards[HubLink.hubID(rake.id)]?.activity.contains { $0.text.hasPrefix("Not on the hub yet") } == false,
+              "with its lines, not Binders' own: \(hub.cards[HubLink.hubID(rake.id)]?.activity.map(\.text) ?? [])")
+        check(board.card(rake.id) != nil && timeline(rake).filter { $0.text == "Both lawns" }.count == 1, "and each line once here")
+        append(["type": "card.delete", "id": HubLink.hubID(rake.id)])
+        check(await until { board.card(rake.id) == nil }, "once the hub has had it, deleted there it goes from here")
+
+        // MARK: Bulk Delete, then Undo: back on the hub as it was there.
+        append(["type": "card.put", "card": ["id": "card-hub2", "binderId": project, "title": "Mend the fence", "brief": "", "doneWhen": "",
+                                             "size": "S", "stage": "working", "agentId": "agent-codex", "createdAt": HubCards.iso(Date()),
+                                             "createdBy": "sam-k", "updatedAt": HubCards.iso(Date()),
+                                             "activity": [["at": HubCards.iso(Date()), "by": "sam-k", "kind": "created", "text": "Made it"]]]])
+        let fenceID = HubCards.localID("card-hub2")
+        check(await until { board.card(fenceID) != nil }, "a card made on the hub is here")
+        if let fence = board.card(fenceID) { board.comment(fence, text: "Posts are loose", by: .you) }
+        check(await sent() && hub.cards["card-hub2"]?.activity.count == 2, "with a comment from here on it")
+        let bulb = board.create(title: "Plant bulbs", binderID: garden.id, column: .backlog, by: .you)
+        check(await sent() && hub.cards[HubLink.hubID(bulb.id)] != nil && bulb.hubPut.isEmpty, "and one made here is on the hub")
+        let bulbID = bulb.id, bulbHub = HubLink.hubID(bulb.id)
+        let fenceWas = hub.cards["card-hub2"], bulbWas = hub.cards[bulbHub]
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        let deleted = BoardBulk.delete([board.card(fenceID), bulb].compactMap { $0 }, board: board, undoManager: undo)
+        undo.endUndoGrouping()
+        check(await sent() && hub.cards["card-hub2"] == nil && hub.cards[bulbHub] == nil && deleted.undoable, "Bulk Delete takes both from the hub, with Undo")
+        undo.undo()
+        check(await sent() && hub.cards["card-hub2"] == fenceWas && hub.cards[bulbHub] == bulbWas,
+              "Undo puts both back on the hub as it had them: the same ids, stage, agent and lines")
+        _ = await until(0.4) { false }
+        let fence = board.card(fenceID)
+        check(fence?.hubCard == "card-hub2" && fence?.column == .inProgress && fence?.assignee == "Codex" && fence?.hubPut == "",
+              "and here, still the hub's card-hub2, Codex's")
+        check(fence.map { timeline($0).filter { $0.text == "Posts are loose" }.count } == 1 && fence.map { timeline($0).filter { $0.kind == .created }.count } == 1,
+              "with each line once: \(fence.map { timeline($0).map(\.text) } ?? [])")
+        check(board.card(bulbID)?.hubCard == bulbHub && board.card(bulbID).map { timeline($0).filter { $0.kind == .created }.count } == 1,
+              "the one made here too")
+        undo.redo()
+        check(await sent() && hub.cards["card-hub2"] == nil && board.card(fenceID) == nil, "Redo deletes it again")
+        undo.undo()
+        check(await sent() && hub.cards["card-hub2"] == fenceWas && board.card(fenceID) != nil, "and Undo puts it back again, by a change of its own")
+        reopened = liveOpened
+        live?.finish(throwing: URLError(.networkConnectionLost))
+        live = nil
+        check(await until { liveOpened > reopened && hubBoard.live.contains("team") } && board.card(fenceID) != nil && board.card(bulbID) != nil,
+              "and the hub's state read whole keeps them")
+
         // MARK: Deleted on the hub.
         append(["type": "card.delete", "id": "card-hub1"])
         check(await until { board.card(gateID) == nil }, "a card deleted on the hub goes from here")
@@ -269,6 +316,34 @@ extension SelfTest {
         live = nil
         append(["type": "card.update", "id": stakesID, "fields": ["title": "Buy long stakes"]])
         check(await until { liveOpened > opened && stakes.title == "Buy long stakes" }, "after a drop the feed opens again and catches up")
+
+        // MARK: A to-do here becomes a card on the hub's board, and keeps a link to it.
+        let promise = CommitmentRecord(task: "Sharpen the shears", kind: "todo", owner: "You")
+        promise.binderID = elsewhere.id
+        store.insert(promise)
+        store.save()
+        check(hubBoard.linkedBinders.map(\.binder.id) == [garden.id] && hubBoard.linkedBinders.first?.place.spaceName == "Team",
+              "the to-do list offers Garden, on the hub's Team, as a hub's board")
+        if let todo = Todos.find(promise.id.uuidString) {
+            let made = board.create(from: todo, column: .ready, binderID: garden.id, by: .you)
+            let shearsID = HubLink.hubID(made.card.id)
+            check(await sent() && hub.cards[shearsID]?.title == "Sharpen the shears" && hub.cards[shearsID]?.binderId == project
+                    && hub.cards[shearsID]?.stage == "ready", "a to-do turned into a card in Garden is on the hub's board, ready: \(hub.cards[shearsID]?.stage ?? "not there")")
+            check(board.card(forTodo: promise.id.uuidString)?.id == made.card.id && made.card.hubCard == shearsID && promise.binderID == elsewhere.id
+                    && promise.status == "open", "the to-do links to the card and stays open on this Mac, in its own binder")
+            check(hubBoard.webAddress(of: made.card)?.absoluteString == "https://hub.example.com/team/#/work/\(shearsID)",
+                  "and opens it in the web app: \(hubBoard.webAddress(of: made.card)?.absoluteString ?? "-")")
+            check(board.create(from: todo, column: .ready, binderID: garden.id, by: .you).existed && hub.cards.values.filter { $0.title == "Sharpen the shears" }.count == 1,
+                  "asked again, it's the same card, made once")
+            append(["type": "card.update", "id": shearsID, "fields": HubCards.moveFields(to: .done).mapValues { json($0) },
+                    "activity": ["at": HubCards.iso(Date()), "by": "agent-claude", "kind": "completed", "text": "Sharp"]])
+            check(await until { made.card.column == .done && promise.status == "done" }, "finished on the hub, its to-do is ticked off here")
+            append(["type": "card.update", "id": shearsID, "fields": HubCards.moveFields(to: .ready).mapValues { json($0) }])
+            check(await until { made.card.column == .ready && promise.status == "open" }, "and opened again when the hub reopens the card")
+        } else {
+            check(false, "the promise reads as a to-do")
+        }
+        check(hubBoard.webAddress(of: TaskCard(title: "Local", binderID: elsewhere.id)) == nil, "a card on an unlinked board has no address on the hub")
 
         // MARK: Unlinked, it stops following.
         links.unlink(garden)
@@ -304,7 +379,6 @@ extension SelfTest {
         let store = Store.shared
         account.send = { try await URLSession.shared.data(for: $0) }
         hubBoard.openLive = HubBoard.webSocket
-        hubBoard.decisionWait = .seconds(3)
         account.signIn(to: hub)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.login ?? account.problem ?? "no one")")
@@ -319,7 +393,7 @@ extension SelfTest {
             check(false, "the hub says which Binders you're in")
             return failed
         }
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name): \(links.done[binder.id] ?? links.problems[binder.id] ?? "")")
         func until(_ seconds: Double, _ condition: () -> Bool) async -> Bool {
             let end = Date().addingTimeInterval(seconds)
@@ -358,6 +432,21 @@ extension SelfTest {
         let there = state?.cards[HubLink.hubID(card.id)]
         check(there?.stage == "ready" && there?.agentId == nil, "on the hub it's back in Ready, out of the agent's hands: \(there?.stage ?? "?")")
         check(there?.activity.contains { $0.kind == "comment" && $0.text == "Commented on a Mac at \(stamp)" } == true, "with the comment made here")
+
+        // A to-do made into a card in the linked binder: the hub's state has it, and the to-do links to it.
+        let promise = CommitmentRecord(task: "To-do from a Mac \(stamp)", kind: "todo", owner: "You")
+        store.insert(promise)
+        store.save()
+        if let todo = Todos.find(promise.id.uuidString) {
+            let made = board.create(from: todo, column: .ready, binderID: binder.id, by: .you).card
+            _ = await until(5) { hubBoard.sending == 0 }
+            let after = (try? await URLSession.shared.data(for: read).0).flatMap { HubCards.Board(state: $0) }
+            let card = after?.cards[HubLink.hubID(made.id)]
+            check(card?.title == promise.task && card?.binderId == place.binder, "a to-do turned into a card is on the hub's board: \(card?.stage ?? "not there")")
+            check(board.card(forTodo: promise.id.uuidString)?.id == made.id, "and the to-do links to it: \(hubBoard.webAddress(of: made)?.absoluteString ?? "-")")
+        } else {
+            check(false, "the promise reads as a to-do")
+        }
         print("NOTE: real hub: open \(hub) and the project “\(binder.name)” in \(space.name) to see it in the web app")
         return failed
     }

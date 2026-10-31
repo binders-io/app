@@ -38,9 +38,9 @@ final class HubMove {
         (try? Store.shared.context.fetch(FetchDescriptor<BinderRecord>(predicate: #Predicate { !$0.teamDatabaseKey.isEmpty }))) ?? []
     }
 
-    /// The projects in `space` that teammates' Macs made when they moved, by the binder they're for.
-    func moved(_ binders: [BinderRecord], in space: String) async throws -> [UUID: HubLink.Project] {
-        let projects = try await links.projects(in: space)
+    /// The projects in `space` on `hub` that teammates' Macs made when they moved, by the binder they're for.
+    func moved(_ binders: [BinderRecord], in space: String, on hub: URL) async throws -> [UUID: HubLink.Project] {
+        let projects = try await links.projects(in: space, on: hub)
         var found: [UUID: HubLink.Project] = [:]
         for binder in binders {
             let id = HubLink.movedProjectID(binder.id)
@@ -49,9 +49,9 @@ final class HubMove {
         return found
     }
 
-    /// Moves every binder on the team database to `space`, then takes them off it. True when it's done.
+    /// Moves every binder on the team database to `space` on `hub`, then takes them off it. True when it's done.
     @discardableResult
-    func move(to space: HubLink.Space) async -> Bool {
+    func move(on hub: URL, to space: HubLink.Space) async -> Bool {
         guard working == nil else { return false }
         problem = nil
         done = nil
@@ -61,7 +61,7 @@ final class HubMove {
         working = "Asking the hub…"
         let existing: [UUID: HubLink.Project]
         do {
-            existing = try await moved(binders, in: space.id)
+            existing = try await moved(binders, in: space.id, on: hub)
         } catch {
             problem = (error as? HubLinks.Problem)?.words ?? error.localizedDescription
             return false
@@ -71,7 +71,7 @@ final class HubMove {
         var left: [BinderRecord] = []
         for (index, binder) in binders.enumerated() {
             working = binders.count == 1 ? "Moving “\(binder.name)”…" : "Moving “\(binder.name)”, \(index + 1) of \(binders.count)…"
-            guard await links.move(binder, space: space, existing: existing[binder.id]) else {
+            guard await links.move(binder, on: hub, space: space, existing: existing[binder.id]) else {
                 left.append(binder)
                 continue
             }

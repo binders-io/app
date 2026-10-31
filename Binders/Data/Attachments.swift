@@ -5,6 +5,7 @@ import BindersKit
 
 /// Pictures, videos and files added to notes. They're kept in an attachments folder next to the database, and notes
 /// refer to them as "attachments/<name>": the same place they sit next to a note in a team folder or an Obsidian vault.
+/// A hub's pictures, which linked notes name "/api/files/<name>", are kept here too, under the hub's name (HubPictures).
 @MainActor
 enum Attachments {
     static var folder: URL { AppPaths.support.appendingPathComponent(MarkdownMedia.folder, isDirectory: true) }
@@ -12,6 +13,8 @@ enum Attachments {
     /// The file a note's picture or link points to: in the attachments folder, a file elsewhere, or a web address.
     static func url(for source: String) -> URL? {
         if source.hasPrefix("http://") || source.hasPrefix("https://") || source.hasPrefix("file://") { return URL(string: source) }
+        // One of a hub's pictures, in a linked binder's note: the copy kept here, fetched when it isn't yet.
+        if let name = HubFiles.hubName(in: source) { return HubPictures.shared.file(for: name) }
         if source.hasPrefix("/") { return URL(fileURLWithPath: source) }
         if source.hasPrefix("~/") { return URL(fileURLWithPath: (source as NSString).expandingTildeInPath) }
         var name = source
@@ -81,17 +84,20 @@ enum Attachments {
         var used = Set<String>()
         for text in notes.map(\.text) + meetings.flatMap({ [$0.userNotes, $0.summary] }) + cards.map(\.details) {
             used.formUnion(MarkdownMedia.attachmentNames(in: text))
+            used.formUnion(HubFiles.hubNames(in: text))
         }
         if let histories = manager.enumerator(at: NoteHistory.folder, includingPropertiesForKeys: nil) {
             while let url = histories.nextObject() as? URL {
                 guard url.pathExtension == "md", let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
                 used.formUnion(MarkdownMedia.attachmentNames(in: text))
+                used.formUnion(HubFiles.hubNames(in: text))
             }
         }
         for file in files where !used.contains(file.lastPathComponent) && !file.lastPathComponent.hasPrefix(".") {
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
             guard Date().timeIntervalSince(modified) > age else { continue }
             if deleting { try? manager.removeItem(at: file) } else { try? manager.trashItem(at: file, resultingItemURL: nil) }
+            HubPictures.shared.forget(file.lastPathComponent)
         }
     }
 

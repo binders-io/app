@@ -179,6 +179,31 @@ final class HubCardsTests: XCTestCase {
         XCTAssertEqual(HubCards.versions(fromChanges: Data(#"{"versions":[4,5],"version":5}"#.utf8)), [4, 5])
     }
 
+    func testAChangeKeptUntilTheHubHasItComesBackTheSame() throws {
+        let put = HubCards.Outgoing(id: "card-abc", change: HubCards.delete("card-1"))
+        XCTAssertEqual(HubCards.Outgoing(json: put.json), put)
+        XCTAssertNil(HubCards.Outgoing(json: ""))
+        XCTAssertNil(HubCards.Outgoing(json: "{"))
+    }
+
+    func testACardPutBackIsTheHubsAsItWasByAChangeOfItsOwn() throws {
+        var board = HubCards.Board()
+        let line = HubCards.Activity(at: "2026-10-30T10:01:00.000Z", by: "agent-1", kind: "claimed", text: "Claude took it")
+        _ = board.apply([HubCards.Entry(version: 1, change: .object(["type": .string("card.put"), "card": .object([
+            "id": .string("card-hub1"), "binderId": .string("binder-g"), "title": .string("Gate"), "stage": .string("working"),
+            "agentId": .string("agent-1"), "activity": .array([line.json])])]))])
+        let was = try XCTUnwrap(board.cards["card-hub1"])
+        _ = board.apply([HubCards.Entry(version: 2, change: HubCards.delete("card-hub1"))])
+        XCTAssertNil(board.cards["card-hub1"])
+
+        let back = HubCards.putBack(was)
+        XCTAssertFalse(back.id == "card-card-hub1", "not the first put's id, which the hub has had already")
+        XCTAssertNotEqual(back.id, HubCards.putBack(was).id, "each one a change of its own")
+        _ = board.apply([HubCards.Entry(version: 3, change: back.change)])
+        XCTAssertEqual(board.cards["card-hub1"], was, "the same id, stage, agent and lines")
+        XCTAssertEqual(board.cards["card-hub1"]?.activity.map { $0.key(card: "card-hub1") }, [line.key(card: "card-hub1")])
+    }
+
     func testALinesKeyIsTheSameWhereverItsRead() {
         let line = HubCards.Activity(at: "2026-10-30T10:01:00.000Z", by: "robin-h", kind: "comment", text: "Hi")
         XCTAssertEqual(line.key(card: "card-1"), HubCards.Activity(at: line.at, by: "robin-h", kind: "comment", text: "Hi").key(card: "card-1"))

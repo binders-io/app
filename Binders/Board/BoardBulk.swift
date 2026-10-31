@@ -171,13 +171,14 @@ enum BoardBulk {
 
     // MARK: Delete
 
-    /// Deletes each card as Delete Card does. Undo puts them back, timeline and all.
+    /// Deletes each card as Delete Card does. Undo puts them back, timeline and all, and those on a hub's board there too, as
+    /// the hub had them (`HubBoard.restored`).
     static func delete(_ cards: [TaskCard], board: BoardService, undoManager: UndoManager?) -> Outcome {
         var outcome = Outcome()
         var kept: [CardSnapshot] = []
         var deleted = 0
         for card in cards {
-            let snapshot = CardSnapshot(card, events: board.timeline(card.id))
+            let snapshot = CardSnapshot(card, events: board.timeline(card.id), onHub: board.hub?.onHub(card))
             let id = card.id
             if let refusal = board.delete(card) {
                 outcome.stays.append(.refused(refusal))
@@ -192,7 +193,10 @@ enum BoardBulk {
         outcome.undoable = true
         let ids = kept.map(\.id)
         register(undoManager, name: "Delete \(BoardBulkWords.cards(kept.count).capitalized)", undo: {
-            for snapshot in kept where board.card(snapshot.id) == nil { snapshot.restore() }
+            for snapshot in kept where board.card(snapshot.id) == nil {
+                let card = snapshot.restore()
+                if let hub = board.hub, hub.covers(card) { hub.restored(card, as: snapshot.onHub) }
+            }
             Store.shared.save()
         }, redo: {
             for id in ids { if let card = board.card(id) { board.delete(card) } }
@@ -276,10 +280,13 @@ enum BoardBulk {
 }
 
 /// A deleted card, everything it had and its timeline, as Undo puts it back: the same id, so what pointed at it (Distill's
-/// item, the cards that wait for it, its note's marks) finds it again. Putting it back wakes no one.
+/// item, the cards that wait for it, its note's marks) finds it again, and on a hub's board its id there, its lines' places
+/// in the hub's activity and the card as the hub had it (`onHub`). Putting it back wakes no one.
 @MainActor
 struct CardSnapshot {
     let id: UUID
+    /// On a hub's board: the card as the hub had it, to put it back there. Nil for one the hub never had.
+    let onHub: HubCards.Card?
     private let fields: Fields
     private let events: [Event]
 
@@ -287,25 +294,27 @@ struct CardSnapshot {
         let binderID: UUID?, title: String, details: String, columnRaw: String, position: Double, assignee: String?, assigneeIsAgent: Bool
         let claimExpiresAt: Date?, dueAt: Date?, links: [String], sourceKind: String?, sourceID: String?, sourceTitle: String?
         let sourceRef: String?, createdBy: String, createdAt: Date, updatedAt: Date, externalKey: String?, externalURL: String?
-        let meantFor: String?, meantForByAgent: Bool, waitsFor: [String], distilledJSON: String, teamShadow: String
+        let meantFor: String?, meantForByAgent: Bool, waitsFor: [String], distilledJSON: String, teamShadow: String, hubCard: String
     }
 
     private struct Event {
         let id: UUID, kindRaw: String, author: String, authorIsAgent: Bool, text: String, fromColumn: String?, toColumn: String?
-        let createdAt: Date, teamOperation: String?, sectionChange: String?
+        let createdAt: Date, teamOperation: String?, sectionChange: String?, hubKey: String?
     }
 
-    init(_ card: TaskCard, events: [TaskEvent]) {
+    init(_ card: TaskCard, events: [TaskEvent], onHub: HubCards.Card? = nil) {
         id = card.id
+        self.onHub = onHub
         fields = Fields(binderID: card.binderID, title: card.title, details: card.details, columnRaw: card.columnRaw, position: card.position,
                         assignee: card.assignee, assigneeIsAgent: card.assigneeIsAgent, claimExpiresAt: card.claimExpiresAt, dueAt: card.dueAt,
                         links: card.links, sourceKind: card.sourceKind, sourceID: card.sourceID, sourceTitle: card.sourceTitle,
                         sourceRef: card.sourceRef, createdBy: card.createdBy, createdAt: card.createdAt, updatedAt: card.updatedAt,
                         externalKey: card.externalKey, externalURL: card.externalURL, meantFor: card.meantFor, meantForByAgent: card.meantForByAgent,
-                        waitsFor: card.waitsFor, distilledJSON: card.distilledJSON, teamShadow: card.teamShadow)
+                        waitsFor: card.waitsFor, distilledJSON: card.distilledJSON, teamShadow: card.teamShadow, hubCard: card.hubCard)
         self.events = events.map {
             Event(id: $0.id, kindRaw: $0.kindRaw, author: $0.author, authorIsAgent: $0.authorIsAgent, text: $0.text, fromColumn: $0.fromColumn,
-                  toColumn: $0.toColumn, createdAt: $0.createdAt, teamOperation: $0.teamOperation, sectionChange: $0.sectionChange)
+                  toColumn: $0.toColumn, createdAt: $0.createdAt, teamOperation: $0.teamOperation, sectionChange: $0.sectionChange,
+                  hubKey: $0.hubKey)
         }
     }
 
@@ -337,6 +346,7 @@ struct CardSnapshot {
         card.waitsFor = fields.waitsFor
         card.distilledJSON = fields.distilledJSON
         card.teamShadow = fields.teamShadow
+        card.hubCard = fields.hubCard
         context.insert(card)
         for kept in events {
             let event = TaskEvent(taskID: id, kind: .comment, author: BoardActor(name: kept.author, kind: kept.authorIsAgent ? .agent : .person))
@@ -348,6 +358,7 @@ struct CardSnapshot {
             event.createdAt = kept.createdAt
             event.teamOperation = kept.teamOperation
             event.sectionChange = kept.sectionChange
+            event.hubKey = kept.hubKey
             context.insert(event)
         }
         return card

@@ -1357,6 +1357,16 @@ open reports/import.html
             return await hubSyncSelfTest()
         }
 
+        if args.contains("--selftest-hub-agents") {
+            // Agents and binders linked to a hub: this Mac's server, setting a tool up, and a real hub when BINDERS_TEST_HUB is set.
+            return await hubAgentsSelfTest()
+        }
+
+        if args.contains("--selftest-hub-history") {
+            // A linked note's history from a running hub (scripts/hub-history-test.sh); a folder after it draws the sheet.
+            return await hubHistorySelfTest(drawingTo: value("--selftest-hub-history").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
+        }
+
         if args.contains("--selftest-hub-link") {
             // Linking a binder to a hub's project: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
             return await hubLinkSelfTest(drawingTo: value("--selftest-hub-link").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })

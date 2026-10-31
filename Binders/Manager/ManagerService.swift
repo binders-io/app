@@ -412,10 +412,13 @@ final class ManagerService {
         case .deletedCard:
             guard board.card(change.id) == nil else { return nil }
             guard let was = ManagerCardSnapshot.read(change.snapshot) else { return "“\(change.line)”: Binders didn't keep enough of it to make it again." }
+            // On a hub's board it comes back as a new card: the hub keeps a card's first put once, so the same id there wouldn't
+            // bring it back.
+            let onHub = was.binder.map { board.hub?.covers(binder: $0) == true } == true
             let column = BoardColumn(rawValue: was.column) ?? .backlog
             let card = board.create(title: was.title, details: was.details, binderID: was.binder, column: column == .done ? .backlog : column, due: was.due,
                                     source: was.sourceKind.flatMap { kind in was.sourceID.map { (kind, $0, was.sourceTitle ?? "") } },
-                                    id: was.id, by: .you)
+                                    id: onHub ? nil : was.id, by: .you)
             if !was.links.isEmpty { board.tidy(card, links: was.links, by: .you, line: "Brought back: Undid the Manager's deleting it.") }
             if let who = was.meantFor { board.assign(card, to: who, by: .you) }
             if column == .done { try? board.tidyMove(card, to: .done, note: "Brought back as it was.") }

@@ -78,6 +78,8 @@ final class HubNotesSync {
         /// Notes whose document is being read from the hub, and the changes to them the feed brought meanwhile.
         var reading: Set<String> = []
         var held: [String: [String]] = [:]
+        /// Notes being read whose document was set aside meanwhile (deleted, or written whole): what comes back is stale.
+        var setAside: Set<String> = []
         var feed: HubFeed?
         var running: Task<Void, Never>?
         var connected = false
@@ -182,6 +184,14 @@ final class HubNotesSync {
         linked().filter { $0.place.space == space.id }
     }
 
+    /// Where a note in a linked binder is on the hub: the Binder it's followed in and its id there. Nil for a note in a
+    /// binder that isn't linked, or one from what you said to yourself, which stays here.
+    func place(of note: NoteItem) -> (space: Space, hubID: String)? {
+        guard !note.staysUnshared, let binder = store.binder(note.binderID), let place = HubLinks.place(of: binder), place.uploaded,
+              place.hub == account.address, let space = spaces[place.space] else { return nil }
+        return (space, HubSync.hubIDs(in: space.state)[note.id] ?? HubLink.hubID(note.id))
+    }
+
     // MARK: What's shown
 
     /// How a linked binder's sync is, in words, or nil when all is well.
@@ -249,7 +259,9 @@ final class HubNotesSync {
                 space.failures = 0
                 space.problem = nil
                 shown += 1
-                // Back after being away: what waited goes now.
+                // Back after being away: what waited goes now, pictures included.
+                HubPictures.shared.backOnline()
+                sweepSoon()
                 Task { await self.flush(space) }
             }
             guard let entries = HubSync.entries(fromLive: message) else { continue }
@@ -291,7 +303,8 @@ final class HubNotesSync {
         case .folderPut(let folder):
             space.state.apply(change)
             guard let binder = binders[folder.binderId] else {
-                if let here = store.folder(HubSync.localID(folder.id)) { store.deleteFolder(here) }
+                // In a project that isn't linked here: gone from a linked binder, or a copy an unlinked binder keeps.
+                if let here = store.folder(HubSync.localID(folder.id)), isLinked(here.binderID, binders) { store.deleteFolder(here) }
                 return
             }
             let id = HubSync.localID(folder.id)
@@ -311,13 +324,13 @@ final class HubNotesSync {
             space.state.shared.insert(folder.id)
         case .folderDelete(let id):
             space.state.apply(change)
-            if let here = store.folder(HubSync.localID(id)) { store.deleteFolder(here) }
+            if let here = store.folder(HubSync.localID(id)), isLinked(here.binderID, binders) { store.deleteFolder(here) }
         case .notePut(let note):
             // Its words written whole: the hub sets its document aside, and so does this Mac.
             forgetDocument(note.id, in: space, keepingEdits: true)
             let before = space.state.notes[note.id]?.text
             space.state.apply(change)
-            guard binders[note.binderId] != nil else { return removeNote(note.id) }
+            guard binders[note.binderId] != nil else { return removeNote(note.id, binders: binders) }
             if own, store.note(HubSync.localID(note.id)) != nil { return }
             write(note.id, from: before, to: note.text, by: own ? .you : .teammate(note.editors.last ?? "A teammate"), space: space,
                   binders: binders)
@@ -328,7 +341,10 @@ final class HubNotesSync {
             space.state.apply(change)
             guard let hub = space.state.notes[edit.id], binders[hub.binderId] != nil else { return }
             let author: NoteAuthor = own ? .you : .teammate(edit.by)
-            if space.reading.contains(edit.id) {
+            if edit.changes == nil {
+                // Written whole (an app from before Automerge): the hub's document starts again from these words.
+                forgetDocument(edit.id, in: space, keepingEdits: true)
+            } else if space.reading.contains(edit.id) {
                 // Its document is on its way from the hub: these go into it when it comes, and the words here now.
                 space.held[edit.id, default: []] += edit.changes ?? []
             } else if let changes = edit.changes, let document = document(edit.id, in: space) {
@@ -342,14 +358,11 @@ final class HubNotesSync {
                 } catch {
                     forgetDocument(edit.id, in: space, keepingEdits: true)
                 }
-            } else if edit.changes == nil {
-                // Written whole (an app from before Automerge): the hub's document starts again from these words.
-                forgetDocument(edit.id, in: space, keepingEdits: true)
             }
             write(edit.id, from: before, to: hub.text, by: author, space: space, binders: binders)
         case .noteMove(let id, let binderId, let folderId):
             space.state.apply(change)
-            guard let binder = binders[binderId] else { return removeNote(id) }
+            guard let binder = binders[binderId] else { return removeNote(id, binders: binders) }
             if let note = store.note(HubSync.localID(id)) {
                 let folder = folderId.map(HubSync.localID)
                 if note.binderID != binder || note.folderID != folder {
@@ -362,7 +375,7 @@ final class HubNotesSync {
         case .noteDelete(let id):
             space.state.apply(change)
             forgetDocument(id, in: space, keepingEdits: false)
-            removeNote(id)
+            removeNote(id, binders: binders)
         case .binderPut, .binderDelete, .noteLink, .noteSaved, .other:
             space.state.apply(change)
         }
@@ -390,6 +403,7 @@ final class HubNotesSync {
 
     private func set(_ note: NoteItem, to text: String, by author: NoteAuthor) {
         guard note.text != text else { return }
+        HubPictures.shared.fetchMissing(in: text)
         NoteHistory.willChange(note, to: text, always: true, by: author)
         note.text = text
         note.updatedAt = Date()
@@ -398,6 +412,7 @@ final class HubNotesSync {
     private func make(_ hub: HubSync.Note, in binder: UUID, space: Space) {
         let note = NoteItem(text: hub.text)
         note.id = HubSync.localID(hub.id)
+        HubPictures.shared.fetchMissing(in: hub.text, space: space.id)
         note.binderID = binder
         // In its folder, which may not have come yet: it shows at the top of its binder until it does.
         note.folderID = hub.folderId.map(HubSync.localID)
@@ -405,8 +420,15 @@ final class HubNotesSync {
         space.state.shared.insert(hub.id)
     }
 
-    private func removeNote(_ hubID: String) {
-        guard let note = store.note(HubSync.localID(hubID)) else { return }
+    /// Whether a note or folder here is in a binder linked to this Binder (`binders`), so the hub's changes reach it.
+    private func isLinked(_ binder: UUID?, _ binders: [String: UUID]) -> Bool {
+        binder.map { binders.values.contains($0) } ?? false
+    }
+
+    /// A note goes from here when the hub deletes it or it leaves for a project that isn't linked here, but only from a
+    /// binder linked to this Binder: a binder unlinked here keeps its copy, whatever the hub does to the note.
+    private func removeNote(_ hubID: String, binders: [String: UUID]) {
+        guard let note = store.note(HubSync.localID(hubID)), isLinked(note.binderID, binders) else { return }
         NotificationCenter.default.post(name: TeamSyncService.itemsWillBeRemoved, object: self, userInfo: ["ids": Set([note.id])])
         ScratchpadController.shared.noteWillBeDeleted(note)
         NotePopouts.shared.close(note.id)
@@ -454,10 +476,12 @@ final class HubNotesSync {
         func hubID(_ id: UUID) -> String { ids[id] ?? HubLink.hubID(id) }
         var everywhere: [UUID: Set<String>] = [:]
         var notesHere: [UUID: [NoteItem]] = [:]
-        for (binder, _) in links {
+        for (binder, place) in links {
             let notes = notes(in: binder.id)
             notesHere[binder.id] = notes
             everywhere[binder.id] = Set(notes.map { hubID($0.id) })
+            // Pictures only on this Mac go up first; the note's words follow, naming the hub's copies.
+            for note in notes { HubPictures.shared.send(note, hubID: hubID(note.id), link: place) }
         }
         var changed = false
         for (binder, place) in links {
@@ -497,7 +521,9 @@ final class HubNotesSync {
                     changed = true
                 }
                 let byID = Dictionary(notes.map { (hubID($0.id), $0) }, uniquingKeysWith: { first, _ in first })
-                for id in plan.edited { if let note = byID[id], capture(note, hubID: id, space: space) { changed = true } }
+                for id in plan.edited {
+                    if let note = byID[id], !HubPictures.shared.isSending(note.id), capture(note, hubID: id, space: space) { changed = true }
+                }
                 for note in notes { space.state.shared.insert(hubID(note.id)) }
                 for folder in folders { space.state.shared.insert(hubID(folder.id)) }
                 break
@@ -642,10 +668,19 @@ final class HubNotesSync {
         defer {
             space.reading.remove(hubID)
             space.held[hubID] = nil
+            space.setAside.remove(hubID)
         }
         let answer = try? await ask("api/notes/\(hubID)/doc", space: space, refusals: true)
+        // Meanwhile this Binder may have stopped being followed, or the note's document been set aside (deleted, its edits
+        // with it, or written whole): what came back is stale. A note still edited here is read again.
+        guard spaces[space.id] === space else { return false }
+        if space.setAside.contains(hubID) { return true }
         guard let (data, status) = answer else { return false }
         let indices = space.outbox.indices.filter { space.outbox[$0].editedNote == hubID && !space.sending.contains(space.outbox[$0].id) }
+        guard !indices.isEmpty, space.state.notes[hubID] != nil else {
+            space.outbox.remove(atOffsets: IndexSet(indices))
+            return true
+        }
         guard status == 200, let document = try? HubNoteDocument(note: HubSync.localID(hubID), saved: data) else {
             // Gone from the hub: its edits go with it.
             if status == 404 { space.outbox.remove(atOffsets: IndexSet(indices)) }
@@ -661,8 +696,8 @@ final class HubNotesSync {
         let hubText = space.state.notes[hubID]?.text ?? document.text
         let ours = note?.text ?? hubText
         let merged = HubNoteDocument.merge(base: hubText, theirs: document.text, ours: ours)
-        let client = space.outbox[indices.first ?? 0].client
-        let at = indices.first ?? space.outbox.count
+        let client = space.outbox[indices[0]].client
+        let at = indices[0]
         space.outbox.remove(atOffsets: IndexSet(indices))
         let before = document.text
         if let change = try? document.change(to: merged) {
@@ -696,6 +731,7 @@ final class HubNotesSync {
     /// on the hub's document when they go, else they're dropped.
     private func forgetDocument(_ hubID: String, in space: Space, keepingEdits: Bool) {
         space.documents[hubID] = nil
+        if space.reading.contains(hubID) { space.setAside.insert(hubID) }
         try? FileManager.default.removeItem(at: documentURL(hubID, in: space))
         let edits = space.outbox.filter { $0.editedNote == hubID && !space.sending.contains($0.id) }
         guard !edits.isEmpty else { return }
@@ -786,7 +822,7 @@ final class HubNotesSync {
 
     /// A GET, or a POST of `body`, in one of the hub's Binders. With `refusals`, the hub's answer whatever its status;
     /// else only a 200's, and its words for why not.
-    private func ask(_ path: String, space: Space, body: Data? = nil, refusals: Bool = false) async throws -> (Data, Int) {
+    func ask(_ path: String, space: Space, body: Data? = nil, refusals: Bool = false) async throws -> (Data, Int) {
         guard var request = account.authorized(path) else { throw Problem("Sign in to a hub in Settings → Team first.", signedOut: true) }
         request.setValue(space.id, forHTTPHeaderField: "x-binders-space")
         if let body {
