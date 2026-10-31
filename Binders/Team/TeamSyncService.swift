@@ -352,7 +352,8 @@ final class TeamSyncService {
     /// the iPhone heard, and notes made from what you said to yourself (`NoteItem.staysUnshared`, marked on the note, so
     /// deleting History doesn't unmark one), are the exception: they stay on this Mac.
     func setShared(_ binder: BinderRecord, _ shared: Bool) {
-        guard !binder.isTeamCopy else { return }
+        // A binder linked to a hub is shared through the hub: sharing it with a team folder too would send it twice.
+        guard !binder.isTeamCopy, !(shared && HubLinks.place(of: binder) != nil) else { return }
         binder.sharedWithTeam = shared
         binder.updatedAt = Date()
         let binderID = binder.id

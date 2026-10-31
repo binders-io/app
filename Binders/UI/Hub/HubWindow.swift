@@ -210,6 +210,9 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
     }
 
     /// The note the Note menu acts on: the pop-out in front, or the one open on the Notes page.
+    /// A note in a binder linked to a hub: its board and Distill are the hub's.
+    static func onHub(_ noteID: UUID) -> Bool { MCPServer.hubPlace(Store.shared.note(noteID)?.binderID) != nil }
+
     private var noteInFront: (id: UUID, inPopout: Bool)? {
         if let key = NSApp.keyWindow, let id = key.identifier.flatMap({ UUID(uuidString: $0.rawValue) }), NotePopouts.shared.isOpen(id) {
             return (id, true)
@@ -268,7 +271,7 @@ final class HubWindowController: NSObject, NSWindowDelegate, NSMenuItemValidatio
             item.title = "Put on Board"
             return noteInFront != nil
         case #selector(distillNote(_:)):
-            return noteInFront != nil && Store.shared.canSave
+            return noteInFront.map { !Self.onHub($0.id) } ?? false && Store.shared.canSave
         case #selector(toggleDigest(_:)):
             item.title = (AppDefaults.store.object(forKey: "notesShowDigest") as? Bool ?? true) ? "Hide Digest" : "Show Digest"
             return true

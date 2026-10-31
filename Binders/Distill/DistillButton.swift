@@ -24,6 +24,11 @@ struct DistillButton: View {
     @ReducedMotion private var reduceMotion
 
     var body: some View {
+        // A note in a binder linked to a hub is distilled there, by the hub.
+        if MCPServer.hubPlace(note.binderID) == nil { button }
+    }
+
+    @ViewBuilder private var button: some View {
         let compact = compact || iconsOnly
         let service = controller.distill
         let list = service.list(for: note.id)

@@ -177,7 +177,8 @@ final class AgentRegistry {
     /// agents not paused, and taking that binder's cards. One that checks the board itself counts: it picks up what's
     /// meant for it.
     func takers(for binder: UUID?) -> [AgentProfile] {
-        guard !paused else { return [] }
+        // A binder linked to a hub: its cards are the hub's, for the hub's agents.
+        guard !paused, MCPServer.hubPlace(binder) == nil else { return [] }
         return agents.filter { $0.isEnabled && !changedOutside.contains($0.id) && held[$0.id] == nil && $0.takesCards(from: binder) }
     }
 

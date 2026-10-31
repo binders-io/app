@@ -67,6 +67,8 @@ final class DistillBackgroundReader {
 
     /// Whether what changed since the note was last read is more than space and markup, in a section read before.
     func worthReading(_ note: NoteItem, service: DistillService) -> Bool {
+        // The hub distills a linked binder's notes.
+        guard MCPServer.hubPlace(note.binderID) == nil else { return false }
         guard service.hasChangedSections(note: note) else { return false }
         guard let before = service.lastRead[note.id] ?? lastReadText(of: note) else { return true }
         return DistillBackground.meaningful(from: before, to: note.text)

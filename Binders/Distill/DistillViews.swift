@@ -395,7 +395,10 @@ struct DistillToggleItems: View {
     var confirmOff: (NoteItem) -> Void
 
     var body: some View {
-        if note.distill {
+        // A note in a binder linked to a hub is distilled there, by the hub.
+        if MCPServer.hubPlace(note.binderID) != nil {
+            EmptyView()
+        } else if note.distill {
             Button("Turn Off Distill for This Note…") {
                 if controller.distill.openCards(of: note).isEmpty { controller.distill.setDistill(false, for: note) } else { confirmOff(note) }
             }

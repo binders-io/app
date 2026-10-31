@@ -42,6 +42,8 @@ struct BinderPage: View {
     /// Link to Hub…, open (HubLinkSheet).
     @State private var linkingToHub = false
     @State private var confirmUnlink = false
+    /// Send to Hub…, open (HubSendSheet).
+    @State private var sendingToHub = false
     @Environment(\.undoManager) private var undoManager
 
     private var binder: BinderRecord? {
@@ -66,8 +68,11 @@ struct BinderPage: View {
         let counts = Store.shared.counts(in: binder.id)
         let folderID = folder(in: binder)
         let conversations = Store.shared.conversationCount(in: binder.id, includingTrivial: true)
-        // Only binders the iPhone's conversations have gone into get their tab.
-        let tabs = BinderTab.allCases.filter { $0 != .conversations || conversations > 0 || tab == .conversations }
+        // Only binders the iPhone's conversations have gone into get their tab. A binder linked to a hub has no board here:
+        // its cards are the hub's, on its board in the web app.
+        let linked = HubLinks.place(of: binder) != nil
+        let tabs = BinderTab.allCases.filter { ($0 != .conversations || conversations > 0 || tab == .conversations) && !(linked && $0 == .board) }
+        let shown = linked && tab == .board ? BinderTab.overview : tab
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 // Its colour and what it is, small, over its name (lane UI2).
@@ -164,8 +169,10 @@ struct BinderPage: View {
                         if !binder.isTeamCopy {
                             if HubLinks.place(of: binder) == nil {
                                 Button("Link to Hub…") { linkingToHub = true }
-                                    .help("Send its notes, folders and cards to a project on the hub you're signed in to")
+                                    .help("Send its notes, folders and cards to a binder on the hub you're signed in to")
                             } else {
+                                Button("Send to Hub…") { sendingToHub = true }
+                                    .help("Write its meetings, captures and knowledge, and this Mac's dictations, as notes that go up to the hub")
                                 Button("Unlink from Hub…") { confirmUnlink = true }
                             }
                         }
@@ -224,7 +231,7 @@ struct BinderPage: View {
             .padding(.horizontal, 24)
             Divider().opacity(0.7)
             Group {
-                switch tab {
+                switch shown {
                 case .overview:
                     BinderOverview(binder: binder, openMeeting: { id in
                         navigation.pendingMeetingID = id
@@ -265,6 +272,9 @@ struct BinderPage: View {
         }
         .sheet(isPresented: $linkingToHub) {
             HubLinkSheet(binder: binder)
+        }
+        .sheet(isPresented: $sendingToHub) {
+            HubSendSheet(binder: binder)
         }
         .confirmationDialog("Unlink “\(binder.name)” from the hub?", isPresented: $confirmUnlink) {
             Button("Unlink") { HubLinks.shared.unlink(binder) }
@@ -363,8 +373,13 @@ struct BinderOverview: View {
                     StatCard(title: "People & topics", value: "\(people.count)", symbol: "point.3.connected.trianglepath.dotted")
                 }
 
-                // Lane DS1: every note here with Distill on, with how its work is going.
-                WorkListSection(binder: binder, openNote: openNote)
+                // Lane DS1: every note here with Distill on, with how its work is going. Linked to a hub, its board, Distill
+                // and agents are the hub's: a way there instead.
+                if let place = HubLinks.place(of: binder) {
+                    OnHubSection(place: place)
+                } else {
+                    WorkListSection(binder: binder, openNote: openNote)
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .firstTextBaseline) {
@@ -565,5 +580,27 @@ struct BinderTabBar: View {
         .scrollIndicators(.hidden)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Binder tabs")
+    }
+}
+
+/// A linked binder's Overview, where its work list was: its board, Distill and agents are on the hub now.
+private struct OnHubSection: View {
+    let place: HubLink.Place
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: "network").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Its board is on the hub").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
+                Text("Its cards, Distill and agents are in \(place.spaceName) on \(HubSignInSection.shown(place.hub)). Its notes keep in step with this Mac.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if let url = URL(string: "/\(place.space)/#/flow", relativeTo: place.hub) {
+                Link("Open the board", destination: url.absoluteURL).fitProbe("binder.onHub")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .paperCard(padding: 16)
     }
 }

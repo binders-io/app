@@ -1,9 +1,10 @@
 import SwiftUI
 import BindersKit
 
-/// Link to Hub…, from a binder's menu (HubLinks): which of the hub's Binders, and a project in it or a new one named as
-/// this binder is; what goes up the first time; then Link, which sends it and says what arrived. A link that didn't
-/// finish shows here with Send Again.
+/// Link to Hub…, from a binder's menu (HubLinks): a new binder on the hub named as this one is, or one of the hub's
+/// binders you're in; what goes up the first time; then Link, which sends it and says what arrived. A binder on the hub
+/// is one notebook, as here; one made there before that may hold several parts, and then which one is asked too. A link
+/// that didn't finish shows here with Send Again.
 struct HubLinkSheet: View {
     let binder: BinderRecord
     @Environment(\.dismiss) private var dismiss
@@ -11,9 +12,11 @@ struct HubLinkSheet: View {
     @State private var spaces: [HubLink.Space] = []
     /// The hub the Binders and projects came from: Link goes there, or not at all.
     @State private var hub: URL?
+    /// The hub's binder chosen; empty for a new one, named as this one is.
     @State private var space: String = ""
+    /// Its parts: one, but for a binder made on the hub before a binder was one notebook.
     @State private var projects: [HubLink.Project] = []
-    /// The project chosen; empty for a new one.
+    /// The part chosen; empty for a new one (always so in a new binder).
     @State private var project: String = ""
     @State private var loading = false
     @State private var loadProblem: String?
@@ -25,7 +28,7 @@ struct HubLinkSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Link “\(binder.name)” to a Hub").font(BindersTheme.cardTitle)
-                Text("Its notes, folders and cards go up to a project on \(HubAccount.shared.address.map(HubSignInSection.shown) ?? "your hub"), where your team sees them in the web app and the hub's agents can take its cards. Notes from what you said to yourself, meetings and captures stay on this Mac.")
+                Text("Its notes, folders and cards go up to a binder on \(HubAccount.shared.address.map(HubSignInSection.shown) ?? "your hub"), where the people in it see them in the web app and the hub's agents can take its cards. It stays on this Mac too, and the two keep each other up to date. Notes from what you said to yourself, meetings and captures stay on this Mac.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -54,19 +57,20 @@ struct HubLinkSheet: View {
     private var choosing: some View {
         VStack(alignment: .leading, spacing: 14) {
             Form {
-                if spaces.count > 1 {
-                    Picker("Binder on the hub", selection: $space) {
-                        ForEach(spaces) { Text($0.name).tag($0.id) }
-                    }
-                    .fitProbe("hubLink.space")
-                }
-                Picker("Project", selection: $project) {
-                    Text("New project “\(binder.name)”").tag("")
-                    if !projects.isEmpty { Divider() }
-                    ForEach(projects) { Text($0.name).tag($0.id) }
+                Picker("Binder on the hub", selection: $space) {
+                    Text("New binder “\(binder.name)”").tag("")
+                    if !spaces.isEmpty { Divider() }
+                    ForEach(spaces) { Text($0.id.hasPrefix("~") ? "\($0.name) (only you)" : $0.name).tag($0.id) }
                 }
                 .disabled(loading)
-                .fitProbe("hubLink.project")
+                .fitProbe("hubLink.space")
+                if projects.count > 1 {
+                    Picker("Part", selection: $project) {
+                        ForEach(projects) { Text($0.name).tag($0.id) }
+                    }
+                    .disabled(loading)
+                    .fitProbe("hubLink.project")
+                }
             }
             .formStyle(.columns)
             if loading {
@@ -74,8 +78,8 @@ struct HubLinkSheet: View {
             } else if let loadProblem {
                 StatusLabel(loadProblem, .problem).fixedSize(horizontal: false, vertical: true).fitProbe("hubLink.problem")
             } else {
-                Text(project.isEmpty ? "\(HubLink.counted(changes).capitalizedFirst) go up to a new project."
-                                     : "\(HubLink.counted(changes).capitalizedFirst) go up into it, beside what it has.")
+                Text(space.isEmpty ? "\(HubLink.counted(changes).capitalizedFirst) go up to a new binder on the hub, which you own."
+                                   : "\(HubLink.counted(changes).capitalizedFirst) go up into it, beside what it has.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fitProbe("hubLink.counts")
             }
@@ -91,7 +95,7 @@ struct HubLinkSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Link") { Task { await link() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(loading || loadProblem != nil || hub == nil || space.isEmpty || links.working[binder.id] != nil)
+                    .disabled(loading || loadProblem != nil || hub == nil || links.working[binder.id] != nil)
                     .fitProbe("hubLink.link")
             }
         }
@@ -104,7 +108,7 @@ struct HubLinkSheet: View {
     private func linked(_ place: HubLink.Place) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             LabeledContent("Linked to") {
-                Text("\(place.binderName) in \(place.spaceName)").textSelection(.enabled)
+                Text(place.binderName == place.spaceName ? place.spaceName : "\(place.binderName) in \(place.spaceName)").textSelection(.enabled)
             }
             if let working = links.working[binder.id] {
                 StatusLabel(working, .waiting)
@@ -140,8 +144,8 @@ struct HubLinkSheet: View {
             let found = try await links.spaces()
             spaces = found.spaces
             hub = found.hub
-            space = found.current ?? found.spaces.first?.id ?? ""
-            if space.isEmpty { loadProblem = "You're not in a Binder on this hub yet. Ask one of its admins to add you." }
+            // A new binder unless one on the hub already goes by this one's name.
+            space = found.spaces.first { $0.name.localizedCaseInsensitiveCompare(binder.name) == .orderedSame }?.id ?? ""
             await loadProjects()
         } catch {
             loadProblem = (error as? HubLinks.Problem)?.words ?? error.localizedDescription
@@ -150,12 +154,18 @@ struct HubLinkSheet: View {
     }
 
     private func loadProjects() async {
-        guard !space.isEmpty, let hub else { return }
+        guard !space.isEmpty, let hub else {
+            projects = []
+            project = ""
+            recount()
+            return
+        }
         loading = true
         defer { loading = false }
         do {
             projects = try await links.projects(in: space, on: hub)
-            if !project.isEmpty, !projects.contains(where: { $0.id == project }) { project = "" }
+            // Its one binder, or the first of its parts.
+            if !projects.contains(where: { $0.id == project }) { project = projects.first?.id ?? "" }
             loadProblem = nil
         } catch {
             loadProblem = (error as? HubLinks.Problem)?.words ?? error.localizedDescription
@@ -167,7 +177,18 @@ struct HubLinkSheet: View {
     }
 
     private func link() async {
-        guard let hub, let chosen = spaces.first(where: { $0.id == space }) else { return }
+        guard let hub else { return }
+        if space.isEmpty {
+            // A new binder on the hub: made first, then linked into its one binder.
+            do {
+                let made = try await links.newSpace(named: binder.name, on: hub)
+                await links.link(binder, on: hub, space: made.space, to: made.project)
+            } catch {
+                loadProblem = (error as? HubLinks.Problem)?.words ?? error.localizedDescription
+            }
+            return
+        }
+        guard let chosen = spaces.first(where: { $0.id == space }) else { return }
         await links.link(binder, on: hub, space: chosen, to: projects.first { $0.id == project })
     }
 }

@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.distill.start()
         // Linked binders' notes and folders, both ways with the hub.
         HubNotesSync.shared.refresh()
+        // Binders whose link to the hub was lost (an older Binders opened the library and dropped it): linked back.
+        Task { await HubLinks.shared.linkBackLost() }
 
         // The library didn't open: the window comes up with its banner, so it's seen before anything seems to be saved.
         if !AppSettings.shared.hasCompletedSetup || !Permissions.accessibility || Permissions.microphone != .authorized || Store.shared.isFallback {

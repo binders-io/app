@@ -328,10 +328,12 @@ struct QuickSwitcher: View {
                 Self.newNote(from: template, in: binder, navigation: navigation)
             }
         }
-        items += BinderTab.allCases.map { tab in
+        // A binder linked to a hub has no board here, and is shared through the hub.
+        let onHub = HubLinks.place(of: binder) != nil
+        items += BinderTab.allCases.filter { !(onHub && $0 == .board) }.map { tab in
             command("Show \(binder.name): \(tab.rawValue)", "books.vertical") { show(binder: binder.id, tab: tab) }
         }
-        if team.isConfigured, !binder.isTeamCopy {
+        if team.isConfigured, !binder.isTeamCopy, !onHub {
             items.append(command(binder.sharedWithTeam ? "Stop Sharing \(binder.name)" : "Share \(binder.name) with the Team", "person.2") {
                 team.setShared(binder, !binder.sharedWithTeam)
             })

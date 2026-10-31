@@ -80,6 +80,16 @@ final class HubLinks {
         return projects
     }
 
+    /// A new binder on `hub`, named as this one is. The hub makes it, at an address from its name, with the one binder its
+    /// notes and board go in, and this person its owner; linking then goes into that one.
+    func newSpace(named name: String, on hub: URL) async throws -> (space: HubLink.Space, project: HubLink.Project?) {
+        let body = try JSONSerialization.data(withJSONObject: ["name": name])
+        let (data, _) = try await ask("api/spaces", on: hub, space: nil, body: body)
+        struct Made: Decodable { let created: HubLink.Space? }
+        guard let made = (try? JSONDecoder().decode(Made.self, from: data))?.created else { throw Problem("The hub didn't say where it made the binder.") }
+        return (made, try await projects(in: made.id, on: hub).first)
+    }
+
     // MARK: Linking
 
     /// What a binder sends the first time, to `project` (a new one when `newName` is given).
@@ -171,6 +181,121 @@ final class HubLinks {
     /// each note whose words differ from the hub's is merged with them, from the words the hub's document started from.
     /// One whose words still aren't the hub's is marked changed after `linkedAt`, so once linked it goes up as an edit
     /// rather than taking the hub's words (HubNotesSync.takeNewer); the rest take the hub's.
+    // MARK: Linking back
+
+    /// A binder this Mac had linked, found again: the hub's Binder and binder that hold its notes.
+    struct LostLink {
+        let binder: BinderRecord
+        let space: HubLink.Space
+        let project: HubLink.Project
+        let hub: URL
+        let notes: Int
+    }
+
+    /// Binders here whose link was lost (an older Binders opened the library and dropped what it didn't know), found by
+    /// the hub binder that holds their notes: a note's id is the same here and on the hub. Only a clear match: one that
+    /// holds at least half of a binder's notes, that no binder here is linked to, and that no other binder here matches.
+    func lostLinks() async -> [LostLink] {
+        guard let found = try? await spaces() else { return [] }
+        let all = store.binders()
+        let unlinked = all.filter { !$0.isTeamCopy && Self.place(of: $0) == nil }
+        guard !unlinked.isEmpty else { return [] }
+        let taken = Set(all.compactMap { Self.place(of: $0) }.map { "\($0.space)/\($0.binder)" })
+        struct HubState: Decodable {
+            struct Item: Decodable { let id: String; let binderId: String? }
+            struct Project: Decodable { let id: String; let name: String }
+            struct Inner: Decodable { let notes: [Item]?; let binders: [Project]? }
+            let state: Inner
+        }
+        var noteHome: [UUID: (space: HubLink.Space, key: String)] = [:]
+        var projects: [String: HubLink.Project] = [:]
+        for space in found.spaces {
+            guard let (data, _) = try? await ask("api/state", on: found.hub, space: space.id),
+                  let state = try? JSONDecoder().decode(HubState.self, from: data) else { continue }
+            for project in state.state.binders ?? [] { projects["\(space.id)/\(project.id)"] = HubLink.Project(id: project.id, name: project.name) }
+            for note in state.state.notes ?? [] {
+                if let project = note.binderId { noteHome[HubSync.localID(note.id)] = (space, "\(space.id)/\(project)") }
+            }
+        }
+        var matches: [(binder: BinderRecord, space: HubLink.Space, key: String, notes: Int)] = []
+        for binder in unlinked {
+            let binderID = binder.id
+            let ids = ((try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID }))) ?? []).filter { !$0.staysUnshared }.map(\.id)
+            guard !ids.isEmpty else { continue }
+            var counts: [String: (space: HubLink.Space, notes: Int)] = [:]
+            for id in ids { if let home = noteHome[id] { counts[home.key, default: (home.space, 0)].notes += 1 } }
+            guard let best = counts.max(by: { $0.value.notes < $1.value.notes }), best.value.notes * 2 >= ids.count, !taken.contains(best.key) else { continue }
+            matches.append((binder, best.value.space, best.key, best.value.notes))
+        }
+        let claimed = Dictionary(grouping: matches, by: \.key)
+        return matches.compactMap { match in
+            guard claimed[match.key]?.count == 1, let project = projects[match.key] else { return nil }
+            return LostLink(binder: match.binder, space: match.space, project: project, hub: found.hub, notes: match.notes)
+        }
+    }
+
+    /// Link Back: joins the hub binder that holds its notes, as Move to a Hub joins one a teammate moved. What was written
+    /// here since is merged with the hub's words; the rest, and where each note and folder is, are the hub's. Its cards
+    /// are paired with the hub's again by their ids, and one the hub doesn't have goes from here: a linked binder's board
+    /// is the hub's, and a card only here was taken off it or never reached it.
+    @discardableResult
+    func linkBack(_ lost: LostLink) async -> Bool {
+        let binder = lost.binder
+        guard Self.place(of: binder) == nil else { return true }
+        if let why = whyNotOn(lost.hub) {
+            problems[binder.id] = why
+            return false
+        }
+        var place = HubLink.Place(hub: lost.hub, space: lost.space.id, spaceName: lost.space.name, binder: lost.project.id,
+                                  binderName: lost.project.name, client: HubLink.newClient(), newProject: false)
+        do {
+            try await keepWrittenHere(binder, on: lost.hub, project: lost.project.id, space: lost.space.id, since: place.linkedAt)
+            try await pairCards(binder, on: lost.hub, project: lost.project.id, space: lost.space.id)
+        } catch {
+            problems[binder.id] = (error as? Problem)?.words ?? "Couldn't reach \(lost.hub.host ?? "the hub"): \(error.localizedDescription)"
+            return false
+        }
+        place.uploaded = true
+        binder.hubLink = place.json
+        binder.updatedAt = Date()
+        store.save()
+        done[binder.id] = "Linked back to \(place.binderName) in \(place.spaceName)."
+        HubBoard.shared.follow()
+        HubNotesSync.shared.refresh()
+        return true
+    }
+
+    /// At launch, signed in to a hub: every binder whose link was lost and is found again, linked back.
+    func linkBackLost() async {
+        guard account.isSignedIn else { return }
+        for lost in await lostLinks() { await linkBack(lost) }
+    }
+
+    /// A binder's cards paired with the hub's in its project again, by their ids; one the hub doesn't have goes from here.
+    private func pairCards(_ binder: BinderRecord, on hub: URL, project: String, space: String) async throws {
+        let (data, _) = try await ask("api/state", on: hub, space: space)
+        struct HubState: Decodable {
+            struct Card: Decodable { let id: String; let binderId: String }
+            struct Inner: Decodable { let cards: [Card]? }
+            let state: Inner
+        }
+        guard let state = try? JSONDecoder().decode(HubState.self, from: data) else { throw Problem("The hub sent something that isn't its state.") }
+        var hubCards: [UUID: String] = [:]
+        for card in state.state.cards ?? [] where card.binderId == project { hubCards[HubCards.localID(card.id)] = card.id }
+        let binderID = binder.id
+        for card in (try? store.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.binderID == binderID }))) ?? [] {
+            if let id = hubCards[card.id] {
+                card.hubCard = id
+                card.hubPut = ""
+            } else if let board = HubBoard.shared.board {
+                board.removeHere(card)
+            } else {
+                store.context.delete(card)
+            }
+        }
+        store.save()
+    }
+
     private func keepWrittenHere(_ binder: BinderRecord, on hub: URL, project: String, space: String, since linkedAt: Date) async throws {
         let (data, _) = try await ask("api/state", on: hub, space: space)
         guard let state = HubSync.State(hubState: data) else { throw Problem("The hub sent something that isn't its state.") }

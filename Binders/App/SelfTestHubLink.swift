@@ -73,6 +73,13 @@ extension SelfTest {
                 let state = states[space] ?? [:]
                 return answer(200, ["version": log.count, "state": ["binders": state["binders"] ?? [], "folders": state["folders"] ?? [],
                                                                       "notes": state["notes"] ?? [], "cards": state["cards"] ?? [], "agents": []]])
+            case ("POST", "/api/spaces"):
+                // A new binder on the hub, its address from its name, with the one binder its notes and board go in.
+                guard let body = request.httpBody.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+                      let name = body["name"] as? String else { return answer(422, ["error": "Give the binder a name."]) }
+                let id = name.lowercased().replacingOccurrences(of: " ", with: "-")
+                states[id, default: [:]]["binders"] = [["id": "main", "name": name]]
+                return answer(200, ["spaces": [], "created": ["id": id, "name": name]])
             case ("POST", "/api/changes"):
                 if failNextChanges {
                     failNextChanges = false
@@ -149,8 +156,8 @@ extension SelfTest {
         // MARK: Link to Hub…, choosing.
         let choosing = await drawnAlone(HubLinkSheet(binder: garden), controller: controller, name: "hub-link-choosing",
                                         size: NSSize(width: 520, height: 300), directory: directory)
-        check(choosing["hubLink.space"] != nil && choosing["hubLink.project"] != nil && choosing["hubLink.link"] != nil,
-              "Link to Hub… offers the hub's Binders, a project or a new one, and Link: \(choosing.keys.sorted())")
+        check(choosing["hubLink.space"] != nil && choosing["hubLink.project"] == nil && choosing["hubLink.link"] != nil,
+              "Link to Hub… offers a new binder or one of the hub's, and Link, with no parts to pick: \(choosing.keys.sorted())")
         check(choosing["hubLink.counts"] != nil, "and says what goes up")
         let spaces = try? await links.spaces()
         check(spaces?.spaces.map(\.name) == ["Team", "Lab"] && spaces?.current == "team" && spaces?.hub.host == "hub.example.com",
@@ -158,6 +165,9 @@ extension SelfTest {
         let hub = URL(string: "https://hub.example.com")!
         let projects = (try? await links.projects(in: "team", on: hub)) ?? []
         check(projects.map(\.name) == ["Roadmap"], "the projects in Team, from /api/state: \(projects.map(\.name))")
+        let made = try? await links.newSpace(named: "Garden Club", on: hub)
+        check(made?.space.id == "garden-club" && made?.space.name == "Garden Club" && made?.project?.id == "main",
+              "New binder makes one on the hub, and links into its one binder: \(String(describing: made))")
 
         // Signed in to another hub with a Binder of the same id, nothing chosen on this one is linked there.
         func signIn(_ address: String, _ token: String) async {
@@ -275,6 +285,22 @@ extension SelfTest {
               "Link to Hub… on a linked binder says where it went: \(linked.keys.sorted())")
         let notTwice = await links.link(garden, on: hub, space: team, to: nil)
         check(!notTwice && HubLinks.place(of: garden)?.binder == project, "a linked binder isn't linked again")
+
+        // MARK: Link Back: an older Binders opened the library and dropped the link and the cards' hub ids.
+        garden.hubLink = ""
+        for card in BoardService().cards(in: garden.id) { card.hubCard = ""; card.hubPut = "" }
+        store.save()
+        let lost = await links.lostLinks()
+        check(lost.count == 1 && lost.first?.binder.id == garden.id && lost.first?.project.id == project && lost.first?.space.id == "team",
+              "a binder whose link was lost is found again by the hub binder holding its notes: \(lost.map { "\($0.binder.name) → \($0.space.id)/\($0.project.id)" })")
+        let postsBefore = asked.filter { $0.hasPrefix("POST") }.count
+        let back = await links.linkBack(lost[0])
+        check(back && HubLinks.place(of: garden)?.binder == project && HubLinks.place(of: garden)?.uploaded == true, "and linked back to it: \(links.problems[garden.id] ?? "")")
+        check(asked.filter { $0.hasPrefix("POST") }.count == postsBefore, "sending nothing over the hub's")
+        let paired = BoardService().cards(in: garden.id)
+        check(paired.count == onHub("team", "cards", in: project).count && paired.allSatisfy { !$0.hubCard.isEmpty },
+              "its cards paired with the hub's again, so none goes up twice: \(paired.map(\.hubCard))")
+        check(await links.lostLinks().isEmpty, "and nothing is left to link back")
 
         // MARK: Unlinking keeps everything here, and on the hub.
         links.unlink(garden)
