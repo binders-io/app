@@ -67,8 +67,8 @@ extension SelfTest {
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let (spaces, current) = try? await links.spaces(),
-              let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
+        guard let hub = account.address, let found = try? await links.spaces(),
+              let space = found.spaces.first(where: { $0.id == found.current }) ?? found.spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
         }
@@ -128,7 +128,7 @@ extension SelfTest {
         let para = note("# Paragraph\n\nThe quick fox jumps.")
         let away = note("# Away\n\nWritten before going offline.")
         store.save()
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name)")
         guard let place = HubLinks.place(of: binder) else { return 1 }
         let id = { (note: NoteItem) in HubLink.hubID(note.id) }
@@ -230,7 +230,7 @@ extension SelfTest {
         gone.binderID = other.id
         store.insert(gone)
         store.save()
-        check(await links.link(other, space: space, to: nil), "a second binder is linked into the same Binder")
+        check(await links.link(other, on: found.hub, space: space, to: nil), "a second binder is linked into the same Binder")
         guard let otherPlace = HubLinks.place(of: other) else { return 1 }
         took = await onHub { $0.notes[id(keptNote)] != nil && $0.notes[id(gone)] != nil && $0.folders[HubLink.hubID(shelf.id)] != nil }
         check(took != nil, "its notes and folder are on the hub (\(within(took)))")

@@ -151,7 +151,7 @@ extension SelfTest {
         store.save()
         account.signIn(to: "hub.example.com")
         await account.finish(URL(string: "binders://auth?token=bnp_robin00001&state=\(account.pending?.state ?? "")")!)
-        let linked = await links.link(garden, space: HubLink.Space(id: "team", name: "Team"), to: nil)
+        let linked = await links.link(garden, on: URL(string: "https://hub.example.com")!, space: HubLink.Space(id: "team", name: "Team"), to: nil)
         let project = HubLinks.place(of: garden)?.binder ?? ""
         check(linked && hubBoard.covers(stakes), "Garden is linked, and its board follows the hub: \(links.problems[garden.id] ?? "")")
         check(await until { hubBoard.live.contains("team") }, "the hub's Binder is followed live")
@@ -393,7 +393,7 @@ extension SelfTest {
             check(false, "the hub says which Binders you're in")
             return failed
         }
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name): \(links.done[binder.id] ?? links.problems[binder.id] ?? "")")
         func until(_ seconds: Double, _ condition: () -> Bool) async -> Bool {
             let end = Date().addingTimeInterval(seconds)

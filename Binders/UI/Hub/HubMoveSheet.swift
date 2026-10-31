@@ -11,6 +11,8 @@ struct HubMoveSheet: View {
     private var links: HubLinks { .shared }
     private var account: HubAccount { .shared }
     @State private var spaces: [HubLink.Space] = []
+    /// The hub `spaces` are on: the move goes there, whoever is signed in by then.
+    @State private var hub: URL?
     @State private var space: String = ""
     @State private var binders: [BinderRecord] = []
     @State private var existing: [UUID: HubLink.Project] = [:]
@@ -133,6 +135,7 @@ struct HubMoveSheet: View {
         defer { loading = false }
         do {
             let found = try await links.spaces()
+            hub = found.hub
             spaces = found.spaces
             space = found.current ?? found.spaces.first?.id ?? ""
             if space.isEmpty { loadProblem = "You're not in a Binder on this hub yet. Ask one of its admins to add you." }
@@ -143,11 +146,11 @@ struct HubMoveSheet: View {
     }
 
     private func loadMoved() async {
-        guard !space.isEmpty else { return }
+        guard !space.isEmpty, let hub else { return }
         loading = true
         defer { loading = false }
         do {
-            existing = try await move.moved(binders, in: space)
+            existing = try await move.moved(binders, in: space, on: hub)
             loadProblem = nil
         } catch {
             loadProblem = (error as? HubLinks.Problem)?.words ?? error.localizedDescription
@@ -155,8 +158,8 @@ struct HubMoveSheet: View {
     }
 
     private func go() async {
-        guard let chosen = spaces.first(where: { $0.id == space }) else { return }
-        await move.move(team, to: chosen)
+        guard let hub, let chosen = spaces.first(where: { $0.id == space }) else { return }
+        await move.move(team, on: hub, to: chosen)
         binders = move.done == nil ? move.binders(team) : binders
     }
 }

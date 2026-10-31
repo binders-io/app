@@ -181,7 +181,7 @@ extension SelfTest {
         await account.finish(URL(string: "binders://auth?token=bnp_robin00001&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in to the stand-in hub")
 
-        let found = (try? await move.moved(move.binders(team), in: "team")) ?? [:]
+        let found = (try? await move.moved(move.binders(team), in: "team", on: URL(string: "https://hub.example.com")!)) ?? [:]
         check(found.count == 1 && found[theirs.id]?.id == theirProject, "the hub has the project Dana's Mac made for her binder, found by its id")
         let choosing = await drawnAlone(HubMoveSheet(team: team), controller: controller, name: "hub-move-choosing",
                                         size: NSSize(width: 540, height: 340), directory: directory)
@@ -191,7 +191,7 @@ extension SelfTest {
         // MARK: Cut short: this Mac stays on the team database.
         failNextChanges = true
         let space = HubLink.Space(id: "team", name: "Team")
-        let first = await move.move(team, to: space)
+        let first = await move.move(team, on: URL(string: "https://hub.example.com")!, to: space)
         check(!first && team.server != nil && garden.teamDatabaseKey == server.key, "a move cut short leaves this Mac on the team database")
         check(move.problem?.hasPrefix("“Garden” didn't reach the hub yet.") == true && move.problem?.contains("restarting") == true,
               "and says which binder and why: \(move.problem ?? "")")
@@ -199,7 +199,7 @@ extension SelfTest {
               "Dana's binder joined her project anyway")
 
         // MARK: Move Again.
-        let again = await move.move(team, to: space)
+        let again = await move.move(team, on: URL(string: "https://hub.example.com")!, to: space)
         check(again && move.problem == nil, "Move Again finishes it: \(move.done ?? move.problem ?? "")")
         check(move.done == "Moved 1 binder to Team, and joined 1 that a teammate moved first. This Mac left the team database.", "and says what it did: \(move.done ?? "")")
         let gardenProject = HubLinks.place(of: garden)?.binder ?? ""

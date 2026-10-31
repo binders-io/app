@@ -125,18 +125,17 @@ final class HubLinks {
         return sent
     }
 
-    /// Move to a Hub, for one binder on the team database: to its project in `space` (`HubLink.movedProjectID`). The
+    /// Move to a Hub, for one binder on the team database: to its project in `space` on `hub` (`HubLink.movedProjectID`). The
     /// first Mac to move it makes the project and sends everything up; a teammate's Mac that finds the project there
     /// (`existing`) joins it, and from then on takes the hub's words and cards, sending only what the hub doesn't have.
     /// A move cut short goes on where it stopped. True when the binder is on the hub.
     @discardableResult
-    func move(_ binder: BinderRecord, space: HubLink.Space, existing: HubLink.Project?) async -> Bool {
+    func move(_ binder: BinderRecord, on hub: URL, space: HubLink.Space, existing: HubLink.Project?) async -> Bool {
         if let place = Self.place(of: binder) { return place.uploaded ? true : await send(binder) }
-        if let why = whyNot(binder, moving: true) {
+        if let why = whyNot(binder, moving: true) ?? whyNotOn(hub) {
             problems[binder.id] = why
             return false
         }
-        guard let hub = account.address else { return false }
         let projectID = HubLink.movedProjectID(binder.id)
         var place = HubLink.Place(hub: hub, space: space.id, spaceName: space.name, binder: projectID,
                                   binderName: existing?.name ?? binder.name, client: HubLink.newClient(), newProject: existing == nil)
@@ -149,7 +148,7 @@ final class HubLinks {
         }
         // Nothing is kept as linked until this Mac's words are merged with the hub's: Move Again starts it over.
         do {
-            try await keepWrittenHere(binder, project: projectID, space: space.id, since: place.linkedAt)
+            try await keepWrittenHere(binder, on: hub, project: projectID, space: space.id, since: place.linkedAt)
         } catch {
             problems[binder.id] = (error as? Problem)?.words ?? "Couldn't reach \(hub.host ?? "the hub"): \(error.localizedDescription)"
             return false
@@ -169,21 +168,21 @@ final class HubLinks {
     /// each note whose words differ from the hub's is merged with them, from the words the hub's document started from.
     /// One whose words still aren't the hub's is marked changed after `linkedAt`, so once linked it goes up as an edit
     /// rather than taking the hub's words (HubNotesSync.takeNewer); the rest take the hub's.
-    private func keepWrittenHere(_ binder: BinderRecord, project: String, space: String, since linkedAt: Date) async throws {
-        let (data, _) = try await ask("api/state", space: space)
+    private func keepWrittenHere(_ binder: BinderRecord, on hub: URL, project: String, space: String, since linkedAt: Date) async throws {
+        let (data, _) = try await ask("api/state", on: hub, space: space)
         guard let state = HubSync.State(hubState: data) else { throw Problem("The hub sent something that isn't its state.") }
         let binderID = binder.id
         let notes = ((try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID }))) ?? [])
             .filter { !$0.staysUnshared }
         for note in notes {
-            guard let hub = state.notes[HubLink.hubID(note.id)], hub.binderId == project, hub.text != note.text else { continue }
+            guard let theirs = state.notes[HubLink.hubID(note.id)], theirs.binderId == project, theirs.text != note.text else { continue }
             working[binderID] = "Keeping what was written here in “\(note.title)”…"
-            let (saved, _) = try await ask("api/notes/\(hub.id)/doc", space: space)
-            let base = (try? HubNoteDocument(note: note.id, saved: saved))?.startingText ?? hub.text
-            let merged = HubNoteDocument.merge(base: base, theirs: hub.text, ours: note.text)
-            guard merged != hub.text else { continue }
+            let (saved, _) = try await ask("api/notes/\(theirs.id)/doc", on: hub, space: space)
+            let base = (try? HubNoteDocument(note: note.id, saved: saved))?.startingText ?? theirs.text
+            let merged = HubNoteDocument.merge(base: base, theirs: theirs.text, ours: note.text)
+            guard merged != theirs.text else { continue }
             if merged != note.text {
-                NoteHistory.willChange(note, to: merged, always: true, by: .teammate(hub.editors.last ?? "A teammate"))
+                NoteHistory.willChange(note, to: merged, always: true, by: .teammate(theirs.editors.last ?? "A teammate"))
                 note.text = merged
             }
             note.updatedAt = max(Date(), linkedAt.addingTimeInterval(0.001))
