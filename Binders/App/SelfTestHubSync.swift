@@ -58,9 +58,17 @@ extension SelfTest {
         account.openPage = { _ in }
         // Offline: nothing reaches the hub, the feed included.
         var offline = false
+        // A note's document read from the hub, whose answer comes back only once `holding` is cleared.
+        var holding: String?
+        var held = false
         account.send = { request in
             if offline { throw URLError(.notConnectedToInternet) }
-            return try await URLSession.shared.data(for: request)
+            let answer = try await URLSession.shared.data(for: request)
+            if let note = holding, request.url?.path.hasSuffix("/\(note)/doc") == true {
+                held = true
+                while holding != nil { try? await Task.sleep(for: .milliseconds(20)) }
+            }
+            return answer
         }
         sync.openFeed = { request in offline ? DeadFeed() as HubFeed : HubWebSocketFeed(request) }
 
@@ -213,6 +221,26 @@ extension SelfTest {
         took = await onHub { $0.notes[id(para)].map { twice($0.text) } ?? false }
         check(took != nil, "and on the hub: \(hubState.notes[id(para)]?.text.debugDescription ?? "none")")
         check((sync.counts["edit"] ?? 0) > edits, "that went as changes made on the Mac's copy of the document")
+
+        // MARK: Deleted while its document is read
+
+        // The web app's note has no document here yet: an edit on the Mac reads it from the hub first. The hub answers, but
+        // the answer comes only after the teammate has deleted the note and that's here: it's dropped, with the edit.
+        holding = "note-web-1"
+        if let webOne = store.note(webNote) {
+            webOne.text += "\nTyped on the Mac as Dana deletes it."
+            store.save()
+        }
+        took = await until { held }
+        check(took != nil, "the Mac reads the note's document to send its edit (\(within(took)))")
+        check(await webSend(["type": "note.delete", "id": "note-web-1"]) == 200, "the web app deletes the note meanwhile")
+        took = await until { store.note(webNote) == nil }
+        check(took != nil, "the deletion is on the Mac (\(within(took)))")
+        holding = nil
+        took = await until { sync.status(of: binder) == nil }
+        check(took != nil, "the hub's late answer is dropped with the edit: \(sync.status(of: binder) ?? "nothing waits")")
+        took = await onHub(2) { $0.notes["note-web-1"] != nil }
+        check(took == nil && store.note(webNote) == nil, "the note stays deleted on both sides")
 
         // MARK: Offline, through quitting
 

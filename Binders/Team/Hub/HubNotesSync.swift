@@ -78,6 +78,8 @@ final class HubNotesSync {
         /// Notes whose document is being read from the hub, and the changes to them the feed brought meanwhile.
         var reading: Set<String> = []
         var held: [String: [String]] = [:]
+        /// Notes being read whose document was set aside meanwhile (deleted, or written whole): what comes back is stale.
+        var setAside: Set<String> = []
         var feed: HubFeed?
         var running: Task<Void, Never>?
         var connected = false
@@ -328,7 +330,10 @@ final class HubNotesSync {
             space.state.apply(change)
             guard let hub = space.state.notes[edit.id], binders[hub.binderId] != nil else { return }
             let author: NoteAuthor = own ? .you : .teammate(edit.by)
-            if space.reading.contains(edit.id) {
+            if edit.changes == nil {
+                // Written whole (an app from before Automerge): the hub's document starts again from these words.
+                forgetDocument(edit.id, in: space, keepingEdits: true)
+            } else if space.reading.contains(edit.id) {
                 // Its document is on its way from the hub: these go into it when it comes, and the words here now.
                 space.held[edit.id, default: []] += edit.changes ?? []
             } else if let changes = edit.changes, let document = document(edit.id, in: space) {
@@ -342,9 +347,6 @@ final class HubNotesSync {
                 } catch {
                     forgetDocument(edit.id, in: space, keepingEdits: true)
                 }
-            } else if edit.changes == nil {
-                // Written whole (an app from before Automerge): the hub's document starts again from these words.
-                forgetDocument(edit.id, in: space, keepingEdits: true)
             }
             write(edit.id, from: before, to: hub.text, by: author, space: space, binders: binders)
         case .noteMove(let id, let binderId, let folderId):
@@ -642,10 +644,19 @@ final class HubNotesSync {
         defer {
             space.reading.remove(hubID)
             space.held[hubID] = nil
+            space.setAside.remove(hubID)
         }
         let answer = try? await ask("api/notes/\(hubID)/doc", space: space, refusals: true)
+        // Meanwhile this Binder may have stopped being followed, or the note's document been set aside (deleted, its edits
+        // with it, or written whole): what came back is stale. A note still edited here is read again.
+        guard spaces[space.id] === space else { return false }
+        if space.setAside.contains(hubID) { return true }
         guard let (data, status) = answer else { return false }
         let indices = space.outbox.indices.filter { space.outbox[$0].editedNote == hubID && !space.sending.contains(space.outbox[$0].id) }
+        guard !indices.isEmpty, space.state.notes[hubID] != nil else {
+            space.outbox.remove(atOffsets: IndexSet(indices))
+            return true
+        }
         guard status == 200, let document = try? HubNoteDocument(note: HubSync.localID(hubID), saved: data) else {
             // Gone from the hub: its edits go with it.
             if status == 404 { space.outbox.remove(atOffsets: IndexSet(indices)) }
@@ -661,8 +672,8 @@ final class HubNotesSync {
         let hubText = space.state.notes[hubID]?.text ?? document.text
         let ours = note?.text ?? hubText
         let merged = HubNoteDocument.merge(base: hubText, theirs: document.text, ours: ours)
-        let client = space.outbox[indices.first ?? 0].client
-        let at = indices.first ?? space.outbox.count
+        let client = space.outbox[indices[0]].client
+        let at = indices[0]
         space.outbox.remove(atOffsets: IndexSet(indices))
         let before = document.text
         if let change = try? document.change(to: merged) {
@@ -696,6 +707,7 @@ final class HubNotesSync {
     /// on the hub's document when they go, else they're dropped.
     private func forgetDocument(_ hubID: String, in space: Space, keepingEdits: Bool) {
         space.documents[hubID] = nil
+        if space.reading.contains(hubID) { space.setAside.insert(hubID) }
         try? FileManager.default.removeItem(at: documentURL(hubID, in: space))
         let edits = space.outbox.filter { $0.editedNote == hubID && !space.sending.contains($0.id) }
         guard !edits.isEmpty else { return }
