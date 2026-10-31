@@ -1143,6 +1143,10 @@ private struct TeamSettings: View {
     @Environment(TeamSyncService.self) private var team
     @State private var confirmLeave = false
     @State private var teamError: String?
+    /// Move to a Hub… (HubMoveSheet), for binders an earlier Binders shared through a team database.
+    @State private var movingToHub = false
+    /// Those binders' names, looked at again when the sheet closes.
+    @State private var onTeamDatabase: [String] = HubMove.shared.binders().map(\.name)
 
     /// Sharing through a folder synced by OneDrive, Dropbox, Google Drive or iCloud Drive, for a Mac without a hub.
     static let folderWords = "Share meetings and notes with your team through a folder synced by OneDrive, Dropbox, Google Drive or iCloud Drive. There's no server. Only the notes and meetings in binders you share leave this Mac, with the files attached to those notes; captures and the audio Binders records never do. They're stored as Markdown, so the folder also opens as an Obsidian vault."
@@ -1151,6 +1155,22 @@ private struct TeamSettings: View {
         @Bindable var settings = settings
         // A hub leads; a Mac without one shares through a team folder, below.
         HubSignInSection(summary: SettingsPage.team.summary)
+        if !onTeamDatabase.isEmpty {
+            Section {
+                Text("\(onTeamDatabase.map { "“\($0)”" }.formatted(.list(type: .and))) \(onTeamDatabase.count == 1 ? "was" : "were") shared through the team database, which this Binders no longer reaches. Move to a Hub sends \(onTeamDatabase.count == 1 ? "it" : "them") to the hub, to the project each teammate's Mac finds too.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Move to a Hub…") { movingToHub = true }
+                        .fitProbe("team.moveToHub")
+                }
+            } header: {
+                Text("Team database").font(.headline).foregroundStyle(.primary)
+            }
+            .sheet(isPresented: $movingToHub, onDismiss: { onTeamDatabase = HubMove.shared.binders().map(\.name) }) { HubMoveSheet() }
+        }
         Section {
             StackedField(label: "Your name", text: $settings.teamMemberName, prompt: NSFullUserName(), probe: "field.team.name")
             if let folder = team.folderURL {

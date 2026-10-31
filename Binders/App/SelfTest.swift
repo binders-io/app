@@ -1362,6 +1362,11 @@ open reports/import.html
             return await hubLinkSelfTest(drawingTo: value("--selftest-hub-link").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
 
+        if args.contains("--selftest-hub-move") {
+            // Move to a Hub: binders an earlier Binders shared through a team database, to a stand-in hub, then off it.
+            return await hubMoveSelfTest(drawingTo: value("--selftest-hub-move").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
+        }
+
         if args.contains("--selftest-hub-board") {
             // A linked binder's board through the hub: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
             return await hubBoardSelfTest()

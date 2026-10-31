@@ -233,6 +233,10 @@ enum ManagerCommands {
             if note.sharedWithTeam {
                 return .failure("“\(note.title)” is shared with the team, so deleting it deletes it for everyone: the user does that themselves.")
             }
+            // A linked binder's notes are the hub's (all but those kept on this Mac), whatever sharedWithTeam says.
+            if !note.staysUnshared, let binder = Store.shared.binder(note.binderID), HubLinks.place(of: binder) != nil {
+                return .failure("“\(note.title)” is on the hub with “\(binder.name)”, so deleting it deletes it for everyone: the user does that themselves.")
+            }
             MarkdownEditor.flushAll()
             let entry = NoteTrash.Entry(note)
             ScratchpadController.shared.noteWillBeDeleted(note)
