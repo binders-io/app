@@ -55,8 +55,8 @@ extension SelfTest {
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let found = try? await links.spaces(),
-              let space = found.spaces.first(where: { $0.id == found.current }) ?? found.spaces.first else {
+        guard let (spaces, current, hub) = try? await links.spaces(),
+              let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
         }
@@ -89,7 +89,7 @@ extension SelfTest {
         local.binderID = elsewhere.id
         store.insert(local)
         store.save()
-        check(await links.link(binder, on: found.hub, space: space, to: nil), "linked to a new project in \(space.name)")
+        check(await links.link(binder, on: hub, space: space, to: nil), "linked to a new project in \(space.name)")
         check(HubNoteHistory.keepsHistory(of: plan), "the linked note's history is the hub's")
         check(!HubNoteHistory.keepsHistory(of: local), "a note in a binder that isn't linked keeps its history here")
         let id = HubLink.hubID(plan.id)
