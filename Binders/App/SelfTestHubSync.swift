@@ -58,16 +58,24 @@ extension SelfTest {
         account.openPage = { _ in }
         // Offline: nothing reaches the hub, the feed included.
         var offline = false
+        // A note's document read from the hub, whose answer comes back only once `holding` is cleared.
+        var holding: String?
+        var held = false
         account.send = { request in
             if offline { throw URLError(.notConnectedToInternet) }
-            return try await URLSession.shared.data(for: request)
+            let answer = try await URLSession.shared.data(for: request)
+            if let note = holding, request.url?.path.hasSuffix("/\(note)/doc") == true {
+                held = true
+                while holding != nil { try? await Task.sleep(for: .milliseconds(20)) }
+            }
+            return answer
         }
         sync.openFeed = { request in offline ? DeadFeed() as HubFeed : HubWebSocketFeed(request) }
 
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let (spaces, current) = try? await links.spaces(),
+        guard let (spaces, current, hub) = try? await links.spaces(),
               let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
@@ -129,7 +137,7 @@ extension SelfTest {
         let away = note("# Away\n\nWritten before going offline.")
         let pics = note("# Pictures\n\nFrom both sides.")
         store.save()
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name)")
         guard let place = HubLinks.place(of: binder) else { return 1 }
         let id = { (note: NoteItem) in HubLink.hubID(note.id) }
@@ -288,10 +296,30 @@ extension SelfTest {
         reused.binderID = other.id
         store.insert(reused)
         store.save()
-        check(await links.link(other, space: space, to: nil), "a second binder linked to a new project in \(space.name)")
+        check(await links.link(other, on: hub, space: space, to: nil), "a second binder linked to a new project in \(space.name)")
         took = await onHub(8) { $0.notes[id(reused)].map { HubFiles.hubNames(in: $0.text) == [pastedName ?? "none"] } ?? false }
         check(took != nil, "on the hub the second binder's note names the picture (\(within(took))): \(hubState.notes[id(reused)]?.text.debugDescription ?? "nothing")")
         check(pictures.counts["sent"] == 3, "and it went up again for that binder, not taken from the first: sent \(pictures.counts["sent"] ?? 0)")
+
+        // MARK: Deleted while its document is read
+
+        // The web app's note has no document here yet: an edit on the Mac reads it from the hub first. The hub answers, but
+        // the answer comes only after the teammate has deleted the note and that's here: it's dropped, with the edit.
+        holding = "note-web-1"
+        if let webOne = store.note(webNote) {
+            webOne.text += "\nTyped on the Mac as Dana deletes it."
+            store.save()
+        }
+        took = await until { held }
+        check(took != nil, "the Mac reads the note's document to send its edit (\(within(took)))")
+        check(await webSend(["type": "note.delete", "id": "note-web-1"]) == 200, "the web app deletes the note meanwhile")
+        took = await until { store.note(webNote) == nil }
+        check(took != nil, "the deletion is on the Mac (\(within(took)))")
+        holding = nil
+        took = await until { sync.status(of: binder) == nil }
+        check(took != nil, "the hub's late answer is dropped with the edit: \(sync.status(of: binder) ?? "nothing waits")")
+        took = await onHub(2) { $0.notes["note-web-1"] != nil }
+        check(took == nil && store.note(webNote) == nil, "the note stays deleted on both sides")
 
         // MARK: Offline, through quitting
 
