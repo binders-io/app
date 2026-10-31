@@ -214,6 +214,39 @@ extension SelfTest {
         check(took != nil, "and on the hub: \(hubState.notes[id(para)]?.text.debugDescription ?? "none")")
         check((sync.counts["edit"] ?? 0) > edits, "that went as changes made on the Mac's copy of the document")
 
+        // MARK: A binder unlinked keeps its copy
+
+        // A second binder in the same Binder, unlinked: what the web app then does to its notes and folders stays there.
+        let other = BinderRecord(name: "Kept on a Mac \(Int(Date().timeIntervalSince1970))", colorIndex: 4)
+        store.insert(other)
+        let shelf = store.createFolder(named: "Shelf", in: other.id)!
+        let keptNote = NoteItem(text: "# Kept\n\nStays on the Mac.")
+        keptNote.binderID = other.id
+        store.insert(keptNote)
+        let gone = NoteItem(text: "# Kept too\n\nDeleted in the web app.")
+        gone.binderID = other.id
+        store.insert(gone)
+        store.save()
+        check(await links.link(other, space: space, to: nil), "a second binder is linked into the same Binder")
+        guard let otherPlace = HubLinks.place(of: other) else { return 1 }
+        took = await onHub { $0.notes[id(keptNote)] != nil && $0.notes[id(gone)] != nil && $0.folders[HubLink.hubID(shelf.id)] != nil }
+        check(took != nil, "its notes and folder are on the hub (\(within(took)))")
+        links.unlink(other)
+        let renamed = await webSend(["type": "folder.put", "folder": ["id": HubLink.hubID(shelf.id), "binderId": otherPlace.binder, "name": "Shelf, renamed"]])
+        let moved = await webSend(["type": "note.move", "id": id(keptNote), "binderId": otherPlace.binder, "folderId": HubLink.hubID(shelf.id)])
+        let whole = await webSend(["type": "note.put", "note": ["id": id(keptNote), "title": "Kept", "binderId": otherPlace.binder, "folderId": HubLink.hubID(shelf.id),
+                                                                "editedAt": HubLink.iso(Date()), "editors": ["dana-w"], "text": "# Kept\n\nWritten whole by Dana."]])
+        let deleted = await webSend(["type": "note.delete", "id": id(gone)])
+        check([renamed, moved, whole, deleted] == [200, 200, 200, 200],
+              "the web app renames its folder, moves a note into it, writes it whole and deletes another: \([renamed, moved, whole, deleted])")
+        // A change after them in the linked binder: once it's here, the feed has brought them too.
+        let marker = (hubState.notes[id(plan)]?.text ?? text(plan.id)) + "\nAfter the unlinked binder's changes."
+        _ = await webEdit(id(plan), marker)
+        took = await until { text(plan.id).contains("After the unlinked binder's changes.") }
+        check(took != nil && store.folder(shelf.id)?.name == "Shelf" && store.note(keptNote.id)?.text == "# Kept\n\nStays on the Mac."
+                && store.note(keptNote.id)?.binderID == other.id && store.note(gone.id) != nil,
+              "on the Mac the unlinked binder's folder and notes are as they were")
+
         // MARK: Offline, through quitting
 
         offline = true

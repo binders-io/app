@@ -334,6 +334,8 @@ final class BoardService {
 
     /// Taking a card. `note` goes on the timeline when nothing else does: Binders holding a card for an agent says so.
     func claim(_ card: TaskCard, by actor: BoardActor, note: String = "") throws {
+        // A hub gives its cards out itself, to its agents through its /mcp: it takes no claim from a person's Mac.
+        if let hub, hub.covers(card) { throw ClaimProblem.hub }
         try needsTeam(.claim, on: card, by: actor)
         try teamChange(card, by: actor, { .claimCard(card.id, agent: $0, note: note, operation: $1) }) {
             try claimHere(card, by: actor, note: note)
@@ -615,6 +617,14 @@ final class BoardService {
         }
         guard !actor.isAgent, before != (card.column, card.meantFor, card.meantForByAgent) else { return .notWoken("Nothing changed on the card.") }
         return dispatcher?.handOff(card) ?? .notWoken("Binders isn't waking agents now.")
+    }
+
+    /// Why a card can't be taken here.
+    enum ClaimProblem: LocalizedError {
+        case hub
+        var errorDescription: String? {
+            "This board is linked to a hub, where cards are taken: an agent the hub knows takes it there, with claim_task on the hub's /mcp. Nothing changed here."
+        }
     }
 
     /// Why a card can't move to another binder now, in words for whoever asked; nil when it can.
