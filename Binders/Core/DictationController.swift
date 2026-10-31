@@ -69,6 +69,8 @@ final class DictationController {
         board.commitments = commitments
         board.dispatcher = agents
         board.team = teamBoard
+        board.hub = HubBoard.shared
+        HubBoard.shared.board = board
         agents.board = board
         return board
     }()
@@ -128,6 +130,9 @@ final class DictationController {
         knowledge.start()
         team.start()
         teamBoard.start()
+        // Binders linked to a hub: their boards follow it.
+        _ = board
+        HubBoard.shared.follow()
         // The Manager's tidy on a schedule, when you set one (lane MG1).
         manager.startSchedule()
 

@@ -116,6 +116,11 @@ enum MCPServer {
     /// And what it says about them. A server set up for one of your agents also tells it whether you let it act for you:
     /// as you saved it in Settings, never as agents.json says after anything else changed it.
     static var offeredInstructions: String {
+        guard let hub = hubInstructions, confinement != .nothing else { return offeredInstructionsHere }
+        return offeredInstructionsHere + "\n\n" + hub
+    }
+
+    private static var offeredInstructionsHere: String {
         switch confinement {
         case .everything: return instructions
         case .nothing: return MCPConfinement.nothingInstructions
@@ -515,6 +520,9 @@ enum MCPServer {
         }
         func boardWrite(_ action: String, _ fields: [String: String]) async throws -> String {
             guard !string("id").isEmpty || action == "create_task" else { throw MCPCore.ToolFailure("id is required") }
+            if let id = UUID(uuidString: string("id")), let card = Self.card(id), Self.onHub(card.binderID, for: actor) {
+                throw Self.onHubFailure("cards", binder: card.binderID, id: id)
+            }
             let who = acting()
             return try await write(action, fields.merging(["id": string("id"), "actor": who.name, "actor_kind": who.kind.rawValue]) { a, _ in a })
         }
@@ -523,6 +531,16 @@ enum MCPServer {
             guard actor.isAgent else { return try await write(action, fields) }
             let who = acting()
             return try await write(action, fields.merging(["actor": who.name, "actor_kind": who.kind.rawValue]) { a, _ in a })
+        }
+        /// A `binder` argument naming a linked binder, for a tool on its notes or cards: refused for an agent.
+        func notOnHub(_ what: String) throws {
+            if let binder = binderID(named: string("binder")), Self.onHub(binder, for: actor) { throw Self.onHubFailure(what, binder: binder) }
+        }
+        /// A note of a linked binder, by id, that went up with it: refused for an agent.
+        func noteNotOnHub(_ raw: String) throws {
+            if let id = UUID(uuidString: raw), let note = Store.shared.note(id), Self.onHub(note, for: actor) {
+                throw Self.onHubFailure("notes", binder: note.binderID, id: id)
+            }
         }
         func integer(_ key: String, default value: Int, max cap: Int) -> Int {
             let asked = (arguments[key] as? Int) ?? (arguments[key] as? Double).map(Int.init) ?? value
@@ -538,7 +556,7 @@ enum MCPServer {
         if let only = Self.confinedCard {
             switch name {
             case "list_tasks":
-                let card = (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == only })))?.first
+                let card = Self.card(only).flatMap { Self.onHub($0.binderID, for: actor) ? nil : $0 }
                 return json(card.map { [describe($0, now: Date())] } ?? [])
             case "create_task":
                 throw MCPCore.ToolFailure("A run Binders started works on its own card. Suggest more work in a comment on it.")
@@ -611,8 +629,15 @@ enum MCPServer {
             // A teammate's binder is a teammate's item: listed only for what may read those. A team database's is shared too.
             return json(Store.shared.binders(includeArchived: true).filter { reads.team || !Self.isTeammates($0) }.map { binder in
                 let counts = Store.shared.counts(in: binder.id)
-                return ["id": binder.id.uuidString, "name": binder.name, "archived": binder.archived, "shared": Self.isShared(binder),
-                        "meetings": counts.meetings, "notes": counts.notes, "color": binder.colorIndex, "what_goes_here": binder.whatGoesHere] as [String: Any]
+                var entry: [String: Any] = ["id": binder.id.uuidString, "name": binder.name, "archived": binder.archived, "shared": Self.isShared(binder),
+                                            "meetings": counts.meetings, "notes": counts.notes, "color": binder.colorIndex, "what_goes_here": binder.whatGoesHere]
+                // Linked to a hub: its notes and cards are there, for an agent, and only its meetings and the notes that
+                // stay unshared here.
+                if actor.isAgent, let place = HubLinks.place(of: binder) {
+                    entry["notes"] = Self.unsharedNotes(in: binder.id)
+                    entry["hub"] = ["mcp": HubAgents.mcpURL(hub: place.hub).absoluteString, "binder": place.binder, "name": place.binderName] as [String: Any]
+                }
+                return entry
             })
         case "list_meetings":
             let binder = binderID(named: string("binder"))
@@ -699,6 +724,8 @@ enum MCPServer {
         case "list_notes":
             let binder = binderID(named: string("binder"))
             if !string("binder").isEmpty, binder == nil { throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.") }
+            // A linked binder's notes are the hub's, but for those that stay unshared: they never go up, so they're here.
+            let hubBinders = actor.isAgent ? Self.hubBinders : []
             var descriptor = FetchDescriptor<NoteItem>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
             // Filtered as it's read: a binder nobody has written in lately still has its notes.
             if let binder { descriptor.predicate = #Predicate { $0.binderID == binder } }
@@ -720,12 +747,12 @@ enum MCPServer {
                 inFolder = { note in folders.shown(note.folderID, in: note.binderID).map(ids.contains) == true }
             }
             func wanted(_ note: NoteItem) -> Bool {
-                (reads.team || !note.isTeamCopy) && (tag.isEmpty || NoteTags.tags(in: note.text).contains(tag))
+                (reads.team || !note.isTeamCopy) && (note.staysUnshared || !(note.binderID.map(hubBinders.contains) ?? false)) && (tag.isEmpty || NoteTags.tags(in: note.text).contains(tag))
                     && (status.isEmpty || note.status?.localizedCaseInsensitiveCompare(status) == .orderedSame) && (inFolder?(note) ?? true)
             }
             // Read a few hundred at a time, newest first, until there are enough that match: every note can be reached.
             // Without a filter, the newest offset + limit are all it reads, as before.
-            let filtered = !tag.isEmpty || !status.isEmpty || inFolder != nil || !reads.team
+            let filtered = !tag.isEmpty || !status.isEmpty || inFolder != nil || !reads.team || !hubBinders.isEmpty
             var matched: [NoteItem] = []
             var start = 0
             let batch = filtered ? 400 : offset + limit
@@ -739,6 +766,8 @@ enum MCPServer {
                 start += batch
             }
             let notes = matched.dropFirst(offset).prefix(limit)
+            // Nothing here from a linked binder: say where its notes are.
+            if notes.isEmpty, offset == 0, let binder, Self.onHub(binder, for: actor) { throw Self.onHubFailure("notes", binder: binder) }
             return json(notes.map { note in
                 Self.distillKey(note, in: Self.agentKeys(note.agentMark, in: ["id": note.id.uuidString, "title": note.title, "updated": AutomationPayload.iso(note.updatedAt),
                  "binder": Store.shared.binder(note.binderID)?.name ?? "", "preview": String(note.text.prefix(300)),
@@ -751,6 +780,7 @@ enum MCPServer {
                 throw MCPCore.ToolFailure("No note with that id")
             }
             if note.isTeamCopy, !reads.team { throw notShared("Teammates' items") }
+            if Self.onHub(note, for: actor) { throw Self.onHubFailure("notes", binder: note.binderID, id: note.id) }
             return json(Self.distillKey(note, in: Self.agentKeys(note.agentMark, in: ["id": note.id.uuidString, "title": note.title, "created": AutomationPayload.iso(note.createdAt),
                          "updated": AutomationPayload.iso(note.updatedAt), "binder": Store.shared.binder(note.binderID)?.name ?? "",
                          "text": note.text, "digest": note.digest, "status": note.status ?? "", "owner": note.owner ?? "",
@@ -801,6 +831,10 @@ enum MCPServer {
             return try await write(name, ["text": string("text"), "binder": string("binder")])
         case "add_note":
             guard !string("text").isEmpty else { throw MCPCore.ToolFailure("text is required") }
+            try notOnHub("notes")
+            if let folder = UUID(uuidString: string("folder")).flatMap({ Store.shared.folder($0) }), Self.onHub(folder.binderID, for: actor) {
+                throw Self.onHubFailure("notes", binder: folder.binderID)
+            }
             return try await agentWrite(name, ["text": string("text"), "binder": string("binder"), "folder": string("folder")])
         case "list_folders":
             return json(try Self.listFolders(binder: string("binder"), parent: string("parent"), reads: reads))
@@ -820,6 +854,8 @@ enum MCPServer {
                     if meeting.isTeamCopy, !reads.team { return notShared("Teammates' items") }
                 } else if let note = Store.shared.note(id), note.isTeamCopy, !reads.team {
                     return notShared("Teammates' items")
+                } else if let note = Store.shared.note(id), Self.onHub(note, for: actor) {
+                    return Self.onHubFailure("notes", binder: note.binderID, id: id)
                 } else if let folder = Store.shared.folder(id), Store.shared.binder(folder.binderID).map(Self.isTeammates) == true, !reads.team {
                     return notShared("Teammates' items")
                 }
@@ -846,18 +882,25 @@ enum MCPServer {
             return try await write(name, ["id": folder.id.uuidString, "name": string("name")])
         case "add_to_knowledge":
             guard !string("title").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("title and text are required") }
+            try notOnHub("notes")
             let source = string("source").isEmpty ? "" : "Source: \(string("source"))\n\n"
             return try await agentWrite("add_note", ["text": "\(string("title"))\n\n\(source)\(string("text"))", "binder": string("binder")])
         case "append_to_note":
             guard !string("id").isEmpty, !string("text").isEmpty else { throw MCPCore.ToolFailure("id and text are required") }
+            try noteNotOnHub(string("id"))
             return try await agentWrite(name, ["id": string("id"), "text": string("text")])
         case "update_note":
             guard !string("id").isEmpty else { throw MCPCore.ToolFailure("id is required") }
             guard !string("find").isEmpty || !string("text").isEmpty else { throw MCPCore.ToolFailure("give find and replace, or text") }
+            try noteNotOnHub(string("id"))
             return try await agentWrite(name, ["id": string("id"), "find": (arguments["find"] as? String) ?? "", "replace": (arguments["replace"] as? String) ?? "",
                                                "text": string("text")])
         case "correct_knowledge":
             guard !string("wrong").isEmpty, !string("right").isEmpty else { throw MCPCore.ToolFailure("wrong and right are required") }
+            // A correction is a note in its binder; one about a hub's note goes on the hub. One about a note that stays
+            // unshared stays unshared too, and here.
+            if UUID(uuidString: string("source_id")).flatMap({ Store.shared.note($0) })?.staysUnshared != true { try notOnHub("notes") }
+            try noteNotOnHub(string("source_id"))
             return try await agentWrite(name, ["wrong": string("wrong"), "right": string("right"), "source_id": string("source_id"),
                                                "reason": string("reason"), "binder": string("binder")])
         case "create_binder":
@@ -878,6 +921,8 @@ enum MCPServer {
         case "list_tasks":
             let binder = binderID(named: string("binder"))
             if !string("binder").isEmpty, binder == nil { throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.") }
+            try notOnHub("cards")
+            let hubBinders = actor.isAgent ? Self.hubBinders : []
             let column = BoardColumn(loose: string("column"))
             let me = acting().name
             let now = Date()
@@ -887,6 +932,7 @@ enum MCPServer {
             if !string("since").isEmpty, since == nil { throw MCPCore.ToolFailure("since must be a time in ISO 8601, such as 2026-10-16T09:00:00-04:00") }
             let cards = ((try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(sortBy: [SortDescriptor(\.position, order: .reverse)]))) ?? [])
                 .filter { binder == nil || $0.binderID == binder }
+                .filter { !($0.binderID.map(hubBinders.contains) ?? false) }
                 .filter { card in column.map { card.column == $0 } ?? (card.column != .done) }
                 .filter { arguments["mine"] as? Bool != true || ($0.assignee == me && BoardRules.isClaimed($0.state, at: now)) }
                 .filter { card in meantFor.isEmpty || card.meantFor.map { BoardRules.isNamed(meantFor, as: $0) || BoardRules.isNamed($0, as: meantFor) } == true }
@@ -999,7 +1045,9 @@ enum MCPServer {
         case "work_streams":
             let binder = binderID(named: string("binder"))
             if !string("binder").isEmpty, binder == nil { throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.") }
-            let cards = Self.readable(WorkStreams.cards(in: binder, where: cardReadable, doing: doing), reads: reads)
+            try notOnHub("cards")
+            let hubBinders = actor.isAgent ? Self.hubBinders : []
+            let cards = Self.readable(WorkStreams.cards(in: binder, where: { cardReadable($0) && !($0.binderID.map(hubBinders.contains) ?? false) }, doing: doing), reads: reads)
             return json(WorkStreams.json(WorkStreams.digest(string("agent").isEmpty ? cards : WorkStreams.involving(string("agent"), in: cards))))
         case "get_task":
             guard let id = UUID(uuidString: string("id")),
@@ -1007,6 +1055,7 @@ enum MCPServer {
                 throw MCPCore.ToolFailure("No card with that id. list_tasks shows them.")
             }
             guard cardReadable(card) else { throw notShared("Cards made from captures") }
+            if Self.onHub(card.binderID, for: actor) { throw Self.onHubFailure("cards", binder: card.binderID, id: card.id) }
             // What Binders wrote from the binder ("From your binders"), as this tool may read it: without a capture's or a
             // teammate's passage it may not read, and none of it for an agent you keep it from (Add context off, or held
             // as changed outside Binders). Once you've deleted it, it isn't there for anyone. Worked out as it's read, so
@@ -1044,13 +1093,14 @@ enum MCPServer {
             return json(result)
         case "create_task":
             guard !string("title").isEmpty || !string("todo").isEmpty else { throw MCPCore.ToolFailure("Give a title, or a todo id from list_todos") }
+            try notOnHub("cards")
             var fields = ["title": string("title"), "todo": string("todo"), "details": string("details"), "binder": string("binder"),
                           "column": string("column"), "for": string("for")]
             // From a note: it must be one this tool may read, as get_note's rules say.
             if !string("note").isEmpty {
                 guard string("todo").isEmpty else { throw MCPCore.ToolFailure("Give note or todo, not both") }
                 guard !Self.confinement.boardOnly else { throw MCPCore.ToolFailure("This server reaches the board only, so it can't link a card to a note.") }
-                let (note, _) = try DistillTools.note(string("note"), cardOnly: false, reads: reads)
+                let (note, _) = try DistillTools.note(string("note"), cardOnly: false, reads: reads, actor: actor)
                 fields["note"] = note.id.uuidString
                 fields["quote"] = string("quote")
                 fields["section"] = string("section")
@@ -1344,6 +1394,15 @@ enum MCPServer {
         if let editedBy = mark.editedBy { item["edited_by"] = editedBy }
         if let editedAt = mark.editedAt { item["edited_at"] = AutomationPayload.iso(editedAt) }
         return item
+    }
+
+    /// The binders linked to a hub, whose notes and cards an agent reaches there.
+    static var hubBinders: Set<UUID> {
+        Set(Store.shared.binders(includeArchived: true).filter { HubLinks.place(of: $0) != nil }.map(\.id))
+    }
+
+    private static func card(_ id: UUID) -> TaskCard? {
+        (try? Store.shared.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.id == id })))?.first
     }
 
     private static func binderID(named name: String) -> UUID? {
