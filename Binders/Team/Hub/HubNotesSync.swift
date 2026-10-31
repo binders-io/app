@@ -182,6 +182,14 @@ final class HubNotesSync {
         linked().filter { $0.place.space == space.id }
     }
 
+    /// Where a note in a linked binder is on the hub: the Binder it's followed in and its id there. Nil for a note in a
+    /// binder that isn't linked, or one from what you said to yourself, which stays here.
+    func place(of note: NoteItem) -> (space: Space, hubID: String)? {
+        guard !note.staysUnshared, let binder = store.binder(note.binderID), let place = HubLinks.place(of: binder), place.uploaded,
+              place.hub == account.address, let space = spaces[place.space] else { return nil }
+        return (space, HubSync.hubIDs(in: space.state)[note.id] ?? HubLink.hubID(note.id))
+    }
+
     // MARK: What's shown
 
     /// How a linked binder's sync is, in words, or nil when all is well.
@@ -794,7 +802,7 @@ final class HubNotesSync {
 
     /// A GET, or a POST of `body`, in one of the hub's Binders. With `refusals`, the hub's answer whatever its status;
     /// else only a 200's, and its words for why not.
-    private func ask(_ path: String, space: Space, body: Data? = nil, refusals: Bool = false) async throws -> (Data, Int) {
+    func ask(_ path: String, space: Space, body: Data? = nil, refusals: Bool = false) async throws -> (Data, Int) {
         guard var request = account.authorized(path) else { throw Problem("Sign in to a hub in Settings → Team first.", signedOut: true) }
         request.setValue(space.id, forHTTPHeaderField: "x-binders-space")
         if let body {
