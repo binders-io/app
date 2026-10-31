@@ -51,7 +51,7 @@ enum ManagerMCP {
             MCPToolParameter(name: "items", type: "array", description: "The items' ids, from list_proposals."),
             MCPToolParameter(name: "column", description: "For place: backlog (the default) or ready."),
         ]),
-        MCPTool(name: "delete_note", description: "Delete a note of the user's. Not a teammate's, or one shared with the team (that deletes it for everyone: the user does that). Undo puts it back with the same id.", parameters: [
+        MCPTool(name: "delete_note", description: "Delete a note of the user's. Not a teammate's, one shared with the team, or one on the hub in a linked binder (that deletes it for everyone: the user does that). Undo puts it back with the same id.", parameters: [
             MCPToolParameter(name: "id", description: "The note's id.", required: true),
             MCPToolParameter(name: "why", description: "Why, for your reply.", required: true),
         ]),

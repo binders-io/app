@@ -9,9 +9,7 @@ extension DistillService {
     /// in the proposal. `agentPlaced`: an agent placed them itself, in a binder that lets it (Agents may place work items):
     /// as Place on Board does, in Ready, each meant for whoever it picked (an assignment by Binders that says the agent
     /// placed it), waiting as proposed, so agents take them in order, each as its own start switch allows; their briefs
-    /// say no one reviewed them. On a board shared through a team database the cards show here at once and go as one call
-    /// (`place_work_items`), which checks the binder's setting itself (`operation` is its id). Returns the cards, in the
-    /// items' order.
+    /// say no one reviewed them. Returns the cards, in the items' order.
     @discardableResult
     func place(_ distill: DistillRecord, items chosen: Set<UUID>, column: BoardColumn, by actor: BoardActor = .you,
                agentPlaced: Bool = false) -> [TaskCard] {
@@ -26,22 +24,20 @@ extension DistillService {
         var cardOf: [UUID: UUID] = [:]
         for earlier in store.file(for: note.id).distills { for item in earlier.items { if let card = item.card { cardOf[item.id] = card } } }
         var made: [(item: DistillItem, card: TaskCard)] = []
-        let team = controller?.teamBoard
-        let shared = team?.covers(note.binderID) == true
         // Lane DS8: an item read with v2 has the note's lines for a brief: its card carries them, and its brief and done
         // when are written once it's on the board (`writeBriefs`). One for an agent in Ready goes to it after its brief.
         var briefs: [DistillBriefJob] = []
         func pending(_ item: DistillItem) -> Bool { item.briefPending == true && !agentPlaced }
         func waitsForBrief(_ item: DistillItem) -> String? {
             guard pending(item), column == .ready, let who = item.meantFor?.trimmingCharacters(in: .whitespaces),
-                  AgentRegistry.shared.agent(named: who) != nil || team?.teammatesAgent(named: who) != nil else { return nil }
+                  AgentRegistry.shared.agent(named: who) != nil else { return nil }
             return who
         }
         let work = {
             for item in placing {
                 let details = pending(item) ? DistillCards.pendingDetails(item, note: note.id, noteTitle: note.title)
                     : DistillCards.details(item, note: note.id, noteTitle: note.title, placedByAgent: agentPlaced ? actor.name : nil)
-                // Its tie to the note is made with it, so on a shared board it goes to the team with the card.
+                // Its tie to the note is made with it.
                 let from = DistilledFrom(note: note.id, distill: record.id, item: item.id, section: item.section,
                                          sectionHash: item.sectionHash, version: record.version, quote: item.quote,
                                          briefFor: pending(item) ? DistillSections.hash(details) : nil, briefAgent: waitsForBrief(item))
@@ -75,20 +71,9 @@ extension DistillService {
                 }
             }
         }
-        // An agent's placing wakes an agent only as that agent's start switch allows (TeamWakeRule).
-        board.wakeCause = agentPlaced ? .placedByAgent(fromTeammate: false) : .yours
-        if shared, let team {
-            let lines = board.batchForTeam(work)
-            let items = made.map { item, card in
-                TeamPlacing.item(card: card.id, title: card.title, details: card.details, position: card.position, note: note.id, noteTitle: note.title,
-                                 item: item.id, section: item.section, distilled: card.distilledFrom,
-                                 waitsFor: card.waitsFor.compactMap(UUID.init(uuidString:)), meantFor: team.directory.teamName(card.meantFor))
-            }
-            team.place(binder: note.binderID ?? UUID(), items: items, column: column, agent: agentPlaced ? team.agentID(for: actor) : nil, lines: lines)
-            board.sendDeferredTeamChanges()
-        } else {
-            work()
-        }
+        // An agent's placing wakes an agent only as that agent's start switch allows (AgentWakeRule).
+        board.wakeCause = agentPlaced ? .placedByAgent : .yours
+        work()
         board.wakeCause = .yours
         writeBriefs(briefs)
         for index in record.items.indices {

@@ -4,13 +4,15 @@ import Foundation
 import SwiftData
 import BindersKit
 
-/// Move to a Hub (HubMove), in a throwaway folder (BINDERS_DATA_DIR), with a stand-in team database (a server saved, not
-/// connected) and a stand-in hub that keeps changes as binders-server does: a binder made here goes to a new project with
-/// its folders, notes and cards; a teammate's binder that the teammate's Mac moved first is joined, with nothing sent
-/// again, the hub's words taken, and what was written here that the teammate's Mac never had merged with them rather than
-/// lost; a binder that isn't shared stays put. A move cut short keeps this Mac on the team database, and Move Again
-/// finishes it. Then this Mac has left the team database, with every binder still here, teammates' notes ordinary notes,
-/// and a teammate's meeting still here. Draws Move to a Hub… before and after to `dir`, when one is given.
+/// Move to a Hub (HubMove), in a throwaway folder (BINDERS_DATA_DIR), with binders an earlier Binders shared through a
+/// team database (its key left on them, its server, password and outbox left on this Mac) and a stand-in hub that keeps
+/// changes as binders-server does: a binder made here goes to a new project with its folders, notes and cards; a
+/// teammate's binder that the teammate's Mac moved first is joined, with nothing sent again, the hub's words taken, and
+/// what was written here that the teammate's Mac never had merged with them rather than lost; a binder that isn't shared
+/// stays put, and Link to Hub… sends one that was to Move instead. A move cut short keeps the binders that didn't go on
+/// the team database, and Move Again finishes it. Then every binder is off the team database and still here, teammates'
+/// notes ordinary notes, a teammate's meeting still here, and what the earlier Binders kept for the team database gone.
+/// Draws Move to a Hub… before and after to `dir`, when one is given.
 ///
 ///     BINDERS_DATA_DIR=$(mktemp -d) Binders --selftest-hub-move [dir]
 extension SelfTest {
@@ -39,11 +41,15 @@ extension SelfTest {
         HubNotesSync.shared.openFeed = { _ in QuietFeed() }
         HubBoard.shared.openLive = { _ in AsyncThrowingStream { _ in } }
 
-        // The stand-in team database: saved on this Mac, never connected.
-        let team = controller.teamBoard
-        let server = TeamDatabaseServer(host: "db.example.com", database: "team", login: "robin")
-        team.folderOverride = AppPaths.support.appendingPathComponent("TeamMoveTest", isDirectory: true)
-        team.server = server
+        // What an earlier Binders kept for its team database: the server, a password and an outbox.
+        let key = "robin@db.example.com:5432/team"
+        AppDefaults.store.set(#"{"host":"db.example.com","database":"team","login":"robin"}"#, forKey: "teamDatabaseServer")
+        AppDefaults.store.set(true, forKey: "teamDatabase")
+        let passwordKey = AgentRegistry.keychainKey("team-database-password-\(key)")
+        Keychain.write("secret", for: passwordKey)
+        let outbox = AppPaths.support.appendingPathComponent("Team", isDirectory: true).appendingPathComponent(key, isDirectory: true)
+        try? FileManager.default.createDirectory(at: outbox, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: outbox.appendingPathComponent("outbox.json").path, contents: Data("[]".utf8))
 
         // The stand-in hub: Dana's Mac moved her binder first.
         let theirs = BinderRecord(name: "Dana's Plans", colorIndex: 1)
@@ -135,9 +141,9 @@ extension SelfTest {
 
         // MARK: This Mac on the team database.
         let garden = BinderRecord(name: "Garden", colorIndex: 2)
-        garden.teamDatabaseKey = server.key
+        garden.teamDatabaseKey = key
         store.insert(garden)
-        theirs.teamDatabaseKey = server.key
+        theirs.teamDatabaseKey = key
         theirs.teamMadeBy = "Dana"
         store.insert(theirs)
         let solo = BinderRecord(name: "Mine Alone", colorIndex: 3)
@@ -169,37 +175,39 @@ extension SelfTest {
         store.insert(meeting)
         store.save()
 
-        check(Set(move.binders(team).map(\.name)) == ["Garden", "Dana's Plans"], "the move takes the binders on the team database: \(move.binders(team).map(\.name))")
-        check(links.whyNot(garden)?.hasPrefix("This binder is shared with your team already.") == true && links.whyNot(garden, moving: true) == "Sign in to a hub in Settings → Team first.",
+        check(Set(move.binders().map(\.name)) == ["Garden", "Dana's Plans"], "the move takes the binders on the team database: \(move.binders().map(\.name))")
+        check(links.whyNot(garden)?.hasPrefix("This binder was on the team database.") == true && links.whyNot(garden, moving: true) == "Sign in to a hub in Settings → Team first.",
               "Link to Hub… still refuses a binder on the team database; only Move takes it, once signed in")
 
         // MARK: Signed out, Move to a Hub… says to sign in.
-        let signedOut = await drawnAlone(HubMoveSheet(team: team), controller: controller, name: "hub-move-signed-out",
+        let signedOut = await drawnAlone(HubMoveSheet(), controller: controller, name: "hub-move-signed-out",
                                          size: NSSize(width: 540, height: 260), directory: directory)
         check(signedOut["hubMove.signIn"] != nil && signedOut["hubMove.move"] == nil, "signed out, Move to a Hub… says to sign in first: \(signedOut.keys.sorted())")
         account.signIn(to: "hub.example.com")
         await account.finish(URL(string: "binders://auth?token=bnp_robin00001&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in to the stand-in hub")
 
-        let found = (try? await move.moved(move.binders(team), in: "team", on: URL(string: "https://hub.example.com")!)) ?? [:]
+        let hub = URL(string: "https://hub.example.com")!
+        let found = (try? await move.moved(move.binders(), in: "team", on: hub)) ?? [:]
         check(found.count == 1 && found[theirs.id]?.id == theirProject, "the hub has the project Dana's Mac made for her binder, found by its id")
-        let choosing = await drawnAlone(HubMoveSheet(team: team), controller: controller, name: "hub-move-choosing",
+        let choosing = await drawnAlone(HubMoveSheet(), controller: controller, name: "hub-move-choosing",
                                         size: NSSize(width: 540, height: 340), directory: directory)
         check(choosing["hubMove.binders"] != nil && choosing["hubMove.move"] != nil, "Move to a Hub… lists the binders and offers Move: \(choosing.keys.sorted())")
-        check(choosing["hubMove.caution"] != nil, "and says the team database can't be reached, so what goes is what this Mac has")
+        check(choosing["hubMove.caution"] != nil, "and says this Binders doesn't reach the team database, so what goes is what this Mac has")
 
-        // MARK: Cut short: this Mac stays on the team database.
+        // MARK: Cut short: what didn't go stays on the team database.
         failNextChanges = true
         let space = HubLink.Space(id: "team", name: "Team")
-        let first = await move.move(team, on: URL(string: "https://hub.example.com")!, to: space)
-        check(!first && team.server != nil && garden.teamDatabaseKey == server.key, "a move cut short leaves this Mac on the team database")
+        let first = await move.move(on: hub, to: space)
+        check(!first && garden.teamDatabaseKey == key && theirs.teamDatabaseKey == key && Keychain.read(passwordKey) == "secret",
+              "a move cut short leaves its binders on the team database")
         check(move.problem?.hasPrefix("“Garden” didn't reach the hub yet.") == true && move.problem?.contains("restarting") == true,
               "and says which binder and why: \(move.problem ?? "")")
         check(HubLinks.place(of: theirs)?.uploaded == true && HubLinks.place(of: theirs)?.binder == theirProject,
               "Dana's binder joined her project anyway")
 
         // MARK: Move Again.
-        let again = await move.move(team, on: URL(string: "https://hub.example.com")!, to: space)
+        let again = await move.move(on: hub, to: space)
         check(again && move.problem == nil, "Move Again finishes it: \(move.done ?? move.problem ?? "")")
         check(move.done == "Moved 1 binder to Team, and joined 1 that a teammate moved first. This Mac left the team database.", "and says what it did: \(move.done ?? "")")
         let gardenProject = HubLinks.place(of: garden)?.binder ?? ""
@@ -223,7 +231,8 @@ extension SelfTest {
         check(HubLinks.place(of: solo) == nil && onHub("notes", in: HubLink.movedProjectID(solo.id)).isEmpty, "a binder that wasn't shared stays put")
 
         // MARK: Off the team database, everything kept.
-        check(team.server == nil && TeamBoard.savedServer() == nil && team.sharedBinders.isEmpty, "this Mac left the team database")
+        check(HubMove.waiting().isEmpty && AppDefaults.store.object(forKey: "teamDatabaseServer") == nil && AppDefaults.store.object(forKey: "teamDatabase") == nil
+                && (Keychain.read(passwordKey) ?? "").isEmpty && !FileManager.default.fileExists(atPath: outbox.path), "this Mac left the team database, its server, password and outbox gone")
         check(store.binder(garden.id) != nil && store.binder(theirs.id) != nil && garden.teamDatabaseKey.isEmpty && theirs.teamDatabaseKey.isEmpty
                 && theirs.teamMadeBy.isEmpty, "every binder stays here, Dana's too, off the team database")
         check(store.note(danas.id)?.isTeamCopy == false && store.note(theirNote.id) != nil && store.note(mine.id)?.folderID == plans.id,
@@ -231,7 +240,7 @@ extension SelfTest {
         check(stakes.teamShadow.isEmpty && controller.board.cards(in: garden.id).count == 1, "the card stays, no longer the team database's")
         check(store.meeting(meeting.id)?.isTeamCopy == true && store.meeting(meeting.id)?.binderID == garden.id, "a teammate's meeting stays on this Mac")
 
-        let movedSheet = await drawnAlone(HubMoveSheet(team: team), controller: controller, name: "hub-move-done",
+        let movedSheet = await drawnAlone(HubMoveSheet(), controller: controller, name: "hub-move-done",
                                           size: NSSize(width: 540, height: 240), directory: directory)
         check(movedSheet["hubMove.done"] != nil && movedSheet["hubMove.move"] == nil, "Move to a Hub… says what it did: \(movedSheet.keys.sorted())")
 

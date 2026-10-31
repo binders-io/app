@@ -70,10 +70,6 @@ final class DistillFinishTests: XCTestCase {
         var seen = from
         seen.seenText = "Keep what was typed."
         XCTAssertEqual(DistilledFrom(json: seen.json)?.seenText, "Keep what was typed.")
-        // It stays on this Mac: the team's part doesn't carry it, and a card from the team keeps what this Mac saw.
-        XCTAssertNil(seen.teamJSON.object?["seen_text"])
-        XCTAssertEqual(DistilledFrom(team: seen.teamJSON, keeping: seen)?.seenText, "Keep what was typed.")
-        XCTAssertNil(DistilledFrom(team: seen.teamJSON, keeping: nil)?.seenText)
     }
 
     // MARK: A proposal that only updates or closes cards
@@ -183,21 +179,6 @@ final class DistillFinishTests: XCTestCase {
         XCTAssertEqual(report.counts.line, "0 of 3 done · 1 waits on you · 2 wait on teammates")
         XCTAssertEqual(DistillProgress.items([asked, review, yours], at: now).map(\.waitsOn), ["Sam", "Dana", nil])
         XCTAssertEqual(DistillProgress.Counts(total: 2, waitsOnYou: 1, waitsOnTeammates: 1).line, "0 of 2 done · 1 waits on a teammate")
-    }
-
-    func testOnASharedBoardACardWaitsOnWhomTheBoardRingsFor() {
-        let me = UUID(), sam = UUID(), dana = UUID(), pennant = UUID(), echo = UUID()
-        let directory = TeamDirectory(me: me, members: [me: .init(id: me, name: "Robin"), sam: .init(id: sam, name: "Sam"), dana: .init(id: dana, name: "Dana")],
-                                      agents: [pennant: .init(id: pennant, owner: sam, name: "Pennant (Sam)"), echo: .init(id: echo, owner: me, name: "Echo (Robin)")],
-                                      local: [echo: "Echo"])
-        let pennantHere = directory.name(of: directory.agents[pennant]!)
-        XCTAssertEqual(directory.waitsOn(asker: pennantHere, askerIsAgent: true, meantFor: "Dana"), "Sam", "an agent's question: its owner")
-        XCTAssertNil(directory.waitsOn(asker: "Echo", askerIsAgent: true, meantFor: "Dana"), "your agent's question rings for you")
-        XCTAssertEqual(directory.waitsOn(asker: nil, askerIsAgent: false, meantFor: "Dana"), "Dana", "a review or a reason: whoever it's meant for")
-        XCTAssertEqual(directory.waitsOn(asker: nil, askerIsAgent: false, meantFor: pennantHere), "Sam", "or that agent's owner")
-        XCTAssertNil(directory.waitsOn(asker: nil, askerIsAgent: false, meantFor: "You"))
-        XCTAssertNil(directory.waitsOn(asker: nil, askerIsAgent: false, meantFor: nil), "meant for no one: you")
-        XCTAssertNil(directory.waitsOn(asker: nil, askerIsAgent: false, meantFor: "Someone the team doesn't know"))
     }
 
     // MARK: The Work bar's section line

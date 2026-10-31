@@ -216,6 +216,22 @@ extension SelfTest {
         check(changedNote.ok && note.text.contains("on Monday"), "update_note changes the note itself")
         let gone = await call("delete_note", ["id": scratch.id.uuidString, "why": "Old test words"])
         check(gone.ok && store.note(scratch.id) == nil, "delete_note (\(gone.text))")
+        // A linked binder's notes are the hub's, though sharedWithTeam stays false; one kept on this Mac isn't.
+        let linkedBinder = BinderRecord(name: "On the Hub", colorIndex: 4)
+        linkedBinder.hubLink = HubLink.Place(hub: URL(string: "https://hub.example.com")!, space: "team", spaceName: "Team",
+                                             binder: "p1", binderName: "On the Hub", client: "c1").json
+        store.insert(linkedBinder)
+        let onHub = NoteItem(text: "# Roadmap\n\nThe team's.")
+        onHub.binderID = linkedBinder.id
+        let keptHere = NoteItem(text: "# Aside\n\nJust mine.")
+        keptHere.binderID = linkedBinder.id
+        keptHere.staysUnshared = true
+        store.insert(onHub)
+        store.insert(keptHere)
+        let refusedHub = await call("delete_note", ["id": onHub.id.uuidString, "why": "Old"])
+        check(!refusedHub.ok && store.note(onHub.id) != nil && refusedHub.text.contains("on the hub"), "delete_note refuses a linked binder's note (\(refusedHub.text))")
+        let goneHere = await call("delete_note", ["id": keptHere.id.uuidString, "why": "Old"])
+        check(goneHere.ok && store.note(keptHere.id) == nil, "but deletes one there kept on this Mac (\(goneHere.text))")
         let binderName = binder.name, binderColor = binder.colorIndex
         let renamed = await call("edit_binder", ["id": binder.id.uuidString, "name": "Home", "color": (binderColor + 1) % BinderRecord.paletteSize])
         check(renamed.ok && binder.name == "Home" && binder.colorIndex != binderColor, "edit_binder (\(renamed.text))")

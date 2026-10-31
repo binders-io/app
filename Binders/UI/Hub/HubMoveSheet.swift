@@ -1,11 +1,10 @@
 import SwiftUI
 import BindersKit
 
-/// Move to a Hub…, from Settings → Team on a team database (HubMove): which of the hub's Binders, the binders that go and
-/// whether each makes its project or joins the one a teammate's Mac made; then Move, which sends them and leaves the team
-/// database. One that didn't finish shows here with Move Again.
+/// Move to a Hub…, from Settings → Team on a Mac that was on a team database (HubMove): which of the hub's Binders, the
+/// binders that go and whether each makes its project or joins the one a teammate's Mac made; then Move, which sends them
+/// and takes them off the team database. One that didn't finish shows here with Move Again.
 struct HubMoveSheet: View {
-    let team: TeamBoard
     @Environment(\.dismiss) private var dismiss
     private var move: HubMove { .shared }
     private var links: HubLinks { .shared }
@@ -65,7 +64,7 @@ struct HubMoveSheet: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 if binders.isEmpty {
-                    Text("This Mac has no binders on the team database: Move leaves it.").foregroundStyle(.secondary)
+                    Text("This Mac has no binders on the team database.").foregroundStyle(.secondary)
                 }
                 ForEach(binders, id: \.id) { binder in
                     HStack(alignment: .firstTextBaseline) {
@@ -76,7 +75,7 @@ struct HubMoveSheet: View {
                 }
             }
             .fitProbe("hubMove.binders")
-            if let caution {
+            if !binders.isEmpty {
                 StatusLabel(caution, .needsYou).font(.caption).fixedSize(horizontal: false, vertical: true).fitProbe("hubMove.caution")
             }
             if loading {
@@ -96,7 +95,7 @@ struct HubMoveSheet: View {
                     .disabled(move.working != nil)
                 Button(move.problem == nil ? "Move" : "Move Again") { Task { await go() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(loading || loadProblem != nil || space.isEmpty || move.working != nil || sending)
+                    .disabled(loading || loadProblem != nil || space.isEmpty || move.working != nil || binders.isEmpty)
                     .fitProbe("hubMove.move")
             }
         }
@@ -111,25 +110,11 @@ struct HubMoveSheet: View {
         return "New project"
     }
 
-    /// Changes still on their way to the team database: what teammates moving later would miss, so Move waits for them.
-    private var sending: Bool { team.isConnected && (team.database?.waiting ?? 0) > 0 }
-
-    private var caution: String? {
-        if sending {
-            let waiting = team.database?.waiting ?? 0
-            return "\(waiting == 1 ? "1 change waits" : "\(waiting) changes wait") to reach the team database. Move once they've gone, so teammates have them too."
-        }
-        if !team.isConnected, let waiting = team.database?.waiting, waiting > 0 {
-            return "The team database can't be reached now, and \(waiting == 1 ? "1 change of this Mac's waits" : "\(waiting) changes of this Mac's wait") for it. They go to the hub with the move, but teammates still on the team database won't have them: move once it's back and they've gone, if you can."
-        }
-        if !team.isConnected {
-            return "The team database can't be reached now, so what goes is what this Mac has: teammates' latest changes may not be here yet."
-        }
-        return nil
-    }
+    /// This Binders no longer reaches the team database.
+    private let caution = "This Binders no longer reaches the team database, so what goes is what this Mac has: teammates' latest changes may not be here yet. A teammate whose Mac moves later joins the same project and sends what the hub doesn't have."
 
     private func load() async {
-        binders = move.binders(team)
+        binders = move.binders()
         guard account.isSignedIn, move.done == nil else { return }
         loading = true
         defer { loading = false }
@@ -159,7 +144,7 @@ struct HubMoveSheet: View {
 
     private func go() async {
         guard let hub, let chosen = spaces.first(where: { $0.id == space }) else { return }
-        await move.move(team, on: hub, to: chosen)
-        binders = move.done == nil ? move.binders(team) : binders
+        await move.move(on: hub, to: chosen)
+        binders = move.done == nil ? move.binders() : binders
     }
 }

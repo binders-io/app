@@ -116,21 +116,6 @@ final class DistillMarksTests: XCTestCase {
         XCTAssertNil(update.quote)
     }
 
-    func testTheTeamSharesTheQuote() {
-        let from = DistilledFrom(note: UUID(), distill: UUID(), item: UUID(), section: "Sync", sectionHash: "abc", quote: "Sync every hour")
-        XCTAssertEqual(from.teamJSON.object?["quote"]?.string, "Sync every hour")
-        XCTAssertEqual(DistilledFrom(team: from.teamJSON)?.quote, "Sync every hour", "a teammate's Mac marks the same words")
-        let none = DistilledFrom(note: UUID(), distill: UUID(), item: UUID())
-        XCTAssertNil(none.teamJSON.object?["quote"], "no key for a card without one, as before")
-        XCTAssertNil(DistilledFrom(team: none.teamJSON)?.quote)
-
-        let item = DistillItem(title: "Sync", section: "Sync", quote: "Sync every hour")
-        let record = DistillRecord(id: UUID(), note: UUID(), ranBy: "You", readBy: "gemma", at: Date(), items: [item])
-        let rows = TeamDistillRows.rows(record, binder: UUID(), teamName: { $0 })
-        let back = TeamDistillRows.record(rows.distill, items: rows.items, localName: { $0 })
-        XCTAssertEqual(back?.items.first?.quote, "Sync every hour", "a shared proposal keeps its quotes")
-    }
-
     // MARK: Finding the words
 
     func testExactWordsAreFoundInTheirSectionFirst() {

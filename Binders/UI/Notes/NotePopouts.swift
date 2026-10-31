@@ -405,19 +405,14 @@ private struct PopoutNoteView: View {
         .onChange(of: note.text) { previous, _ in
             note.updatedAt = Date()
             NoteHistory.changed(note.id, previous: previous)
-            // A note shared through a team database: the typing goes to the team once it pauses (lane DB3).
-            TeamNotes.current?.typed(note.id)
-            // A note in a binder linked to a hub: to the hub the same way.
+            // A note in a binder linked to a hub: the typing goes to the hub once it pauses.
             HubNotesSync.shared.typed(note.id)
         }
-        // The team sees who's in a shared note.
-        .onAppear { TeamNotes.current?.opened(note.id) }
         // Note → Put on Board with this window in front and its editor not at the keyboard: the whole note (lane DS6).
         .onReceive(NotificationCenter.default.publisher(for: NotePutOnBoard.wholeNote)) { notification in
             guard let controller, notification.userInfo?["note"] as? UUID == note.id, notification.userInfo?["popout"] as? Bool == true else { return }
             Self.put(note, selection: NSRange(location: 0, length: 0), eachLine: false, controller: controller)
         }
-        .onDisappear { TeamNotes.current?.closed(note.id) }
         // Lane DS9: Distill (its button, the Note menu, the Work bar) opens the list in this window too.
         .onReceive(NotificationCenter.default.publisher(for: DistillActions.show)) { notification in
             guard notification.userInfo?["note"] as? UUID == note.id else { return }

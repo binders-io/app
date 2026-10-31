@@ -226,10 +226,10 @@ enum MeetingDeletes {
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
-    /// Whether deleting it removes it for the team too: a meeting in a binder shared with the team, or a capture you shared.
+    /// Whether deleting it removes it for the team too: a meeting in a binder shared with the team. Captures stay on this
+    /// Mac.
     static func isShared(_ meeting: MeetingRecord, team: TeamSyncService?) -> Bool {
-        if meeting.isConversation { return TeamContent.current?.isShared(meeting) == true }
-        return (team?.isConfigured == true && meeting.sharedWithTeam) || Store.shared.binder(meeting.binderID)?.shownSharedThroughDatabase == true
+        !meeting.isConversation && team?.isConfigured == true && meeting.sharedWithTeam
     }
 
     /// What deleting one asks first: "Delete this meeting, its transcript and audio?", and whether the team loses it too.

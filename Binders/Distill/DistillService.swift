@@ -622,16 +622,10 @@ final class DistillService {
         return names
     }
 
-    /// The team's people for a binder: on a board shared through the team database, teammates' agents that take its cards
-    /// (with their owners) and teammates (lane DB2); for a binder shared through the team folder, the folder's members
-    /// other than you.
+    /// The team's people for a binder: for a binder shared through the team folder, the folder's members other than you.
     func teamPeople(in binder: UUID?) -> [String] {
         if let teamPeopleOverride { return teamPeopleOverride(binder) }
         var names: [String] = []
-        if let team = TeamBoard.current, team.covers(binder) {
-            names += team.teammatesAgents(taking: binder).map { team.directory.name(of: $0) }
-            names += team.directory.teammates.map(\.name)
-        }
         if let folder = controller?.team, folder.isConfigured, let shared = Store.shared.binder(binder), shared.sharedWithTeam || shared.isTeamCopy {
             names += folder.status.members.filter { $0.id != folder.me.id }.map(\.name)
         }

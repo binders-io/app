@@ -1,15 +1,19 @@
 import Foundation
+import SwiftData
 import BindersKit
 
-/// Move to a Hub (Settings → Team, on a team database): once, every binder this Mac has on the team database goes to a
-/// project in one of the hub's Binders, with its notes, folders and cards (HubLinks.move), and is linked to it; then this
-/// Mac leaves the team database, keeping every binder (TeamBoard.leaveDatabaseKeepingBinders). Each binder's project is
-/// made from its id, the same on every teammate's Mac: the first Mac to move a binder makes it, and the others join it.
-/// Meetings, captures and to-dos that were shared stay on each Mac. The database keeps everything, for teammates who
-/// haven't moved yet; retiring it is for later.
+/// Move to a Hub (Settings → Team, for a Mac that was on a team database): once, every binder an earlier Binders shared
+/// through the team database (a `teamDatabaseKey` it left in the store) goes to a project in one of the hub's Binders,
+/// with its notes, folders and cards (HubLinks.move), and is linked to it; then the binder is off the team database here,
+/// kept with everything in it (`leaveDatabase`). Each binder's project is made from its id, the same on every teammate's
+/// Mac: the first Mac to move a binder makes it, and the others join it. Meetings, captures and to-dos that were shared
+/// stay on each Mac.
 ///
-/// When a binder doesn't reach the hub, this Mac stays on the team database: Move Again sends what's left of it, and
-/// what's already on the hub stays linked.
+/// This Binders has no team database client: what goes is what this Mac has. The team database keeps everything, for
+/// teammates who haven't moved yet; a teammate's Mac that moves later joins the project and sends what the hub lacks.
+///
+/// When a binder doesn't reach the hub, it stays as it was: Move Again sends what's left of it, and what's already on the
+/// hub stays linked.
 @MainActor
 @Observable
 final class HubMove {
@@ -24,10 +28,14 @@ final class HubMove {
     /// What the move did, in words, once it's done.
     private(set) var done: String?
 
-    /// The binders a move takes: every one this Mac has on the team database, by name.
-    func binders(_ team: TeamBoard) -> [BinderRecord] {
-        team.sharedBinders.compactMap { Store.shared.binder($0) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    /// The binders a move takes: every one an earlier Binders shared through a team database, by name.
+    func binders() -> [BinderRecord] {
+        Self.waiting().sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Binders still on a team database here, which only Move to a Hub takes off it.
+    static func waiting() -> [BinderRecord] {
+        (try? Store.shared.context.fetch(FetchDescriptor<BinderRecord>(predicate: #Predicate { !$0.teamDatabaseKey.isEmpty }))) ?? []
     }
 
     /// The projects in `space` on `hub` that teammates' Macs made when they moved, by the binder they're for.
@@ -41,14 +49,15 @@ final class HubMove {
         return found
     }
 
-    /// Moves every binder on the team database to `space` on `hub`, then leaves the team database. True when it's done.
+    /// Moves every binder on the team database to `space` on `hub`, then takes them off it. True when it's done.
     @discardableResult
-    func move(_ team: TeamBoard, on hub: URL, to space: HubLink.Space) async -> Bool {
-        guard working == nil, team.server != nil else { return false }
+    func move(on hub: URL, to space: HubLink.Space) async -> Bool {
+        guard working == nil else { return false }
         problem = nil
         done = nil
         defer { working = nil }
-        let binders = binders(team)
+        let binders = binders()
+        guard !binders.isEmpty else { return false }
         working = "Asking the hub…"
         let existing: [UUID: HubLink.Project]
         do {
@@ -72,11 +81,11 @@ final class HubMove {
         guard left.isEmpty else {
             let names = left.map { "“\($0.name)”" }.formatted(.list(type: .and))
             let why = left.compactMap { links.problems[$0.id] }.first.map { " \($0)" } ?? ""
-            problem = "\(names) didn't reach the hub yet.\(why) This Mac stays on the team database until everything's there: Move Again sends what's left."
+            problem = "\(names) didn't reach the hub yet.\(why) Move Again sends what's left."
             return false
         }
         working = "Leaving the team database…"
-        await team.leaveDatabaseKeepingBinders()
+        Self.leaveDatabase(binders)
         HubBoard.shared.follow()
         HubNotesSync.shared.refresh()
         done = Self.line(made: made, joined: joined, space: space.name)
@@ -92,5 +101,33 @@ final class HubMove {
         if joined > 0 { parts.append(parts.isEmpty ? "Joined \(count(joined)) in \(space) \(first)" : "joined \(joined) \(first)") }
         let moved = parts.isEmpty ? "No binders to move." : parts.joined(separator: ", and ") + "."
         return "\(moved) This Mac left the team database."
+    }
+
+    /// Off the team database, everything kept: teammates' notes are ordinary notes here now, as they are on the hub, and
+    /// cards lose the team database's copy of them; teammates' meetings and captures stay on this Mac as the copies they
+    /// were. What an earlier Binders kept for the team database goes too: its saved server, passwords and outbox.
+    static func leaveDatabase(_ binders: [BinderRecord]) {
+        let store = Store.shared
+        let keys = Set(binders.map(\.teamDatabaseKey).filter { !$0.isEmpty })
+        for binder in binders {
+            let binderID: UUID? = binder.id
+            binder.teamDatabaseKey = ""
+            binder.teamMadeBy = ""
+            for card in (try? store.context.fetch(FetchDescriptor<TaskCard>(predicate: #Predicate { $0.binderID == binderID }))) ?? [] {
+                card.teamShadow = ""
+            }
+            for note in (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID && $0.isTeamCopy }))) ?? [] {
+                note.isTeamCopy = false
+            }
+        }
+        store.save()
+        guard waiting().isEmpty else { return }
+        for key in keys {
+            Keychain.write("", for: AgentRegistry.keychainKey("team-database-password-\(key)"))
+            Keychain.write("", for: AgentRegistry.keychainKey("team-database-password-next-\(key)"))
+            try? FileManager.default.removeItem(at: AppPaths.support.appendingPathComponent("Team", isDirectory: true).appendingPathComponent(key, isDirectory: true))
+        }
+        AppDefaults.store.removeObject(forKey: "teamDatabaseServer")
+        AppDefaults.store.removeObject(forKey: "teamDatabase")
     }
 }

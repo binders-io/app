@@ -68,17 +68,10 @@ final class DictationController {
         let board = BoardService()
         board.commitments = commitments
         board.dispatcher = agents
-        board.team = teamBoard
         board.hub = HubBoard.shared
         HubBoard.shared.board = board
         agents.board = board
         return board
-    }()
-    /// Boards and agents on a team database (lane DB2), when Settings → Team has one.
-    @ObservationIgnored private(set) lazy var teamBoard: TeamBoard = {
-        let team = TeamBoard()
-        team.controller = self
-        return team
     }()
     /// Wakes the agents cards are meant for (Settings → Agents).
     @ObservationIgnored private(set) lazy var agents = AgentDispatcher(registry: .shared)
@@ -129,7 +122,6 @@ final class DictationController {
         }
         knowledge.start()
         team.start()
-        teamBoard.start()
         // Binders linked to a hub: their boards follow it.
         _ = board
         HubBoard.shared.follow()

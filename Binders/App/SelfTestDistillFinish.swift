@@ -109,22 +109,6 @@ extension SelfTest {
         let waiting = DistillBoard.progress(of: note).items.first { $0.card == decision.id.uuidString }
         run.check(waiting?.columnTitle == "Ready" && waiting.map { WorkItemRow.stateWord($0) } == "Held up", "a held-up card in Ready says both")
 
-        // MARK: Whom a card waits on: on a shared board, the teammate its question, approval or review is for
-        let me = UUID(), dana = UUID()
-        let directory = TeamDirectory(me: me, members: [me: .init(id: me, name: "Robin"), dana: .init(id: dana, name: "Dana")])
-        let shared = TaskCard(title: "Approve the copy", binderID: web.id, column: .blocked)
-        shared.meantFor = "Dana"
-        shared.teamShadow = "{}"
-        let moved = TaskEvent(taskID: shared.id, kind: .moved, author: BoardActor(name: "Dana", kind: .person), text: "Needs the lawyer's word.",
-                              from: .inProgress, to: .blocked)
-        let onTeam = DistillBoard.card(shared, events: [moved], waits: [], doing: nil, team: directory)
-        run.check(onTeam.waitsOn == "Dana", "on a shared board, a card meant for Dana waits on Dana: \(onTeam.waitsOn ?? "you")")
-        run.check(DistillBoard.card(shared, events: [moved], waits: [], doing: nil).waitsOn == nil, "on your own board, on you")
-        let teamReport = DistillProgress.report(note: note.title, cards: [onTeam], since: nil, now: Date())
-        run.check(teamReport.waiting.first?.who == "Dana" && teamReport.summary.contains("“Approve the copy” waits on Dana: blocked: Needs the lawyer's word."),
-                  "the report names her: \(teamReport.summary)")
-        run.check(teamReport.counts.line == "0 of 1 done · 1 waits on a teammate", "and the Work bar doesn't say it waits on you: \(teamReport.counts.line)")
-
         // MARK: A spec's card blocked on you with only a reason rings once; never again for what the board rang for
         let waitsTitle = "“\(note.title)” waits on you"
         func rang() -> Int { service.posted.filter { $0 == waitsTitle }.count }

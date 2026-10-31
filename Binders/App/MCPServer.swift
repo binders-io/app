@@ -8,24 +8,10 @@ import BindersKit
 /// go through binders:// links, so the running app does the writing and its windows update.
 @MainActor
 enum MCPServer {
-    /// What the server tells agents about Binders. With the team database turned on and set up on this Mac (as Settings →
-    /// Team saved it, so `Binders --mcp` works it out without connecting), it also says that binders the user shares with
-    /// a team are on the team's database, and how a shared board works (lane DB5); otherwise the words are exactly as
-    /// they were.
-    static var instructions: String { instructions(team: TeamBoard.savedServer() != nil) }
-
-    /// The words about a shared board, in the board's paragraph.
-    static let teamBoardWords = """
-        On a board the user shares with a team, every change you make reaches the team's other Macs: the team's database \
-        decides who holds a card, and when another agent got there first you hear who did. Teammates' cards and \
-        teammates' agents (with their owners, as in "Claude Code (Dana)") show in list_tasks and list_agents; Binders \
-        can't wake a teammate's agent.
-        """
-
-    static func instructions(team: Bool) -> String {
-        """
+    /// What the server tells agents about Binders.
+    static let instructions = """
         Binders is the user's private, local knowledge base on this Mac: meeting notes, notes, dictations and writing they \
-        chose to keep. Binders keeps it on this Mac, \(team ? "and binders the user shares with a team are on the team's database too, " : "")but what you read here goes wherever this conversation goes, so read \
+        chose to keep. Binders keeps it on this Mac, but what you read here goes wherever this conversation goes, so read \
         only what the task needs. Captures (conversations All-day capture heard, often with other people), meeting \
         transcripts and teammates' items are left out unless the user allows them for this tool in Binders' Settings → \
         MCP. Use search_knowledge for facts and quotes, ask_knowledge for a written answer with sources, note_progress for \
@@ -37,7 +23,7 @@ enum MCPServer {
         Each binder also has a board of cards that people and agents pick up. To work on one: list_tasks (column ready), \
         claim_task, report with update_task as you go (it keeps your claim; a claim lapses after 30 minutes of silence), \
         ask_on_task if you need the user, and complete_task with a summary when you're done. Say who you are with `agent`. \
-        \(team ? teamBoardWords + " " : "")While a card waits in Blocked for the user's answer, your claim holds; the answer gives you a fresh 30 minutes. A \
+        While a card waits in Blocked for the user's answer, your claim holds; the answer gives you a fresh 30 minutes. A \
         card the user sends back from Review is yours again for 30 minutes: list_tasks with `mine` shows it, and get_task \
         has what they said. A card the user meant for you has meant_for with your name and meant_for_confirmed true: \
         list_tasks with for "me" finds them. One an agent only suggested waits for the user. A card distilled from a note \
@@ -51,7 +37,12 @@ enum MCPServer {
         first: before it sends, posts, buys or deletes anything outside Binders for a card, it asks with request_approval \
         and stops until the user answers on the card ("Approved", or "Declined: why"), unless the user lets it act for them.
         """
-    }
+
+    /// A teammate's binder: a team folder's copy.
+    static func isTeammates(_ binder: BinderRecord) -> Bool { binder.isTeamCopy }
+
+    /// Whether a binder is shared with a team through a team folder, yours or a teammate's.
+    static func isShared(_ binder: BinderRecord) -> Bool { binder.sharedWithTeam || binder.isTeamCopy }
 
     /// The tools a run Binders started for one card gets (BINDERS_TOOLS=board with BINDERS_RUN, or board alone for an
     /// agent's own server): the board's, and nothing that reads your binders.
@@ -462,7 +453,7 @@ enum MCPServer {
     static func call(_ name: String, _ arguments: [String: Any], knowledge: KnowledgeService, write writeOut: @escaping Writer,
                      actor: BoardActor = BoardActor(name: "AI agent", kind: .agent), reads: Reads = .everything, host: String = "",
                      askProgress: AskProgressSink? = nil, doing: Bool = true, momentAgreed: Bool = false, momentAuto: Bool = false, soloAuto: Bool = false,
-                     decisionModels: DecisionModels? = nil, commentWake: CommentWake = .asTheBoardSays, teamAgents: Bool = false) async throws -> String {
+                     decisionModels: DecisionModels? = nil, commentWake: CommentWake = .asTheBoardSays) async throws -> String {
         // A run Binders started that didn't get its card or its name gets nothing at all.
         if Self.confinement == .nothing { throw MCPCore.ToolFailure("No tool named \(name)") }
         // The Manager's run has its tools alone, and what it writes says which request it's for, for the app to check and
@@ -601,8 +592,6 @@ enum MCPServer {
                 if let fix = knowledge.correction(for: hit, in: corrections) {
                     var corrected: [String: Any] = ["wrong": fix.correction.wrong, "right": fix.correction.right, "correction_id": fix.id.uuidString,
                                                     "date": AutomationPayload.iso(fix.date)]
-                    // A teammate's, from a team database (lane DB4): whose.
-                    if let author = fix.author { corrected["by"] = author }
                     described["corrected"] = corrected
                 }
                 return described
@@ -626,7 +615,7 @@ enum MCPServer {
                                              keep: readable, progress: progress)
             return json(["answer": answer.text, "sources": answer.sources.map(describe)])
         case "list_binders":
-            // A teammate's binder is a teammate's item: listed only for what may read those. A team database's is shared too.
+            // A teammate's binder is a teammate's item: listed only for what may read those.
             return json(Store.shared.binders(includeArchived: true).filter { reads.team || !Self.isTeammates($0) }.map { binder in
                 let counts = Store.shared.counts(in: binder.id)
                 var entry: [String: Any] = ["id": binder.id.uuidString, "name": binder.name, "archived": binder.archived, "shared": Self.isShared(binder),
@@ -788,8 +777,8 @@ enum MCPServer {
                 .merging(FolderLookup().keys(note.folderID, in: note.binderID)) { kept, _ in kept })))
         case "list_todos":
             let wanted = string("status").isEmpty ? "open" : string("status")
-            // To-dos from what you said to yourself near the iPhone count as captures; a teammate's (a team database) as
-            // a teammate's item.
+            // To-dos from what you said to yourself near the iPhone count as captures; a teammate's (from an earlier
+            // build's team database) as a teammate's item.
             let moments = reads.captures ? [] : Store.shared.momentIDs()
             let todos = Store.shared.commitments().filter { (wanted == "all" || $0.status == wanted) && !moments.contains($0.id)
                 && (reads.team || $0.teamAuthorID == nil) }
@@ -1024,30 +1013,13 @@ enum MCPServer {
                              }
                              return entry
                          }
-            // Teammates' agents (lane DB2), after yours: this Mac can't wake them, and gives one a card only through its
-            // board. To an agent always; to an iPhone that lists teamAgents, with what it asks before giving one a card.
-            if actor.isAgent || teamAgents, let directory = TeamBoard.current?.directory ?? TeamBoard.savedDirectory() {
-                let binders = Store.shared.binders(includeArchived: true)
-                let teammates: [[String: Any]] = directory.teammatesAgents.map { agent in
-                    let name = directory.name(of: agent), owner = directory.ownerName(of: agent)
-                    var entry: [String: Any] = ["name": name, "wakes": "teammate", "teammate": true, "owner": owner, "purpose": agent.purpose,
-                                                "takes_team_cards": agent.takesTeamCards, "online": agent.isOnline()]
-                    guard !actor.isAgent else { return entry }
-                    entry["sends_to"] = agent.sendsTo
-                    entry["headless"] = agent.login != nil
-                    entry["binders"] = binders.filter { agent.takes(binder: $0.id) }.map(\.name)
-                    entry["fingerprint"] = TeamAgentConsent.fingerprint(name: name, owner: owner, sendsTo: agent.sendsTo)
-                    return entry
-                }
-                reply["agents"] = (reply["agents"] as? [[String: Any]] ?? []) + teammates
-            }
             return json(reply)
         case "work_streams":
             let binder = binderID(named: string("binder"))
             if !string("binder").isEmpty, binder == nil { throw MCPCore.ToolFailure("No binder named “\(string("binder"))”. list_binders shows the names.") }
             try notOnHub("cards")
             let hubBinders = actor.isAgent ? Self.hubBinders : []
-            let cards = Self.readable(WorkStreams.cards(in: binder, where: { cardReadable($0) && !($0.binderID.map(hubBinders.contains) ?? false) }, doing: doing), reads: reads)
+            let cards = WorkStreams.cards(in: binder, where: { cardReadable($0) && !($0.binderID.map(hubBinders.contains) ?? false) }, doing: doing)
             return json(WorkStreams.json(WorkStreams.digest(string("agent").isEmpty ? cards : WorkStreams.involving(string("agent"), in: cards))))
         case "get_task":
             guard let id = UUID(uuidString: string("id")),
@@ -1075,7 +1047,7 @@ enum MCPServer {
             let all = ((try? Store.shared.context.fetch(FetchDescriptor<TaskEvent>(predicate: #Predicate { $0.taskID == id }, sortBy: [SortDescriptor(\.createdAt)]))) ?? [])
                 .filter { ($0.kind != .context && $0.sectionChange == nil) || !shown($0).isEmpty }
             // Teammates' lines on a shared card that isn't this agent's own work, as this tool may read them (lane DB5).
-            let events = Self.readable(all, on: card, by: acting(), reads: reads)
+            let events = all
             var result = describe(card, now: Date(), events: all)
             result["details"] = card.details
             result["links"] = card.links

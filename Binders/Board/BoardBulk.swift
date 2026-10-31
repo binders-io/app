@@ -171,19 +171,14 @@ enum BoardBulk {
 
     // MARK: Delete
 
-    /// Deletes each card as Delete Card does, the team database included: on a board shared through it, for everyone. Undo
-    /// puts back the ones that were on this Mac only, timeline and all, and those on a hub's board, there too, as the hub
-    /// had them (`HubBoard.restored`); one the team database can't delete now stays.
+    /// Deletes each card as Delete Card does. Undo puts them back, timeline and all, and those on a hub's board there too, as
+    /// the hub had them (`HubBoard.restored`).
     static func delete(_ cards: [TaskCard], board: BoardService, undoManager: UndoManager?) -> Outcome {
         var outcome = Outcome()
         var kept: [CardSnapshot] = []
         var deleted = 0
         for card in cards {
-            if let refusal = board.teamRefusal(.delete, on: card, by: .you) {
-                outcome.stays.append(.refused(refusal))
-                continue
-            }
-            let snapshot = sharedWithTeam(card, board: board) ? nil : CardSnapshot(card, events: board.timeline(card.id), onHub: board.hub?.onHub(card))
+            let snapshot = CardSnapshot(card, events: board.timeline(card.id), onHub: board.hub?.onHub(card))
             let id = card.id
             if let refusal = board.delete(card) {
                 outcome.stays.append(.refused(refusal))
@@ -191,7 +186,7 @@ enum BoardBulk {
             }
             deleted += 1
             outcome.changed.append(id)
-            if let snapshot { kept.append(snapshot) }
+            kept.append(snapshot)
         }
         outcome.line = BoardBulkWords.deleted(deleted, stays: outcome.stays)
         guard !kept.isEmpty else { return outcome }
@@ -207,11 +202,6 @@ enum BoardBulk {
             for id in ids { if let card = board.card(id) { board.delete(card) } }
         })
         return outcome
-    }
-
-    /// On a board shared through the team database, and not kept on this Mac: deleting it deletes it for everyone.
-    static func sharedWithTeam(_ card: TaskCard, board: BoardService) -> Bool {
-        board.team?.sends(card) == true
     }
 
     // MARK: A note's group

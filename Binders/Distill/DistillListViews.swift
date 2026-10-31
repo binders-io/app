@@ -80,14 +80,8 @@ struct DistillListPanel: View {
         }
         .sheet(item: $reviewing) { proposal in
             DistillReviewSheet(distill: proposal, note: note).environment(controller)
-                .onAppear { controller.teamBoard.notes.reviewing(note.id, distill: proposal.id) }
-                .onDisappear { controller.teamBoard.notes.reviewing(note.id, distill: nil) }
         }
         .confirmsStopDistilling($confirmOff, controller: controller)
-        .teamConsent(Binding(get: { list.asking }, set: { list.asking = $0 })) { consent in
-            TeamBoard.current?.agree(to: consent.agent)
-            accept(list.askingItems)
-        }
         // "Up to date · read 2 minutes ago" keeps its minutes.
         .task {
             while !Task.isCancelled {
@@ -407,7 +401,7 @@ struct DistillRowView: View {
 
     private func whoPill(_ item: DistillItem, accent: Color) -> some View {
         let who = DistillListModel.who(item)
-        let agent = item.meantFor.map { AgentRegistry.shared.agent(named: $0) != nil || TeamBoard.current?.teammatesAgent(named: $0) != nil } ?? (item.hint == .agent)
+        let agent = item.meantFor.map { AgentRegistry.shared.agent(named: $0) != nil } ?? (item.hint == .agent)
         // No one picked yet: what the reader said it needs, until someone is.
         return BoardPill(text: item.meantFor == nil ? (item.hint == .agent ? "For an agent" : item.hint == .person ? "For a person" : who) : who,
                          symbol: agent ? BindersTheme.agentSymbol : item.meantFor == nil ? "person.crop.circle.dashed" : "person.fill",

@@ -214,12 +214,10 @@ actor KnowledgeStore {
         vectorCache = nil
     }
 
-    /// `skipping`: documents whose vectors are still coming from a teammate's Mac (lane DB4).
-    func chunksNeedingEmbedding(limit: Int, skipping: Set<String> = []) -> [(id: Int64, text: String, title: String)] {
+    func chunksNeedingEmbedding(limit: Int) -> [(id: Int64, text: String, title: String)] {
         var result: [(id: Int64, text: String, title: String)] = []
-        let skipped = skipping.isEmpty ? "" : " AND c.document_id NOT IN (\(Array(repeating: "?", count: skipping.count).joined(separator: ",")))"
-        select("SELECT c.id, c.text, d.title FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.embedding IS NULL\(skipped) LIMIT ?",
-               skipping.sorted().map { $0 as Any? } + [limit]) { row in
+        select("SELECT c.id, c.text, d.title FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.embedding IS NULL LIMIT ?",
+               [limit]) { row in
             result.append((sqlite3_column_int64(row, 0), Self.text(row, 1) ?? "", Self.text(row, 2) ?? ""))
         }
         return result
@@ -306,17 +304,14 @@ actor KnowledgeStore {
 
     // MARK: Entities
 
-    /// `skipping`: documents whose people and topics are still coming from a teammate's Mac, or were looked for there
-    /// already (lane DB4).
-    func nextEntityJob(kinds: [KnowledgeKind], skipping: Set<String> = []) -> EntityJob? {
+    func nextEntityJob(kinds: [KnowledgeKind]) -> EntityJob? {
         let placeholders = Array(repeating: "?", count: kinds.count).joined(separator: ",")
-        let skipped = skipping.isEmpty ? "" : " AND id NOT IN (\(Array(repeating: "?", count: skipping.count).joined(separator: ",")))"
         var header: (id: String, title: String, hash: String)?
         select("""
             SELECT id, title, content_hash FROM documents
-            WHERE (entities_hash IS NULL OR entities_hash != content_hash) AND kind IN (\(placeholders))\(skipped)
+            WHERE (entities_hash IS NULL OR entities_hash != content_hash) AND kind IN (\(placeholders))
             ORDER BY created_at DESC LIMIT 1
-            """, kinds.map { $0.rawValue as Any? } + skipping.sorted().map { $0 as Any? }) { row in
+            """, kinds.map { $0.rawValue as Any? }) { row in
             header = (Self.text(row, 0) ?? "", Self.text(row, 1) ?? "", Self.text(row, 2) ?? "")
         }
         guard let header else { return nil }
@@ -512,81 +507,6 @@ actor KnowledgeStore {
             result.append((sqlite3_column_int64(row, 0), Self.text(row, 1) ?? ""))
         }
         return result
-    }
-
-    // MARK: What a team database shares (lane DB4)
-
-    /// An item's passages as the index has them, in order, each with its vector when it has one: what this Mac publishes
-    /// of an item it shares.
-    func passages(of documentID: String) -> [(text: String, vector: [Float]?)] {
-        var result: [(text: String, vector: [Float]?)] = []
-        select("SELECT text, embedding FROM chunks WHERE document_id = ? ORDER BY ordinal", [documentID]) { row in
-            var vector: [Float]?
-            let count = Int(sqlite3_column_bytes(row, 1)) / MemoryLayout<Float>.size
-            if count > 0, let bytes = sqlite3_column_blob(row, 1) {
-                var values = [Float](repeating: 0, count: count)
-                values.withUnsafeMutableBytes { _ = memcpy($0.baseAddress, bytes, count * MemoryLayout<Float>.size) }
-                vector = values
-            }
-            result.append((Self.text(row, 0) ?? "", vector))
-        }
-        return result
-    }
-
-    /// The documents with passages still to embed.
-    func documentsNeedingEmbedding() -> Set<String> {
-        var result = Set<String>()
-        select("SELECT DISTINCT document_id FROM chunks WHERE embedding IS NULL") { row in if let id = Self.text(row, 0) { result.insert(id) } }
-        return result
-    }
-
-    /// One document's job for finding its people and topics, when they haven't been looked for since it last changed.
-    func entityJob(for documentID: String) -> EntityJob? {
-        var header: (title: String, hash: String)?
-        select("SELECT title, content_hash FROM documents WHERE id = ? AND (entities_hash IS NULL OR entities_hash != content_hash)",
-               [documentID]) { row in
-            header = (Self.text(row, 0) ?? "", Self.text(row, 1) ?? "")
-        }
-        guard let header else { return nil }
-        return EntityJob(documentID: documentID, title: header.title, contentHash: header.hash, chunks: chunks(of: documentID))
-    }
-
-    /// An item's passages' words, in order.
-    func passageTexts(of documentID: String) -> [String] {
-        var result: [String] = []
-        select("SELECT text FROM chunks WHERE document_id = ? ORDER BY ordinal", [documentID]) { row in result.append(Self.text(row, 0) ?? "") }
-        return result
-    }
-
-    /// Each document's content hash, and whether its people and topics were looked for since it last changed.
-    func documentStates() -> [String: (hash: String, extracted: Bool)] {
-        var result: [String: (hash: String, extracted: Bool)] = [:]
-        select("SELECT id, content_hash, entities_hash = content_hash FROM documents") { row in
-            if let id = Self.text(row, 0) { result[id] = (Self.text(row, 1) ?? "", sqlite3_column_int(row, 2) != 0) }
-        }
-        return result
-    }
-
-    /// The people and topics found in an item, and how they relate there; nil until they've been looked for since it
-    /// last changed.
-    func extraction(of documentID: String) -> ExtractionResult? {
-        var current = false
-        select("SELECT entities_hash = content_hash FROM documents WHERE id = ?", [documentID]) { current = sqlite3_column_int($0, 0) != 0 }
-        guard current else { return nil }
-        var entities: [ExtractedEntity] = []
-        select("""
-            SELECT DISTINCT e.name, e.type FROM mentions m JOIN entities e ON e.id = m.entity_id WHERE m.document_id = ? ORDER BY e.name
-            """, [documentID]) { row in
-            entities.append(ExtractedEntity(name: Self.text(row, 0) ?? "", type: Self.text(row, 1) ?? "topic"))
-        }
-        var relations: [ExtractedRelation] = []
-        select("""
-            SELECT f.name, r.label, t.name FROM relations r JOIN entities f ON f.id = r.from_id JOIN entities t ON t.id = r.to_id
-            WHERE r.document_id = ?
-            """, [documentID]) { row in
-            relations.append(ExtractedRelation(from: Self.text(row, 0) ?? "", to: Self.text(row, 2) ?? "", label: Self.text(row, 1) ?? ""))
-        }
-        return ExtractionResult(entities: entities, relations: relations)
     }
 
     // MARK: Forgetting entities

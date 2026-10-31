@@ -16,10 +16,6 @@ import BindersKit
 ///     Binders --selftest-notes <meeting id> [--save]
 ///     Binders --selftest-rescue <meeting id> --file recording.wav [--offset seconds]
 ///     Binders --selftest-conversation   (in a throwaway BINDERS_DATA_DIR)
-///     Binders --selftest-teamdb-schema | -cases | -live | -outbox | -security | -vectors | -boards | -agents | -team | -notes | -move
-///                                       | -meetings | -knowledge | -todos | -update | -reads | -move-folders | -reach | -open-perf
-///                                       | -join-copies
-///                                                                           (each with a throwaway Postgres)
 enum SelfTest {
     static func start(arguments: [String]) {
         Task { @MainActor in
@@ -1351,11 +1347,6 @@ open reports/import.html
             }
         }
 
-        if args.contains("--selftest-team-database-off") {
-            // The team database held back behind its default (lane RF1): off, then on. A folder gets Settings → Team drawn both ways.
-            return await teamDatabaseOffSelfTest(drawingTo: value("--selftest-team-database-off").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
-        }
-
         if args.contains("--selftest-hub-signin") {
             // Settings → Team signs in to a hub: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
             return await hubSignInSelfTest(drawingTo: value("--selftest-hub-signin").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
@@ -1387,27 +1378,13 @@ open reports/import.html
         }
 
         if args.contains("--selftest-hub-move") {
-            // Move to a Hub: a team database's binders to a stand-in hub, then off the team database.
+            // Move to a Hub: binders an earlier Binders shared through a team database, to a stand-in hub, then off it.
             return await hubMoveSelfTest(drawingTo: value("--selftest-hub-move").flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) })
         }
 
         if args.contains("--selftest-hub-board") {
             // A linked binder's board through the hub: a stand-in hub, then a real one when BINDERS_TEST_HUB is set.
             return await hubBoardSelfTest()
-        }
-
-        if let step = value("--selftest-join-copies-mac") {
-            // One of the other Macs of `--selftest-teamdb-join-copies` (lane DB9), started by it in a folder of its own.
-            return await joinCopiesMac(step)
-        }
-
-        if let flag = args.first(where: { $0.hasPrefix("--selftest-teamdb") }) {
-            // The team database against a throwaway Postgres of its own, in a throwaway BINDERS_DATA_DIR
-            // (SelfTestTeamDatabase.swift); its default on, as it's held back from 0.10.0 behind it (TeamDatabaseFeature).
-            AppDefaults.store.set(true, forKey: TeamDatabaseFeature.key)
-            // A folder after the flag: where `-team` draws Settings → Team (lane DB7).
-            teamDrawings = value(flag).flatMap { $0.hasPrefix("-") ? nil : URL(fileURLWithPath: $0) }
-            return await teamDatabaseSelfTest(flag)
         }
 
         if args.contains("--selftest-team") {

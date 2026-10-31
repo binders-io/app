@@ -23,13 +23,8 @@ packages:
   SwiftTransformers:
     url: https://github.com/huggingface/swift-transformers.git
     from: 1.3.4
-  # The team database: Postgres over TLS, for teams that share binders through one (docs/plans/team-database.md). The
-  # Mac only: the iPhone sees shared binders through its Mac.
-  PostgresNIO:
-    url: https://github.com/vapor/postgres-nio.git
-    from: 1.33.1
-  # Notes edited together live on a team database (lane DB3): each shared note is an Automerge document, so two people
-  # typing in one note both keep their words. The Mac only, as PostgresNIO: the iPhone edits shared notes through its Mac.
+  # Notes edited together through a hub: each shared note is an Automerge document, so two people typing in one note both
+  # keep their words. The Mac only: the iPhone edits shared notes through its Mac.
   Automerge:
     url: https://github.com/automerge/automerge-swift.git
     exactVersion: 0.7.2
@@ -78,11 +73,6 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
             LSItemContentTypes: [io.binders.transfer]
-          # An invite to a team database (lane DB2): Settings → Team asks before it joins.
-          - CFBundleTypeName: Binders team invite
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes: [io.binders.team-invite]
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: io.binders.transfer
             UTTypeDescription: Binders file
@@ -90,11 +80,6 @@ targets:
             UTTypeTagSpecification:
               public.filename-extension: [binders]
               public.mime-type: [application/x-binders]
-          - UTTypeIdentifier: io.binders.team-invite
-            UTTypeDescription: Binders team invite
-            UTTypeConformsTo: [public.data, public.content]
-            UTTypeTagSpecification:
-              public.filename-extension: [binders-invite]
         NSAudioCaptureUsageDescription: Binders records what other meeting participants say so it can take notes on this Mac.
         NSCalendarsFullAccessUsageDescription: Binders uses your calendar to title meetings and name attendees in meeting notes, and to add the events you ask for out loud.
         NSHumanReadableCopyright: © 2026 Helder Feixas
@@ -132,13 +117,12 @@ targets:
         product: MLXGuidedGeneration
       - package: SwiftTransformers
         product: Tokenizers
-      - package: PostgresNIO
-      # Shared notes' Automerge documents (lane DB3), in a framework of their own: see BindersAutomerge.
+      # Shared notes' Automerge documents, in a framework of their own: see BindersAutomerge.
       - target: BindersAutomerge
-  # Automerge for shared notes (lane DB3), on its own: its Rust core is a static library carrying Rust's standard library,
+  # Automerge for shared notes, on its own: its Rust core is a static library carrying Rust's standard library,
   # as FluidAudio's text processing is, and two of those can't be linked into one binary (both define
   # rust_eh_personality). In a framework of its own, embedded in the app, each has its own. Only Foundation crosses
-  # between them. The Mac only, as PostgresNIO: the iPhone edits shared notes through its Mac.
+  # between them. The Mac only: the iPhone edits shared notes through its Mac.
   BindersAutomerge:
     type: framework
     platform: macOS

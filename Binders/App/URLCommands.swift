@@ -13,8 +13,6 @@ import BindersKit
 ///     binders://open?section=home|writing|knowledge|settings[&page=automations]
 ///     binders://link/pair   turns the phone link on and opens pairing; the one-time link is written to
 ///                           Application Support/Binders/link-pairing.txt (yours only), for a phone that isn't at the Mac
-///     binders://team/join?… an invite to a team database (TeamInvite.link): Settings → Team comes forward and asks
-///                           before it joins, as anything on this Mac can open a link
 ///     binders://auth?token=bnp_…&state=…&hub=…   a hub's hand-back of Sign In (HubAccount): kept only for the sign-in
 ///                           this Mac started
 @MainActor
@@ -121,10 +119,6 @@ enum URLCommands {
             let section = HubSection(rawValue: (query["section"] ?? "home").lowercased()) ?? .home
             if let page = query["page"].flatMap({ SettingsPage(rawValue: $0.lowercased()) }) { hub.navigation.pendingSettingsPage = page }
             hub.show(section: section)
-        case "team":
-            // An invite never joins by itself: Settings → Team comes forward and asks.
-            guard let invite = TeamInvite(link: url) else { return warn("binders://team/join needs an invite's server, login and password") }
-            openInvite(invite, controller: controller)
         case "auth":
             // A hub handing back the person token Settings → Team's Sign In asked for. Kept only when it carries the
             // state of the sign-in this Mac started; Settings → Team comes forward to say who's signed in.
@@ -138,14 +132,6 @@ enum URLCommands {
         default:
             warn("Unknown binders:// command: \(command)")
         }
-    }
-
-    /// An invite, from a link or a file: Settings → Team asks "Join … as …?", and while team databases are off
-    /// (TeamDatabaseFeature), "Turn on team databases and join …?" (lane DB7).
-    static func openInvite(_ invite: TeamInvite, controller: DictationController) {
-        controller.teamBoard.pendingInvite = invite
-        HubWindowController.shared.navigation.pendingSettingsPage = .team
-        HubWindowController.shared.show(section: .settings)
     }
 
     /// Asked by a link for the microphone, writing capture or a new paired device: Binders comes forward and asks, every

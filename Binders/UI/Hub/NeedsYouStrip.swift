@@ -22,15 +22,9 @@ struct NeedsYouStrip: View {
                           sort: [SortDescriptor(\.createdAt, order: .reverse)])
     }
 
-    /// Blocked cards, but for those that wait for an approval someone else in the team decides on (BoardRules.deciders).
-    private var questions: [TaskCard] { cards.filter { $0.column == .blocked && decides($0) } }
+    private var questions: [TaskCard] { cards.filter { $0.column == .blocked } }
     private var reviews: [TaskCard] { cards.filter { $0.column == .review } }
 
-    /// Whether what a blocked card waits on is yours: anything but an approval someone else in the team decides on.
-    private func decides(_ card: TaskCard) -> Bool {
-        guard let waiting = card.waitingApproval() else { return true }
-        return controller.teamBoard.decides(card, askedBy: waiting.event.author) != false
-    }
     /// An agent's suggestion of who should take it, with nobody on it yet.
     private var handOffs: [TaskCard] {
         cards.filter { $0.meantForByAgent && $0.column != .done && !BoardRules.isClaimed($0.state, at: .now) }

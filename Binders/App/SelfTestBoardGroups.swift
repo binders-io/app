@@ -10,7 +10,7 @@ extension SelfTest {
     /// All, and Esc; Move to, Assign to (you, and a stand-in agent, with a receipt on each card), Delete (the note's marks
     /// for them go) and a note's group in and out, each undone in one step; a card an agent works on that stays; the
     /// parent in list_tasks and get_task; Select on Board from the note. A folder after the flag gets drawings in light and
-    /// dark. The team's board is `--selftest-teamdb-board-groups`, on the throwaway Postgres.
+    /// dark.
     ///
     ///     BINDERS_DATA_DIR=<new empty folder> Binders --selftest-board-groups [folder] -notesShowMarkdown NO
     @MainActor
@@ -255,7 +255,6 @@ extension SelfTest {
                   "Part of: two go in, Distill's stays in its own note's: \(outcome.line)")
         run.check(domain.groupNote == checkout.id && domain.distilledFrom?.byHand == true && planned[1].groupNote == launch.id,
                   "the hand-made cards are in the note's group now, by hand")
-        run.check(domain.distilledFrom?.teamJSON.object.map { Set($0.keys) } == ["note", "by_hand"], "their part for the team names the note alone")
         // Lane DS6: one idea of a note's cards: the Work panel and the note's marks have the ones put in by hand too, after
         // the note's title.
         run.check(DistillBoard.cards(of: checkout.id).count == 6 && DistillNoteMarks.cards(of: checkout.id).count == 6
@@ -316,7 +315,7 @@ extension SelfTest {
         run.check(goingIDs.allSatisfy { board.card($0) == nil }, "Redo deletes them again")
         undo.undo()
         run.check(goingIDs.allSatisfy { board.card($0) != nil }, "and Undo brings them back")
-        let message = BoardBulkWords.deleteMessage(3, shared: 0)
+        let message = BoardBulkWords.deleteMessage
         run.check(BoardBulkWords.deleteQuestion(3) == "Delete 3 cards?" && message == "You can undo this.", "the one question: “Delete 3 cards?” \(message)")
 
         // MARK: An old card's distilled part, from before this lane, groups under its note
@@ -359,90 +358,5 @@ extension SelfTest {
         BoardView.probesCards = false
         print(run.failures == 0 ? "BOARD_GROUPS_DONE: all passed" : "BOARD_GROUPS_DONE: \(run.failures) failed")
         return run.failures == 0 ? 0 : 1
-    }
-}
-
-// MARK: - The team's board
-
-extension SelfTest {
-    /// Lane DS5 on a board shared through the team database, on TeamDBTestBed's throwaway Postgres: several of a teammate's
-    /// cards moved at once reach the database, one Alex works on stays, a note's group goes to the database as the card's
-    /// distilled part (the note and by_hand), and deleting several deletes them for everyone, without an Undo.
-    ///
-    ///     BINDERS_DATA_DIR=<new empty folder> Binders --selftest-teamdb-board-groups -notesShowMarkdown NO
-    @MainActor
-    static func teamBoardGroupChecks(_ bed: TeamDBTestBed) async throws {
-        let mac = try await TeamMac.start(bed)
-        let alex = try await bed.teammate()
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        func step(_ work: () -> BoardBulk.Outcome) -> BoardBulk.Outcome {
-            undo.beginUndoGrouping()
-            let outcome = work()
-            undo.endUndoGrouping()
-            return outcome
-        }
-        /// Until `condition` holds, or `seconds`.
-        func until(_ seconds: Double, _ condition: () async -> Bool) async -> Bool {
-            let end = Date().addingTimeInterval(seconds)
-            while Date() < end {
-                if await condition() { return true }
-                try? await Task.sleep(for: .milliseconds(200))
-            }
-            return await condition()
-        }
-        var ids: [UUID] = []
-        for title in ["Draft the launch post", "Check the screenshots", "Proofread the post", "Book the room"] { ids.append(try await bed.made(title, by: alex)) }
-        let arrived = await bed.eventually(10) { ids.allSatisfy { mac.card($0) != nil && TeamCardShadow(mac.card($0)!.teamShadow) != nil } }
-        bed.check(arrived, "Alex's four cards are here")
-        _ = try await alex.call(.claimCard(ids[2]))
-        _ = await bed.eventually(5) { mac.card(ids[2])?.assignee == "Alex" }
-        let cards = ids.compactMap { mac.card($0) }
-        guard cards.count == 4 else { return bed.check(false, "the cards are here") }
-
-        // Move to: three go, Alex's stays, and the team sees it.
-        var outcome = step { BoardBulk.move(Array(cards.prefix(3)), to: .backlog, board: mac.board, undoManager: undo) }
-        bed.check(outcome.line == "Moved 2 cards to Backlog. 1 stayed: Alex is working on it.", "on the team's board, what stayed is said: \(outcome.line)")
-        bed.check(await mac.drained(), "the moves went to the database")
-        var rows = try await alex.rows(.cards, ids: ids)
-        func column(_ id: UUID) -> String? { rows.first { $0.rowID == id }?["board_column"]?.string }
-        bed.check(column(ids[0]) == "backlog" && column(ids[1]) == "backlog" && column(ids[2]) == "in_progress", "Alex sees the two in Backlog, theirs in progress")
-        undo.undo()
-        bed.check(await mac.drained(), "Undo's moves went too")
-        rows = try await alex.rows(.cards, ids: ids)
-        bed.check(column(ids[0]) == "ready" && column(ids[1]) == "ready", "and Alex sees them back in Ready")
-
-        // A note's group: the card's distilled part, through the database, without a migration.
-        let launch = BinderRecord(name: "Notes here", colorIndex: 1)
-        Store.shared.insert(launch)
-        let note = NoteItem(text: "# Launch week\n\nWhat we ship.")
-        note.binderID = launch.id
-        Store.shared.insert(note)
-        outcome = step { BoardBulk.group([cards[0], cards[3]], into: note, board: mac.board, undoManager: undo) }
-        bed.check(outcome.line == "Put 2 cards in “Launch week”.", "two of Alex's cards go in a note's group here: \(outcome.line)")
-        let grouped = await until(10) {
-            guard let rows = try? await alex.rows(.cards, ids: [ids[0], ids[3]]) else { return false }
-            return rows.count == 2 && rows.allSatisfy { $0["distilled"]?.object?["by_hand"]?.bool == true && $0["distilled"]?.object?["note"]?.uuid == note.id }
-        }
-        bed.check(grouped, "the team's database keeps the group in each card's distilled part: the note and by_hand")
-        undo.undo()
-        let ungrouped = await until(10) {
-            guard let rows = try? await alex.rows(.cards, ids: [ids[0], ids[3]]) else { return false }
-            return rows.count == 2 && rows.allSatisfy { $0["distilled"]?.object == nil }
-        }
-        bed.check(ungrouped, "Undo takes them out there too")
-        _ = try await alex.call(.setCardDistilled(ids[1], DistilledFrom.byHand(note: note.id).teamJSON))
-        let theirs = await bed.eventually(10) { mac.card(ids[1])?.groupNote == note.id }
-        bed.check(theirs, "a teammate's Mac puts one in the group: here it's in the note's group")
-
-        // Delete: for everyone, after the one question, and Undo can't bring them back.
-        bed.check(BoardBulkWords.deleteMessage(2, shared: 2) == "They're on the team's board: they're deleted for everyone, which can't be undone.",
-                  "the question says they go for everyone")
-        outcome = step { BoardBulk.delete([cards[0], cards[3]], board: mac.board, undoManager: undo) }
-        bed.check(outcome.line == "Deleted 2 cards." && !outcome.undoable, "deleted, with no Undo for the team's cards: \(outcome.line)")
-        bed.check(await mac.drained(), "the deletions went")
-        rows = try await alex.rows(.cards, ids: [ids[0], ids[3]])
-        bed.check(rows.allSatisfy { $0["deleted_at"]?.string != nil } || rows.isEmpty, "the team's database has them deleted: \(rows.count) rows left")
-        await mac.stop()
     }
 }

@@ -42,10 +42,8 @@ final class TaskCard {
     /// Where Distill made it from (`DistilledFrom`, as JSON): its note, the distill and item, its section and that
     /// section's version. Empty for any other card.
     var distilledJSON: String = ""
-    /// On a board shared through a team database (lane DB2): what the database last said of it (`TeamCardShadow`, as
-    /// JSON): its version, and the title, details, due date, links and Distill's part it had, so an edit made here is
-    /// told from one that came from the team. "held" for a card kept on this Mac (made from what your iPhone heard)
-    /// until you share it. Empty for every other card.
+    /// What a team database, which earlier builds shared boards through, last said of the card. No longer written: kept
+    /// so a store an earlier Binders saved opens as it was.
     var teamShadow: String = ""
     /// On a binder linked to a hub (HubBoard): the card's id there, from when it's first sent. Empty for every other card.
     var hubCard: String = ""
@@ -141,8 +139,8 @@ final class TaskEvent {
     var fromColumn: String?
     var toColumn: String?
     var createdAt: Date
-    /// On a board shared through a team database (lane DB2): the operation this line was written by, while the database's
-    /// answer is awaited. Its own line takes this one's place once it comes. Nil for every other line.
+    /// The team database operation this line was written by, in earlier builds. No longer written: kept so a store an
+    /// earlier Binders saved opens as it was.
     var teamOperation: String?
     /// A line by Binders saying the card's section of its spec changed (`SectionChangeMark`, as JSON): whose change it
     /// was, and whether it waits for a person to look, so what of it reaches an agent can be told. Nil for every other line.

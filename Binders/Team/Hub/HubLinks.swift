@@ -11,7 +11,7 @@ import BindersKit
 /// from then on builds on the link (`place(of:)`).
 ///
 /// Notes from what you said to yourself stay on this Mac, as they do with a team folder; meetings and captures aren't the
-/// hub's. A binder shared with a team folder or a team database isn't linked: it would go to the team twice.
+/// hub's. A binder shared with a team folder isn't linked: it would go to the team twice.
 @MainActor
 @Observable
 final class HubLinks {
@@ -34,12 +34,15 @@ final class HubLinks {
 
     static func place(of binder: BinderRecord) -> HubLink.Place? { HubLink.Place(json: binder.hubLink) }
 
-    /// Why a binder can't be linked, in words, or nil when it can. `moving`: Move to a Hub, which takes a binder off the
-    /// team database once it's on the hub (HubMove), so one on it can go.
+    /// Why a binder can't be linked, in words, or nil when it can. `moving`: Move to a Hub (HubMove), which alone takes a
+    /// binder an earlier Binders shared through a team database, to the project every teammate's Mac finds.
     func whyNot(_ binder: BinderRecord, moving: Bool = false) -> String? {
         if binder.isTeamCopy { return "This binder is a teammate's copy. Only its owner can link it to a hub." }
-        if binder.sharedWithTeam || (!binder.teamDatabaseKey.isEmpty && !moving) {
+        if binder.sharedWithTeam {
             return "This binder is shared with your team already. Stop sharing it first, so it doesn't reach the team twice."
+        }
+        if !binder.teamDatabaseKey.isEmpty && !moving {
+            return "This binder was on the team database. Move it with Move to a Hub… in Settings → Team, so teammates' Macs find the same project."
         }
         if !account.isSignedIn { return "Sign in to a hub in Settings → Team first." }
         return nil

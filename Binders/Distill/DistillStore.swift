@@ -13,8 +13,6 @@ final class DistillStore {
     /// Bumped on every write, for the views that show a note's distills.
     private(set) var revision = 0
     @ObservationIgnored private var cache: [UUID: (modified: Date?, file: DistillFile)] = [:]
-    /// Told of every write: a shared note's distills go to its team database from there (lane DB3, TeamNotes).
-    @ObservationIgnored var onWrite: ((DistillFile) -> Void)?
 
     static var folder: URL { AppPaths.support.appendingPathComponent("Distills", isDirectory: true) }
     static func url(for note: UUID) -> URL { folder.appendingPathComponent(note.uuidString).appendingPathExtension("json") }
@@ -44,7 +42,6 @@ final class DistillStore {
         let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
         cache[file.note] = (modified, file)
         revision += 1
-        onWrite?(file)
     }
 
     func distill(_ id: UUID, of note: UUID) -> DistillRecord? {

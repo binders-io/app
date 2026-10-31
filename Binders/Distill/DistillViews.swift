@@ -65,10 +65,6 @@ struct WorkBar: View {
                         .fixedSize()
                         .help("Open the Distill list beside the note. Review All…, in its ⋯ menu, opens the review sheet.")
                 }
-                // A shared note: who else is reviewing it now, so two people don't place the same items (lane DB3).
-                if let others = controller.teamBoard.notes.reviewingLine(note.id, distill: proposal.id) {
-                    Label(others, systemImage: "person.wave.2").font(.caption).foregroundStyle(.secondary).lineLimit(compact ? 1 : nil)
-                }
             }
             if let why = service.problems[note.id] {
                 StatusLabel(why, .problem).font(.system(size: 12, weight: .medium)).lineLimit(compact ? 1 : nil).fixedSize(horizontal: false, vertical: !compact).help(why)
@@ -127,9 +123,6 @@ struct WorkBar: View {
         .animation(BoardDesign.settle, value: progress.counts)
         .sheet(item: $reviewing) { proposal in
             DistillReviewSheet(distill: proposal, note: note).environment(controller)
-                // The team sees who's reviewing a shared note's proposal.
-                .onAppear { controller.teamBoard.notes.reviewing(note.id, distill: proposal.id) }
-                .onDisappear { controller.teamBoard.notes.reviewing(note.id, distill: nil) }
         }
         .sheet(isPresented: $reporting) {
             DistillReportSheet(note: note).environment(controller)

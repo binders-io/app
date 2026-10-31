@@ -1,6 +1,6 @@
 import Foundation
 
-// A shared note is edited as text on every Mac, and kept as an Automerge document on the team database (lane DB3). These
+// A shared note is edited as text on every Mac, and kept as an Automerge document on the hub. These
 // are the pure parts of going between the two: what changed from one text to another, as edits small enough that a
 // teammate's typing elsewhere in the note survives; the splices Automerge takes; a three-way merge for an editor that
 // still holds typing when a teammate's change lands; and where a cursor goes when the text around it changes.

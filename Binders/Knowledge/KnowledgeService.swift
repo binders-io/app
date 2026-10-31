@@ -169,9 +169,6 @@ final class KnowledgeService {
     /// meaning, instead of the ones in Settings.
     @ObservationIgnored var answerModel: LLMClient?
     @ObservationIgnored var queryEmbedder: (@Sendable (String) async throws -> [Float])?
-    /// Lane DB4: what a team database's other Macs already made of the items they share, which the index takes instead of
-    /// asking the models again, and what this Mac publishes of its own after each pass. Set while a team database runs.
-    @ObservationIgnored weak var sharing: KnowledgeSharing?
     /// Stand-ins for self-tests: the embedding model passages are embedded with (its name, and what each becomes), and
     /// the model that finds people and topics.
     @ObservationIgnored var documentEmbedder: (model: String, embed: @Sendable ([String]) async throws -> [[Float]])?
@@ -253,14 +250,9 @@ final class KnowledgeService {
             if await digestNotes() { await syncDocuments() }
             lastPass.milliseconds = Int(Date().timeIntervalSince(started) * 1000)
             Log.app.notice("Knowledge pass: \(self.lastPass.description, privacy: .public)")
-            guard modelWork else {
-                await sharing?.indexed()
-                continue
-            }
+            guard modelWork else { continue }
             await embedPending()
             await extractEntities()
-            // Lane DB4: what changed of the items this Mac shares through a team database goes to the team.
-            await sharing?.indexed()
         } while needsAnotherPass
     }
 
@@ -359,14 +351,6 @@ final class KnowledgeService {
         let date: Date
         let binderID: UUID?
         let correction: KnowledgeCorrection
-        /// A teammate's (lane DB4): who made it, and that it steers only passages from its own binder.
-        var author: String? = nil
-        var scoped = false
-
-        /// Whether it may steer a passage: a teammate's only one from its binder.
-        func reaches(_ hit: KnowledgeHit) -> Bool {
-            !scoped || binderID.map { hit.binderID.flatMap(UUID.init(uuidString:)) == $0 } == true
-        }
     }
 
     @ObservationIgnored private var correctionCache: (revision: Int, list: [CorrectionNote])?
@@ -389,24 +373,17 @@ final class KnowledgeService {
     /// make it yours. `includingTeam: false` leaves out teammates' corrections, for what may not read their items.
     func corrections(includingAgents: Bool = false, includingTeam: Bool = true) -> [CorrectionNote] {
         let tag = KnowledgeCorrection.tag
-        // Lane DB4: teammates' corrections from a team database, each for passages from its own binder, by name. Its note,
-        // when it's here too, counts once, as theirs.
-        let team = includingTeam ? TeamKnowledge.corrections().filter { includingAgents || !$0.byAgent } : []
-        let teamNotes = Set(team.map(\.note))
         let notes = ((try? Store.shared.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.text.contains(tag) }))) ?? [])
-            .filter { (includingAgents || $0.agentMark.isEmpty) && (includingTeam || !$0.isTeamCopy) && !teamNotes.contains($0.id) }
+            .filter { (includingAgents || $0.agentMark.isEmpty) && (includingTeam || !$0.isTeamCopy) }
         let mine = notes.compactMap { note in
             KnowledgeCorrection.parse(note.text).map { CorrectionNote(id: note.id, date: note.updatedAt, binderID: note.binderID, correction: $0) }
         }
-        let theirs = team.compactMap { item in
-            item.correction.map { CorrectionNote(id: item.note, date: item.date, binderID: item.binder, correction: $0, author: item.author, scoped: true) }
-        }
-        return (mine + theirs).sorted { $0.date > $1.date }
+        return mine.sorted { $0.date > $1.date }
     }
 
     /// The correction to a passage that says what a correction calls wrong, if there is one.
     func correction(for hit: KnowledgeHit, in corrections: [CorrectionNote]) -> CorrectionNote? {
-        corrections.first { $0.id.uuidString != hit.sourceID && $0.correction.corrects(hit.text) && $0.reaches(hit) }
+        corrections.first { $0.id.uuidString != hit.sourceID && $0.correction.corrects(hit.text) }
     }
 
     /// `kinds`, `owner` and `keep` narrow what the answer may draw on, as for a tool that may not read everything.
@@ -457,7 +434,7 @@ final class KnowledgeService {
         let all = corrections(includingTeam: owner != .mine)
         var seen = Set<String>()
         let relevant = all.filter { correction in
-            hits.contains { $0.sourceID == correction.id.uuidString || (correction.correction.corrects($0.text) && correction.reaches($0)) }
+            hits.contains { $0.sourceID == correction.id.uuidString || correction.correction.corrects($0.text) }
         }
         // The same correction kept twice counts once: the newest.
         .filter { seen.insert(KnowledgeCorrections.normalize($0.correction.wrong) + "→" + KnowledgeCorrections.normalize($0.correction.right)).inserted }
@@ -468,7 +445,7 @@ final class KnowledgeService {
                 hits.first { $0.sourceID == item.id.uuidString } ?? KnowledgeHit(
                     chunkID: -Int64(index + 1), documentID: "note:\(item.id.uuidString)", kind: .note, sourceID: item.id.uuidString,
                     title: "Correction: \(item.correction.right)", createdAt: item.date, text: item.correction.markdown, snippet: "",
-                    startTime: nil, speaker: nil, author: item.author, binderID: item.binderID?.uuidString, score: 1)
+                    startTime: nil, speaker: nil, author: nil, binderID: item.binderID?.uuidString, score: 1)
             }
             hits = corrections + hits.filter { hit in !relevant.contains { $0.id.uuidString == hit.sourceID } }
         }
@@ -479,8 +456,7 @@ final class KnowledgeService {
         let contexts = hits.map { hit -> KnowledgeContext in
             if let item = relevant.first(where: { $0.id.uuidString == hit.sourceID }) {
                 let why = item.correction.reason.map { "\nWhy: \($0)" } ?? ""
-                let by = item.author.map { " by \($0)" } ?? ""
-                return KnowledgeContext(label: "CORRECTION\(by) · \(item.date.formatted(date: .abbreviated, time: .omitted))",
+                return KnowledgeContext(label: "CORRECTION · \(item.date.formatted(date: .abbreviated, time: .omitted))",
                                         text: "Wrong: \(item.correction.wrong)\nRight: \(item.correction.right)\(why)")
             }
             return KnowledgeContext(label: "\(hit.kind.singularName) “\(hit.title)” · \(hit.metaLine)", text: hit.text)
@@ -754,8 +730,7 @@ final class KnowledgeService {
     /// The embedding model passages are embedded with now, by name; nil without one.
     var passageModel: String? { documentEmbedder?.model ?? embeddingClient()?.model }
 
-    /// Passages embedded now, as `embedPending` embeds them (each "title: … | text: …"): for what this Mac publishes to a
-    /// team database that its own index doesn't have (lane DB4).
+    /// Passages embedded now, as `embedPending` embeds them (each "title: … | text: …").
     func embedPassages(_ inputs: [String]) async throws -> [[Float]] {
         if let documentEmbedder { return try await documentEmbedder.embed(inputs) }
         guard let client = embeddingClient() else { throw EmbeddingError.modelMissing(settings.embeddingModel) }
@@ -768,22 +743,13 @@ final class KnowledgeService {
             return
         }
         await store.useEmbeddingModel(model)
-        // Lane DB4: a teammate's item whose maker's vectors are still coming waits a while, and vectors a teammate's Mac
-        // made of the same passages with the same model are taken as they are.
-        let waiting = await sharing?.waitingDocuments() ?? []
         while true {
-            let batch = await store.chunksNeedingEmbedding(limit: 48, skipping: waiting)
+            let batch = await store.chunksNeedingEmbedding(limit: 48)
             guard !batch.isEmpty else { break }
-            let shared = await sharing?.vectors(for: batch, model: model) ?? [:]
-            if !shared.isEmpty { await store.setEmbeddings(shared.map { (id: $0.key, vector: $0.value) }) }
-            let rest = batch.filter { shared[$0.id] == nil }
-            if rest.isEmpty {
-                await refreshStatus()
-                continue
-            }
             do {
-                let vectors = try await embedPassages(rest.map { TeamEmbedding.input(title: $0.title, text: $0.text) })
-                await store.setEmbeddings(zip(rest, vectors).map { (id: $0.0.id, vector: $0.1) })
+                // What the embedding model reads for a passage.
+                let vectors = try await embedPassages(batch.map { "title: \($0.title) | text: \($0.text)" })
+                await store.setEmbeddings(zip(batch, vectors).map { (id: $0.0.id, vector: $0.1) })
                 status.embeddingIssue = nil
             } catch {
                 status.embeddingIssue = error.localizedDescription
@@ -797,20 +763,8 @@ final class KnowledgeService {
     private func extractEntities() async {
         var learnedNames = false
         let kinds: [KnowledgeKind] = [.meeting, .conversation, .note, .writing]
-        // Lane DB4: people and topics a teammate's Mac found in the same item, for the same passages, are taken as they are;
-        // its items whose maker's are still coming wait a while.
-        var waiting = Set<String>()
-        if settings.knowledgeGraph, let sharing {
-            for document in await sharing.teamDocumentsToRead() {
-                guard let job = await store.entityJob(for: document), let found = await sharing.entities(for: job) else { continue }
-                await store.saveEntities(job: job, result: EntityExtraction.clean(found))
-                learnedNames = true
-                revision += 1
-            }
-            waiting = await sharing.waitingForEntities()
-        }
         if settings.knowledgeGraph, let client = entityModel ?? settings.makeLLMClient(lane: .later) {
-            while let job = await store.nextEntityJob(kinds: kinds, skipping: waiting) {
+            while let job = await store.nextEntityJob(kinds: kinds) {
                 while isAppBusy(), !Task.isCancelled { try? await Task.sleep(for: .seconds(3)) }
                 let text = String(job.chunks.map(\.text).joined(separator: "\n").prefix(20_000))
                 do {

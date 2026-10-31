@@ -728,10 +728,7 @@ struct MeetingsView: View {
                          : "\(writing) are still being written up or asked about: they aren't deleted until that's done.")
         }
         if showsConversations, picked.contains(where: { !$0.isTeamCopy }) {
-            let binders = Store.shared.binders()
-            if binders.contains(where: { $0.shownSharedThroughDatabase }) {
-                rules.append("Moved into a binder you share through your team database, a capture is shared with your team: its notes and transcript.")
-            } else if binders.contains(where: { $0.sharedWithTeam }) {
+            if Store.shared.binders().contains(where: { $0.sharedWithTeam }) {
                 rules.append("Captures stay on this Mac, even in a binder shared with your team.")
             }
         }
@@ -871,8 +868,6 @@ struct MeetingDetailView: View {
     @State private var copied = false
     @State private var rescuing = false
     @State private var editingSummary = false
-    /// Moved on by Share It, so what the page says of a capture's sharing is read again (lane DB4).
-    @State private var shareTick = 0
     /// Send Again, asked first when the note it was sent as has changed since.
     @State private var confirmResend = false
 
@@ -1047,16 +1042,6 @@ struct MeetingDetailView: View {
             Label("Shared by \(meeting.teamAuthorName ?? "a teammate") · read-only", systemImage: "person.2")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        } else if let binder = Store.shared.binder(meeting.binderID), meeting.isConversation, binder.shownSharedThroughDatabase {
-            // Shared through a team database (lane DB4): a capture goes only when you put it here or share it.
-            let path = ([binder.name] + Store.shared.folderNames(Store.shared.shownFolder(meeting.folderID, in: binder.id))).joined(separator: " › ")
-            let shared = shareTick >= 0 && TeamContent.current?.isShared(meeting) == true
-            Label(shared ? "In \(path) · shared with the team" : "In \(path) · kept on this Mac",
-                  systemImage: shared ? "person.2" : "lock")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .help(shared ? "You put it in a binder shared with your team, so its notes and transcript are theirs to read. Its recording stays on this Mac."
-                      : "It was in this binder before the binder was shared, so it stays on this Mac. Share It with the Team, in ⋯, gives your team its notes and transcript.")
         } else if let binder = Store.shared.binder(meeting.binderID), meeting.isConversation {
             let path = ([binder.name] + Store.shared.folderNames(Store.shared.shownFolder(meeting.folderID, in: binder.id))).joined(separator: " › ")
             Label(binder.sharedWithTeam ? "In \(path) · not shared" : "In \(path)", systemImage: "books.vertical")
@@ -1065,7 +1050,7 @@ struct MeetingDetailView: View {
                 .help((meeting.routingReason.map { "Filed here: \($0). " } ?? "") + "Captures stay on this Mac, even in a shared binder.")
         } else if let binder = Store.shared.binder(meeting.binderID) {
             let path = ([binder.name] + Store.shared.folderNames(Store.shared.shownFolder(meeting.folderID, in: binder.id))).joined(separator: " › ")
-            let shared = binder.sharedWithTeam || binder.shownSharedThroughDatabase
+            let shared = binder.sharedWithTeam
             Label(shared ? "In \(path) · shared with the team" : "In \(path)",
                   systemImage: shared ? "person.2" : "books.vertical")
                 .font(.callout)
@@ -1160,13 +1145,6 @@ struct MeetingDetailView: View {
             if !meeting.isTeamCopy, !meeting.isConversation {
                 Button("Replace My Mic Track…") { rescuing = true }
                     .disabled(isRecording || isBusy)
-            }
-            if meeting.isConversation, shareTick >= 0, TeamContent.current?.isKeptHere(meeting) == true {
-                Button("Share It with the Team") {
-                    TeamContent.current?.share(meeting)
-                    shareTick += 1
-                }
-                .help("Gives your team its notes and transcript. Its recording stays on this Mac.")
             }
             if !meeting.isTeamCopy {
                 // As several do (MeetingMoves): with Undo.

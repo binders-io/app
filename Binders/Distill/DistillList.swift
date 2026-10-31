@@ -48,9 +48,6 @@ final class DistillListModel {
     var readingSince: Date?
     /// Bumped to ask the list to take the keyboard, when it's opened with Distill.
     var focusRequest = 0
-    /// A teammate's agent an accepted item is meant for, waiting for your yes (lane DB2), and the items it holds up.
-    var asking: TeamConsent?
-    @ObservationIgnored var askingItems: [UUID] = []
     @ObservationIgnored private var flights = DistillFlights()
     @ObservationIgnored private var seenLive: Set<UUID> = []
     /// Whether a flight's landing is left to the clock (the self-tests draw frames with it held still).
@@ -226,7 +223,7 @@ final class DistillListModel {
     static func color(for item: DistillItem) -> Color {
         if let who = item.meantFor {
             if who == BoardActor.you.name { return BindersTheme.accent }
-            if AgentRegistry.shared.agent(named: who) != nil || TeamBoard.current?.teammatesAgent(named: who) != nil { return BindersTheme.agent }
+            if AgentRegistry.shared.agent(named: who) != nil { return BindersTheme.agent }
             return BinderPalette.color(1)
         }
         switch item.hint {
@@ -247,8 +244,7 @@ final class DistillListModel {
     // MARK: Accepting and dismissing
 
     /// Accept: each item placed on the board as Place on Board places it, in the column chosen for it (Ready unless you
-    /// said Backlog), with "Placed on <board> · Undo". An item still being read is placed once its proposal is made. A
-    /// teammate's agent you haven't said yes to giving cards is asked about first.
+    /// said Backlog), with "Placed on <board> · Undo". An item still being read is placed once its proposal is made.
     func accept(_ ids: [UUID], service: DistillService, undo: UndoManager?) {
         guard !ids.isEmpty, let note = Store.shared.note(note) else { return }
         let ids = settleOffers(ids, take: true, service: service)
@@ -260,14 +256,6 @@ final class DistillListModel {
                 byRecord[record.id, default: []].append(id)
             } else if service.live[note.id]?.items.contains(where: { $0.id == id }) == true {
                 pendingAccept[id] = columns[id] ?? .ready
-            }
-        }
-        if let team = TeamBoard.current, team.covers(note.binderID) {
-            let items = byRecord.flatMap { record, ids in ids.compactMap { id in file.distills.first { $0.id == record }?.items.first { $0.id == id } } }
-            if let unsaid = items.compactMap({ team.teammatesAgent(named: $0.meantFor) }).first(where: { !team.agreed(to: $0) }) {
-                askingItems = ids
-                asking = team.consent(for: unsaid)
-                return
             }
         }
         var cards: [UUID] = []

@@ -54,17 +54,6 @@ enum InboxCommands {
 
     /// An agent changing a note that isn't its own marks it as that agent's edit, with when, until the user makes it
     /// theirs: the note says so, and answers and corrections leave it out. Returns what the agent hears about that.
-    /// A note shared through a team database written to here: the change goes to the team at once, as whoever the request
-    /// names, an agent's marked as that agent's (lane DB3).
-    static func teamCapture(_ note: NoteItem, _ request: InboxRequest) {
-        let author = historyAuthor(request)
-        if author.isAgent {
-            TeamNotes.current?.captured(note, byAgent: author.name)
-        } else {
-            TeamNotes.current?.capture(note, by: .person)
-        }
-    }
-
     static func markAgentEdit(_ note: NoteItem, _ request: InboxRequest) -> String {
         guard request.fields["actor_kind"] == BoardActor.Kind.agent.rawValue else { return "" }
         let actor = (request.fields["actor"] ?? "").trimmed
@@ -188,7 +177,6 @@ enum InboxCommands {
             note.updatedAt = Date()
             let marked = markAgentEdit(note, request)
             store.save()
-            teamCapture(note, request)
             return InboxResult(ok: true, id: note.id.uuidString, message: "Appended to “\(note.title)”.\(marked)")
 
         case "update_note":
@@ -217,7 +205,6 @@ enum InboxCommands {
             note.updatedAt = Date()
             let marked = markAgentEdit(note, request)
             store.save()
-            teamCapture(note, request)
             // A new title: links to the old one follow it.
             let renamed = oldTitle.isEmpty ? nil : LinkTargets.renameNote(note.id, from: oldTitle, to: note.title, itself: true)
             let links = renamed.map { $0.links > 0 ? ". Links that follow the new title: \($0.counted)" : "" } ?? ""
@@ -244,7 +231,6 @@ enum InboxCommands {
                         note.text = updated
                         note.updatedAt = Date()
                         fixed = true
-                        teamCapture(note, request)
                     }
                 } else if let meeting = (try? store.context.fetch(FetchDescriptor<MeetingRecord>(predicate: #Predicate { $0.id == id })))?.first {
                     source = (meeting.title, meeting.binderID)
@@ -560,8 +546,6 @@ enum InboxCommands {
             target = named
         }
         if MCPServer.onHub(target.id, for: actor) { return .failure(MCPServer.onHubWords("cards", binder: target.id)) }
-        // On a shared board an agent acts as itself in the team, which this Mac has to know first (lane DB2).
-        if actor.isAgent, controller.teamBoard.isShared(binder: target.id), !controller.teamBoard.knowsItself { return .failure(Self.teamNotReached) }
         let card: TaskCard
         if let fromNote {
             let note = fromNote.note
@@ -572,8 +556,6 @@ enum InboxCommands {
         } else {
             card = board.create(title: field("title"), details: field("details"), binderID: target.id, column: column, by: actor)
         }
-        // A new card on a board whose database is off or out of reach is kept here for it, and says so (lane DB8).
-        let kept = controller.teamBoard.reach(card).map(TeamBoardWrites.kept).map { $0.isEmpty ? "" : " " + $0 } ?? ""
         if var routed {
             routed.card = card.id
             controller.router.record(routed)
@@ -584,7 +566,7 @@ enum InboxCommands {
         } else {
             controller.router.suggestLater(for: card, origin: origin)
         }
-        return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to the \(target.name) board, in \(card.column.title).\(kept)")
+        return InboxResult(ok: true, id: card.id.uuidString, message: "Card “\(card.title)” added to the \(target.name) board, in \(card.column.title).")
     }
 
     /// How a card made from a note with create_task is tied to it, as Put on Board ties one (lane DS6): its words, cleaned
@@ -600,11 +582,7 @@ enum InboxCommands {
         return .put(note: note.id, section: section, sectionText: section.flatMap { DistillSections.section($0, in: text)?.text }, quote: quote)
     }
 
-    /// A change to a card, by the actor named in the request (an agent over MCP, or you from the phone). On a board shared
-    /// through a team database (lane DB2) the database decides: an agent hears what it said, after it said it, so it never
-    /// works on a card it lost (`TeamBoard`). Whatever the database's state, the answer comes within a few seconds (lane
-    /// DB8): what the database decides first asks whether it answers, and is refused at once while it's off or out of
-    /// reach; the rest is kept here and goes once it's back, and the reply says so.
+    /// A change to a card, by the actor named in the request (an agent over MCP, or you from the phone).
     private static func boardAction(_ action: String, fields: [String: String], field: (String) -> String, controller: DictationController) async -> InboxResult {
         let board = controller.board
         let actor = BoardActor(name: field("actor").isEmpty ? "AI agent" : field("actor"),
@@ -613,60 +591,7 @@ enum InboxCommands {
             return .failure("No card with that id. list_tasks shows them.")
         }
         if MCPServer.onHub(card.binderID, for: actor) { return .failure(MCPServer.onHubWords("cards", binder: card.binderID, id: card.id)) }
-        let team = controller.teamBoard
-        let shared = team.sends(card)
-        if shared, actor.isAgent, !team.knowsItself { return .failure(Self.teamNotReached) }
-        let decided = shared ? decidedWrite(action, field: field, card: card, actor: actor, board: board) : nil
-        if let decided {
-            await team.checkReach(card)
-            if let refusal = board.teamRefusal(decided, on: card, by: actor) { return .failure(refusal) }
-        }
-        let before = team.sentTotal
-        let result = boardActionHere(action, fields: fields, field: field, controller: controller, actor: actor, card: card)
-        guard shared, result.ok else { return result }
-        return await teamAnswer(result, operations: team.sent(since: before), actor: actor, card: card, team: team)
-    }
-
-    /// What of a write the team database decides (TeamBoardWrite), on a shared board: nil for a write that can wait for it.
-    private static func decidedWrite(_ action: String, field: (String) -> String, card: TaskCard, actor: BoardActor, board: BoardService) -> TeamBoardWrite? {
-        switch action {
-        case "claim_task": return .claim
-        case "complete_task": return .finish
-        case "release_task": return .release
-        case "update_task": return BoardColumn(loose: field("column")).flatMap { $0 == card.column ? nil : .move($0) }
-        case "comment_task":
-            // A person's words on a card that waits for an approval they decide on are the decision.
-            guard !actor.isAgent, card.column == .blocked, card.waitingApproval(events: board.timeline(card.id)) != nil,
-                  board.team?.decides(card, askedBy: card.waitingApproval(events: board.timeline(card.id))?.event.author ?? "") != false
-            else { return nil }
-            return .answerApproval
-        default: return nil
-        }
-    }
-
-    static let teamNotReached = "This Mac hasn't reached the team's database yet, so agents can't work on its shared boards. Try again in a minute."
-
-    /// What the team database said of a write on its board: refused, the write's reply says why (the card is already put back
-    /// as the database has it). While it's off or out of reach, the write was kept here and the reply says so, at once.
-    /// Not answered within the wait: what it decides is taken back if it hasn't gone yet, or said to be unknown if it's on
-    /// its way; anything else is kept here, and the reply says so.
-    private static func teamAnswer(_ result: InboxResult, operations: [UUID], actor: BoardActor, card: TaskCard, team: TeamBoard) async -> InboxResult {
-        guard !operations.isEmpty else { return result }
-        func adding(_ words: String) -> InboxResult {
-            InboxResult(ok: true, id: result.id, message: result.message + " " + words, items: result.items)
-        }
-        guard let reach = team.reach(card), reach == .reachable else {
-            let kept = TeamBoardWrites.kept(team.reach(card) ?? team.outboxReach)
-            return kept.isEmpty ? result : adding(kept)
-        }
-        let wait = actor.isAgent ? TeamBoardWrites.agentWait : TeamBoardWrites.personWait
-        let answer = await team.answers(to: operations, within: .seconds(wait))
-        if let refused = answer.refused { return .failure(refused) }
-        guard answer.timedOut else { return result }
-        let taken = team.withdraw(operations, agent: actor.isAgent)
-        if let call = taken.withdrawn.first { return .failure(TeamBoardWrites.withdrawn(call, agent: actor.isAgent)) }
-        if let call = taken.sending.first { return .failure(TeamBoardWrites.unknown(call, agent: actor.isAgent)) }
-        return adding(TeamBoardWrites.notAnsweredYet)
+        return boardActionHere(action, fields: fields, field: field, controller: controller, actor: actor, card: card)
     }
 
     private static func boardActionHere(_ action: String, fields: [String: String], field: (String) -> String, controller: DictationController,
