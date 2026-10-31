@@ -162,6 +162,8 @@ final class HubLinks {
             binder.hubLink = place.json
             store.save()
             done[id] = "Sent \(HubLink.counted(changes)) to \(place.binderName)."
+            // From now on its board follows the hub's.
+            HubBoard.shared.follow()
             return true
         } catch {
             problems[id] = (error as? Problem)?.words ?? "Couldn't reach \(HubSignInSection.shown(place.hub)): \(error.localizedDescription)"
@@ -174,6 +176,7 @@ final class HubLinks {
         binder.hubLink = ""
         binder.updatedAt = Date()
         store.save()
+        HubBoard.shared.follow()
         problems[binder.id] = nil
         done[binder.id] = nil
         working[binder.id] = nil
