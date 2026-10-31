@@ -296,7 +296,8 @@ final class AgentDispatcher {
             if reason == .commented, !Self.holds(found, card) { return nil }
             agent = found
         }
-        // Only on the boards you let it work on.
+        // Only on the boards you let it work on, and never on a board linked to a hub: its agents work through the hub.
+        guard MCPServer.hubPlace(card.binderID) == nil else { return nil }
         return agent.flatMap { $0.takesCards(from: card.binderID) ? $0 : nil }
     }
 
@@ -1804,7 +1805,9 @@ extension AgentDispatcher {
             if !held.isEnabled { return .turnedOff(held.name) }
             guard let meant else { return .notGivenToHolder(holder) }
             guard AgentRegistry.isAgent(held, named: meant) else { return .heldByOther(holder: holder, meant: meant) }
-            return held.takesCards(from: card.binderID) ? (notWakeable(held) ?? .nobody) : .notThisBoard(held.name)
+            guard held.takesCards(from: card.binderID) else { return .notThisBoard(held.name) }
+            if MCPServer.hubPlace(card.binderID) != nil { return .held(held.name, why: Self.onHubWhy) }
+            return notWakeable(held) ?? .nobody
         }
         guard let meant else {
             // An agent's suggestion waits for your Give to.
@@ -1815,6 +1818,7 @@ extension AgentDispatcher {
         if !agent.isEnabled { return .turnedOff(agent.name) }
         if card.column == .backlog { return .notGiven(agent.name) }
         if !agent.takesCards(from: card.binderID) { return .notThisBoard(agent.name) }
+        if MCPServer.hubPlace(card.binderID) != nil { return .held(agent.name, why: Self.onHubWhy) }
         if let why = notWakeable(agent) { return why }
         if let holder, holder != BoardActor.you.name { return .nobody }
         if card.column == .ready, isBusy(on: card.id) { return .startingRun(agent.name) }
@@ -1856,6 +1860,9 @@ extension AgentDispatcher {
     static func isFailureLine(_ text: String) -> Bool { (failureLines + unsentLines).contains { text.hasPrefix($0) } }
 
     /// Why Binders won't wake it, in the composer's words; nil when it would.
+    /// Why Binders wakes no agent of yours on a board linked to a hub: they work on its cards through the hub.
+    static let onHubWhy = "This board is linked to a hub, so its cards are worked on through the hub's agents and runners."
+
     private func notWakeable(_ agent: AgentProfile) -> CommentReach? {
         if registry.paused { return .paused }
         if !agent.isEnabled { return .turnedOff(agent.name) }

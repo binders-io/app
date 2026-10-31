@@ -9,6 +9,8 @@ struct HubLinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     private var links: HubLinks { .shared }
     @State private var spaces: [HubLink.Space] = []
+    /// The hub the Binders and projects came from: Link goes there, or not at all.
+    @State private var hub: URL?
     @State private var space: String = ""
     @State private var projects: [HubLink.Project] = []
     /// The project chosen; empty for a new one.
@@ -89,7 +91,7 @@ struct HubLinkSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Link") { Task { await link() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(loading || loadProblem != nil || space.isEmpty || links.working[binder.id] != nil)
+                    .disabled(loading || loadProblem != nil || hub == nil || space.isEmpty || links.working[binder.id] != nil)
                     .fitProbe("hubLink.link")
             }
         }
@@ -106,6 +108,9 @@ struct HubLinkSheet: View {
             }
             if let working = links.working[binder.id] {
                 StatusLabel(working, .waiting)
+            } else if let why = links.whyNotSendAgain(binder) {
+                // Signed in to another hub (or none): what stops Send Again now, before what went wrong last time.
+                StatusLabel(why, .problem).fixedSize(horizontal: false, vertical: true).fitProbe("hubLink.whyNotSendAgain")
             } else if let problem = links.problems[binder.id] {
                 StatusLabel(problem, .problem).fixedSize(horizontal: false, vertical: true).fitProbe("hubLink.problem")
             } else if let done = links.done[binder.id] {
@@ -117,7 +122,7 @@ struct HubLinkSheet: View {
                 Spacer()
                 if !place.uploaded {
                     Button("Send Again") { Task { await links.sendAgain(binder) } }
-                        .disabled(links.working[binder.id] != nil)
+                        .disabled(links.working[binder.id] != nil || links.whyNotSendAgain(binder) != nil)
                         .fitProbe("hubLink.sendAgain")
                 }
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -134,6 +139,7 @@ struct HubLinkSheet: View {
         do {
             let found = try await links.spaces()
             spaces = found.spaces
+            hub = found.hub
             space = found.current ?? found.spaces.first?.id ?? ""
             if space.isEmpty { loadProblem = "You're not in a Binder on this hub yet. Ask one of its admins to add you." }
             await loadProjects()
@@ -144,11 +150,11 @@ struct HubLinkSheet: View {
     }
 
     private func loadProjects() async {
-        guard !space.isEmpty else { return }
+        guard !space.isEmpty, let hub else { return }
         loading = true
         defer { loading = false }
         do {
-            projects = try await links.projects(in: space)
+            projects = try await links.projects(in: space, on: hub)
             if !project.isEmpty, !projects.contains(where: { $0.id == project }) { project = "" }
             loadProblem = nil
         } catch {
@@ -161,8 +167,8 @@ struct HubLinkSheet: View {
     }
 
     private func link() async {
-        guard let chosen = spaces.first(where: { $0.id == space }) else { return }
-        await links.link(binder, space: chosen, to: projects.first { $0.id == project })
+        guard let hub, let chosen = spaces.first(where: { $0.id == space }) else { return }
+        await links.link(binder, on: hub, space: chosen, to: projects.first { $0.id == project })
     }
 }
 

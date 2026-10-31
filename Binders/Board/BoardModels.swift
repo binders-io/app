@@ -47,6 +47,12 @@ final class TaskCard {
     /// told from one that came from the team. "held" for a card kept on this Mac (made from what your iPhone heard)
     /// until you share it. Empty for every other card.
     var teamShadow: String = ""
+    /// On a binder linked to a hub (HubBoard): the card's id there, from when it's first sent. Empty for every other card.
+    var hubCard: String = ""
+    /// On a binder linked to a hub (HubBoard): the card.put that puts it there (`HubCards.Outgoing`, as JSON) while the hub
+    /// hasn't answered it, for a card made here or put back by Undo. While it waits, a card the hub doesn't have is sent
+    /// again, with the same id, and never taken from this Mac for not being there. Empty once the hub has it.
+    var hubPut: String = ""
 
     init(title: String, binderID: UUID?, column: BoardColumn = .backlog) {
         self.id = UUID()
@@ -141,6 +147,9 @@ final class TaskEvent {
     /// A line by Binders saying the card's section of its spec changed (`SectionChangeMark`, as JSON): whose change it
     /// was, and whether it waits for a person to look, so what of it reaches an agent can be told. Nil for every other line.
     var sectionChange: String?
+    /// On a binder linked to a hub (HubBoard): the line of the card's activity there that this one is
+    /// (`HubCards.Activity.key`), so it's never written twice. Nil for a line that stays on this Mac.
+    var hubKey: String?
 
     enum Kind: String {
         case created, moved, claimed, released, lapsed, progress, question, answer, comment, completed, edited, assigned, woke

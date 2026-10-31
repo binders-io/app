@@ -1,11 +1,13 @@
+import CryptoKit
 import Foundation
 
 // Linking a binder on the Mac to a binder on a hub (the Binders server). On the hub a Binder holds projects, and a
 // project is what holds notes, folders and cards, as a binder does here: the hub's state calls them `binders`. Linking
 // picks one, or makes a new one, and the first time sends the binder's folders, notes and cards up as changes in the
 // hub's log (POST /api/changes): folder.put, note.put and card.put, after a binder.put for a new one. Each change has an
-// id made from what it puts, under a client of the link's own, so sending them again after a failure puts nothing
-// twice: the hub keeps one change per client and id. Here: what can be checked without the hub or the store.
+// id made from what it puts and how (its version), under a client of the link's own, so sending them again after a
+// failure puts nothing twice (the hub keeps one change per client and id), and something changed here since goes again
+// as it is now. Here: what can be checked without the hub or the store.
 
 public enum HubLink {
     /// Where a binder is linked: the hub, its Binder (`x-binders-space`) and the project in it, kept on the binder.
@@ -89,6 +91,20 @@ public enum HubLink {
         let state: Inner
     }
 
+    /// Whether two addresses are the same hub: what a link was made on, and what this Mac is signed in to.
+    public static func sameHub(_ one: URL, _ other: URL) -> Bool {
+        func key(_ url: URL) -> String? {
+            guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let host = parts.host?.lowercased() else { return nil }
+            let scheme = parts.scheme?.lowercased() ?? "https"
+            let port = parts.port ?? (scheme == "http" ? 80 : 443)
+            var path = parts.path
+            while path.hasSuffix("/") { path.removeLast() }
+            return "\(scheme)://\(host):\(port)\(path)"
+        }
+        guard let first = key(one), let second = key(other) else { return false }
+        return first == second
+    }
+
     /// The projects in a Binder, from GET /api/state, by name. Nil when it isn't the hub's state.
     public static func projects(fromState data: Data) -> [Project]? {
         guard let state = try? JSONDecoder().decode(State.self, from: data) else { return nil }
@@ -96,7 +112,8 @@ public enum HubLink {
     }
 
     /// What of `changes` the hub's state doesn't have in `binder`, by change id: whatever didn't arrive. Nil when it isn't
-    /// the hub's state.
+    /// the hub's state. Being there is enough: a change's id has its version in it, so one the hub took (now, or before as
+    /// it is now) was put as it is here, and whatever the hub has done to it since is newer.
     public static func missing(_ changes: [Outgoing], fromState data: Data, binder: String) -> [String]? {
         guard let state = try? JSONDecoder().decode(State.self, from: data).state else { return nil }
         func ids(_ items: [State.Item]?) -> Set<String> { Set((items ?? []).filter { $0.binderId == binder }.map(\.id)) }
@@ -124,11 +141,14 @@ public enum HubLink {
         public let id: UUID
         public let parent: UUID?
         public let name: String
+        /// When it was last renamed or moved here: part of its version, as a note's and a card's are part of theirs.
+        public let editedAt: Date?
 
-        public init(id: UUID, parent: UUID?, name: String) {
+        public init(id: UUID, parent: UUID?, name: String, editedAt: Date? = nil) {
             self.id = id
             self.parent = parent
             self.name = name
+            self.editedAt = editedAt
         }
     }
 
@@ -235,14 +255,14 @@ public enum HubLink {
         for folder in parentsFirst(folders) {
             let put = Change.Folder(id: hubID(folder.id), binderId: binder, name: folder.name,
                                     parentId: folder.parent.flatMap { known.contains($0) ? hubID($0) : nil })
-            out.append(Outgoing(id: "folder-\(put.id)", change: .folder(put)))
+            out.append(versioned("folder-\(put.id)", .folder(put), editedAt: folder.editedAt))
         }
         let noteIDs = Set(notes.map(\.id))
         for note in notes {
             let put = Change.Note(id: hubID(note.id), title: note.title, binderId: binder,
                                   folderId: note.folder.flatMap { known.contains($0) ? hubID($0) : nil },
                                   editedAt: iso(note.editedAt), editors: [person], text: note.text)
-            out.append(Outgoing(id: "note-\(put.id)", change: .note(put)))
+            out.append(versioned("note-\(put.id)", .note(put)))
         }
         let cardIDs = Set(cards.map { hubID($0.id) })
         for card in cards {
@@ -260,9 +280,20 @@ public enum HubLink {
                                   noteId: card.note.flatMap { noteIDs.contains($0) ? hubID($0) : nil },
                                   waitsFor: card.waitsFor.map { $0.lowercased() }.filter { cardIDs.contains($0) },
                                   activity: activity)
-            out.append(Outgoing(id: "card-\(put.id)", change: .card(put)))
+            out.append(versioned("card-\(put.id)", .card(put)))
         }
         return out
+    }
+
+    /// A change whose id is what it puts (`name`) and a fingerprint of how: the same thing put the same way has the same
+    /// id, so the hub keeps it once, and changed here since it went (even back to how it was, as `editedAt` moves on) it
+    /// has a new one, which the hub puts over the old. A new project keeps its plain id: it's made once, and put again it
+    /// would take back what the hub has added to it, such as its repo.
+    static func versioned(_ name: String, _ change: Change, editedAt: Date? = nil) -> Outgoing {
+        var bytes = (try? JSONEncoder.hub.encode(change)) ?? Data()
+        if let editedAt { bytes.append(Data(iso(editedAt).utf8)) }
+        let mark = SHA256.hash(data: bytes).prefix(8).map { String(format: "%02x", $0) }.joined()
+        return Outgoing(id: "\(name)-\(mark)", change: change)
     }
 
     /// Folders with each one's parent before it; one whose parent isn't among them (or that's in a loop) goes at the top.
@@ -274,10 +305,10 @@ public enum HubLink {
         while !left.isEmpty {
             let ready = left.filter { folder in folder.parent.map { !known.contains($0) || placed.contains($0) } ?? true }
             // Only a loop is left: its folders go at the top.
-            let next = ready.isEmpty ? left.map { LocalFolder(id: $0.id, parent: nil, name: $0.name) } : ready
+            let next = ready.isEmpty ? left.map { LocalFolder(id: $0.id, parent: nil, name: $0.name, editedAt: $0.editedAt) } : ready
             for folder in next {
                 let top = folder.parent.map { !known.contains($0) } ?? false
-                out.append(top ? LocalFolder(id: folder.id, parent: nil, name: folder.name) : folder)
+                out.append(top ? LocalFolder(id: folder.id, parent: nil, name: folder.name, editedAt: folder.editedAt) : folder)
                 placed.insert(folder.id)
             }
             left.removeAll { placed.contains($0.id) }
