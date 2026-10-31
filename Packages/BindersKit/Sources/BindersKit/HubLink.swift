@@ -356,7 +356,7 @@ public enum HubLink {
         return "\(count(notes, "note", "notes")), \(count(folders, "folder", "folders")) and \(count(cards, "card", "cards"))"
     }
 
-    static func iso(_ date: Date) -> String {
+    public static func iso(_ date: Date) -> String {
         let format = ISO8601DateFormatter()
         format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return format.string(from: date)

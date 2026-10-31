@@ -132,8 +132,9 @@ struct BinderPage: View {
                         Button {
                             linkingToHub = true
                         } label: {
-                            Label(place.uploaded ? "On the hub · \(place.binderName)" : "On the hub · not all sent",
-                                  systemImage: place.uploaded ? "network" : "exclamationmark.icloud")
+                            let status = HubNotesSync.shared.status(of: binder)
+                            Label(place.uploaded ? "On the hub · \(place.binderName)\(status.map { " · \($0)" } ?? "")" : "On the hub · not all sent",
+                                  systemImage: place.uploaded ? (status?.hasPrefix("Offline") == true ? "icloud.slash" : "network") : "exclamationmark.icloud")
                         }
                         .buttonStyle(.plain)
                         .font(.callout)
