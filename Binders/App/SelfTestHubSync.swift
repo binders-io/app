@@ -213,6 +213,9 @@ extension SelfTest {
         took = await onHub { $0.notes[id(para)].map { twice($0.text) } ?? false }
         check(took != nil, "and on the hub: \(hubState.notes[id(para)]?.text.debugDescription ?? "none")")
         check((sync.counts["edit"] ?? 0) > edits, "that went as changes made on the Mac's copy of the document")
+        // What a Mac joining a moved binder merges from (HubLinks.keepWrittenHere): the words the hub's document began with.
+        let begun = (try? HubNoteDocument(note: para.id, saved: again))?.startingText
+        check(begun == "# Paragraph\n\nThe quick fox jumps.", "the hub's document says the words it started from: \(begun.debugDescription)")
 
         // MARK: A binder unlinked keeps its copy
 

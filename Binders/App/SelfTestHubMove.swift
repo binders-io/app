@@ -1,4 +1,5 @@
 import AppKit
+import BindersAutomerge
 import Foundation
 import SwiftData
 import BindersKit
@@ -6,7 +7,8 @@ import BindersKit
 /// Move to a Hub (HubMove), in a throwaway folder (BINDERS_DATA_DIR), with a stand-in team database (a server saved, not
 /// connected) and a stand-in hub that keeps changes as binders-server does: a binder made here goes to a new project with
 /// its folders, notes and cards; a teammate's binder that the teammate's Mac moved first is joined, with nothing sent
-/// again; a binder that isn't shared stays put. A move cut short keeps this Mac on the team database, and Move Again
+/// again, the hub's words taken, and what was written here that the teammate's Mac never had merged with them rather than
+/// lost; a binder that isn't shared stays put. A move cut short keeps this Mac on the team database, and Move Again
 /// finishes it. Then this Mac has left the team database, with every binder still here, teammates' notes ordinary notes,
 /// and a teammate's meeting still here. Draws Move to a Hub… before and after to `dir`, when one is given.
 ///
@@ -46,11 +48,29 @@ extension SelfTest {
         // The stand-in hub: Dana's Mac moved her binder first.
         let theirs = BinderRecord(name: "Dana's Plans", colorIndex: 1)
         let theirProject = HubLink.movedProjectID(theirs.id)
-        let theirNote = NoteItem(text: "# Launch\n\nIn May.")
+        // Written here and never on the team database when Dana's Mac moved: "Bring cake." Edited on the hub since: ", on the hub".
+        let theirNote = NoteItem(text: "# Launch\n\nIn May.\n\nBring cake.")
+        // Not changed here since: it takes the hub's words.
+        let theirBudget = NoteItem(text: "# Budget\n\nTen.")
+        /// The hub's document of each note: begun from the words Dana's Mac sent (at time 0, as binders-server's noteDoc),
+        /// then edited on the hub.
+        func hubDocument(from start: String, to now: String) -> Data {
+            let document = try! NoteDocument(new: UUID(), actor: UUID())
+            _ = try! document.change(splices: [NoteDocumentSplice(start: 0, delete: 0, insert: start)], props: [:], at: Date(timeIntervalSince1970: 0))
+            _ = try! document.change(splices: TextEdits.splices(from: start, to: now).map { NoteDocumentSplice(start: $0.start, delete: $0.delete, insert: $0.insert) },
+                                     props: [:])
+            return document.save()
+        }
+        let documents = [
+            "/api/notes/\(HubLink.hubID(theirNote.id))/doc": hubDocument(from: "# Launch\n\nIn May.", to: "# Launch\n\nIn May, on the hub."),
+            "/api/notes/\(HubLink.hubID(theirBudget.id))/doc": hubDocument(from: "# Budget\n\nTen.", to: "# Budget\n\nTwelve."),
+        ]
         var states: [String: [String: [[String: Any]]]] = [
             "team": ["binders": [["id": theirProject, "name": "Dana's Plans"]],
                      "notes": [["id": HubLink.hubID(theirNote.id), "binderId": theirProject, "title": "Launch", "editedAt": "2026-10-29T09:00:00.000Z",
-                               "editors": ["dana"], "text": "# Launch\n\nIn May, on the hub."]]],
+                               "editors": ["dana"], "text": "# Launch\n\nIn May, on the hub."],
+                              ["id": HubLink.hubID(theirBudget.id), "binderId": theirProject, "title": "Budget", "editedAt": "2026-10-29T09:00:00.000Z",
+                               "editors": ["dana"], "text": "# Budget\n\nTwelve."]]],
         ]
         var log: Set<String> = []
         var failNextChanges = false
@@ -70,6 +90,8 @@ extension SelfTest {
                 let state = states[space] ?? [:]
                 return answer(200, ["version": log.count, "state": ["binders": state["binders"] ?? [], "folders": state["folders"] ?? [],
                                                                       "notes": state["notes"] ?? [], "cards": state["cards"] ?? [], "agents": []]])
+            case ("GET", _) where documents[path] != nil:
+                return (documents[path]!, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             case ("POST", "/api/changes"):
                 if failNextChanges {
                     failNextChanges = false
@@ -103,6 +125,10 @@ extension SelfTest {
                 return answer(404, ["error": "Not here."])
             }
         }
+        func until(_ seconds: Double = 3, _ condition: () -> Bool) async {
+            let end = Date().addingTimeInterval(seconds)
+            while Date() < end, !condition() { try? await Task.sleep(for: .milliseconds(25)) }
+        }
         func onHub(_ list: String, in project: String) -> [[String: Any]] {
             (states["team"]?[list] ?? []).filter { $0["binderId"] as? String == project }
         }
@@ -127,9 +153,12 @@ extension SelfTest {
         theirNote.binderID = theirs.id
         theirNote.isTeamCopy = true
         theirNote.teamAuthorName = "Dana"
+        theirBudget.binderID = theirs.id
+        theirBudget.isTeamCopy = true
+        theirBudget.teamAuthorName = "Dana"
         let alone = NoteItem(text: "# Diary\n\nJust mine.")
         alone.binderID = solo.id
-        for note in [mine, danas, theirNote, alone] { store.insert(note) }
+        for note in [mine, danas, theirNote, theirBudget, alone] { store.insert(note) }
         let stakes = TaskCard(title: "Buy stakes", binderID: garden.id, column: .ready)
         stakes.teamShadow = "{}"
         store.insert(stakes)
@@ -181,9 +210,16 @@ extension SelfTest {
         check(gardenNotes == Set([mine, danas].map { HubLink.hubID($0.id) }), "both its notes, the teammate's too")
         check(onHub("folders", in: gardenProject).count == 1 && onHub("cards", in: gardenProject).count == 1, "its folder and its card")
         check(!log.contains { $0.hasSuffix(":binder-\(theirProject)") || $0.hasSuffix(":note-\(HubLink.hubID(theirNote.id))") }
-                && onHub("notes", in: theirProject).count == 1
-                && (onHub("notes", in: theirProject).first?["text"] as? String) == "# Launch\n\nIn May, on the hub.",
+                && onHub("notes", in: theirProject).count == 2
+                && onHub("notes", in: theirProject).contains { $0["text"] as? String == "# Launch\n\nIn May, on the hub." },
               "nothing of Dana's binder went again: the hub's words stay: \(log.filter { $0.contains(theirProject) || $0.contains(HubLink.hubID(theirNote.id)) }) \(onHub("notes", in: theirProject))")
+        let bothKept = { (text: String) in text.contains("In May, on the hub.") && text.contains("Bring cake.") }
+        _ = await until { store.note(theirBudget.id)?.text == "# Budget\n\nTwelve." }
+        check(store.note(theirBudget.id)?.text == "# Budget\n\nTwelve.", "a note not changed here since takes the hub's words: \(store.note(theirBudget.id)?.text.debugDescription ?? "gone")")
+        check(bothKept(store.note(theirNote.id)?.text ?? ""),
+              "a note written here that Dana's Mac never had keeps those words, with the hub's: \(store.note(theirNote.id)?.text.debugDescription ?? "gone")")
+        check((store.note(theirNote.id)?.updatedAt ?? .distantPast) > (HubLinks.place(of: theirs)?.linkedAt ?? .distantFuture),
+              "marked changed after the link, so it goes up rather than taking the hub's words")
         check(HubLinks.place(of: solo) == nil && onHub("notes", in: HubLink.movedProjectID(solo.id)).isEmpty, "a binder that wasn't shared stays put")
 
         // MARK: Off the team database, everything kept.

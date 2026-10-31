@@ -125,6 +125,13 @@ final class HubLinks {
             store.save()
             return await send(binder)
         }
+        // Nothing is kept as linked until this Mac's words are merged with the hub's: Move Again starts it over.
+        do {
+            try await keepWrittenHere(binder, project: projectID, space: space.id, since: place.linkedAt)
+        } catch {
+            problems[binder.id] = (error as? Problem)?.words ?? "Couldn't reach \(hub.host ?? "the hub"): \(error.localizedDescription)"
+            return false
+        }
         place.uploaded = true
         binder.hubLink = place.json
         binder.updatedAt = Date()
@@ -133,6 +140,34 @@ final class HubLinks {
         HubBoard.shared.follow()
         HubNotesSync.shared.refresh()
         return true
+    }
+
+    /// Joining a project a teammate's Mac moved first: the hub has the notes as that Mac had them, and they've changed there
+    /// since. What was written here and never reached that Mac (offline, or on the team database after it moved) is kept:
+    /// each note whose words differ from the hub's is merged with them, from the words the hub's document started from.
+    /// One whose words still aren't the hub's is marked changed after `linkedAt`, so once linked it goes up as an edit
+    /// rather than taking the hub's words (HubNotesSync.takeNewer); the rest take the hub's.
+    private func keepWrittenHere(_ binder: BinderRecord, project: String, space: String, since linkedAt: Date) async throws {
+        let (data, _) = try await ask("api/state", space: space)
+        guard let state = HubSync.State(hubState: data) else { throw Problem("The hub sent something that isn't its state.") }
+        let binderID = binder.id
+        let notes = ((try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID }))) ?? [])
+            .filter { !$0.staysUnshared }
+        for note in notes {
+            guard let hub = state.notes[HubLink.hubID(note.id)], hub.binderId == project, hub.text != note.text else { continue }
+            working[binderID] = "Keeping what was written here in “\(note.title)”…"
+            let (saved, _) = try await ask("api/notes/\(hub.id)/doc", space: space)
+            let base = (try? HubNoteDocument(note: note.id, saved: saved))?.startingText ?? hub.text
+            let merged = HubNoteDocument.merge(base: base, theirs: hub.text, ours: note.text)
+            guard merged != hub.text else { continue }
+            if merged != note.text {
+                NoteHistory.willChange(note, to: merged, always: true, by: .teammate(hub.editors.last ?? "A teammate"))
+                note.text = merged
+            }
+            note.updatedAt = max(Date(), linkedAt.addingTimeInterval(0.001))
+        }
+        working[binderID] = nil
+        store.save()
     }
 
     /// Sends what's left of a link that didn't finish. Nothing goes twice.

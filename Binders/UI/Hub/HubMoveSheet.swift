@@ -117,6 +117,9 @@ struct HubMoveSheet: View {
             let waiting = team.database?.waiting ?? 0
             return "\(waiting == 1 ? "1 change waits" : "\(waiting) changes wait") to reach the team database. Move once they've gone, so teammates have them too."
         }
+        if !team.isConnected, let waiting = team.database?.waiting, waiting > 0 {
+            return "The team database can't be reached now, and \(waiting == 1 ? "1 change of this Mac's waits" : "\(waiting) changes of this Mac's wait") for it. They go to the hub with the move, but teammates still on the team database won't have them: move once it's back and they've gone, if you can."
+        }
         if !team.isConnected {
             return "The team database can't be reached now, so what goes is what this Mac has: teammates' latest changes may not be here yet."
         }
