@@ -51,7 +51,7 @@ final class HubLinkTests: XCTestCase {
         XCTAssertNil(folders.first { $0.name == "Orphan" }?.parentId, "a folder whose parent isn't here goes at the top")
         XCTAssertNil(folders.first { $0.name == "A" }?.parentId, "folders in a loop go at the top")
         XCTAssertTrue(folders.allSatisfy { $0.binderId == "binder-g" })
-        XCTAssertEqual(changes.first { $0.id == "folder-\(HubLink.hubID(top))" }.map { _ in true }, true, "a change's id is what it puts")
+        XCTAssertTrue(changes.contains { $0.id.hasPrefix("folder-\(HubLink.hubID(top))-") }, "a change's id is what it puts, then its version")
     }
 
     func testAnExistingProjectIsntPut() {
@@ -68,7 +68,7 @@ final class HubLinkTests: XCTestCase {
         XCTAssertEqual(notes[0].text, "# Tomatoes\n\nStake them.")
         XCTAssertEqual(notes[0].editedAt, "2026-10-26T07:33:20.000Z", "as JavaScript's toISOString writes it")
         XCTAssertNil(notes[1].folderId, "a note in a folder that isn't here goes at the top")
-        let wire = json(upload().first { $0.id == "note-\(HubLink.hubID(note2))" }!)["change"] as! [String: Any]
+        let wire = json(upload().first { $0.id.hasPrefix("note-\(HubLink.hubID(note2))-") }!)["change"] as! [String: Any]
         XCTAssertNil((wire["note"] as! [String: Any])["folderId"], "nothing is sent for no folder")
     }
 
@@ -121,11 +121,51 @@ final class HubLinkTests: XCTestCase {
         XCTAssertEqual(HubLink.projects(fromState: state)?.map(\.name), ["Garden", "zebra"], "by name")
         let missing = HubLink.missing(changes, fromState: state, binder: "binder-g") ?? []
         XCTAssertFalse(missing.contains("binder-binder-g"))
-        XCTAssertFalse(missing.contains("folder-\(HubLink.hubID(top))"))
-        XCTAssertTrue(missing.contains("folder-\(HubLink.hubID(inner))"), "in another project isn't in this one")
+        func id(_ prefix: String) -> String { changes.first { $0.id.hasPrefix(prefix + "-") }!.id }
+        XCTAssertFalse(missing.contains(id("folder-\(HubLink.hubID(top))")))
+        XCTAssertTrue(missing.contains(id("folder-\(HubLink.hubID(inner))")), "in another project isn't in this one")
         XCTAssertEqual(missing.count, changes.count - 3)
         XCTAssertNil(HubLink.projects(fromState: Data("{}".utf8)))
         XCTAssertEqual(HubLink.error(in: Data(#"{"error":"No."}"#.utf8)), "No.")
+    }
+
+    /// Changed here after a link that didn't finish, a card goes again as it is now: the hub would keep the first one under
+    /// the same id. Unchanged, it's the same change, which the hub keeps once.
+    func testAChangeIdHasItsVersion() {
+        func put(_ title: String, _ edited: Date, folder: String = "Plans", folderEdited: Date? = nil) -> [String: String] {
+            let changes = HubLink.firstUpload(
+                binder: "binder-g", newName: "Garden", person: "robin-h",
+                folders: [.init(id: top, parent: nil, name: folder, editedAt: folderEdited)],
+                notes: [.init(id: note1, title: title, text: "# \(title)", folder: top, editedAt: edited)],
+                cards: [.init(id: card1, title: title, details: "", column: .ready, createdAt: day, updatedAt: edited)])
+            return Dictionary(uniqueKeysWithValues: changes.map { (String($0.id.prefix { $0 != "-" }), $0.id) })
+        }
+        let first = put("Buy stakes", day), same = put("Buy stakes", day)
+        XCTAssertEqual(first, same, "the same thing put the same way is the same change")
+        XCTAssertEqual(first["binder"], "binder-binder-g", "a new project is made once")
+        XCTAssertTrue(first["card"]!.hasPrefix("card-\(HubLink.hubID(card1))-"))
+        XCTAssertLessThanOrEqual(first.values.map(\.count).max()!, 100, "the hub takes ids up to 100")
+
+        let edited = put("Buy bamboo stakes", day.addingTimeInterval(60))
+        XCTAssertNotEqual(edited["card"], first["card"], "a card edited since goes again")
+        XCTAssertNotEqual(edited["note"], first["note"], "and a note")
+        XCTAssertEqual(edited["folder"], first["folder"], "what didn't change doesn't")
+        let back = put("Buy stakes", day.addingTimeInterval(120))
+        XCTAssertNotEqual(back["card"], first["card"], "edited back to how it was, it's still newer than what the hub has")
+
+        XCTAssertNotEqual(put("Plans", day, folder: "Later")["folder"], first["folder"], "a folder renamed goes again")
+        XCTAssertNotEqual(put("Plans", day, folderEdited: day)["folder"], put("Plans", day, folderEdited: day.addingTimeInterval(1))["folder"],
+                          "and one renamed back")
+    }
+
+    func testSameHub() {
+        let hub = URL(string: "https://hub.example.com")!
+        XCTAssertTrue(HubLink.sameHub(hub, URL(string: "https://HUB.example.com/")!))
+        XCTAssertTrue(HubLink.sameHub(hub, URL(string: "https://hub.example.com:443")!))
+        XCTAssertFalse(HubLink.sameHub(hub, URL(string: "https://other.example.com")!), "another hub, even with a Binder of the same id")
+        XCTAssertFalse(HubLink.sameHub(hub, URL(string: "http://hub.example.com")!))
+        XCTAssertFalse(HubLink.sameHub(hub, URL(string: "https://hub.example.com:8443")!))
+        XCTAssertFalse(HubLink.sameHub(URL(string: "http://localhost:3000")!, URL(string: "http://localhost:3001")!))
     }
 
     func testPlaceIsKept() {

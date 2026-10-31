@@ -81,6 +81,7 @@ final class HubAccount {
             setAddress(hub)
             problem = nil
             await refresh()
+            HubBoard.shared.follow()
         }
     }
 
@@ -131,6 +132,7 @@ final class HubAccount {
         hasToken = false
         setPerson(nil)
         pending = nil
+        HubBoard.shared.follow()
         HubNotesSync.shared.refresh()
     }
 
