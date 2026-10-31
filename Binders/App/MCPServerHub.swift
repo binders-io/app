@@ -1,5 +1,6 @@
 import Foundation
 import BindersKit
+import SwiftData
 
 /// A binder linked to a project on a hub (HubLinks) keeps its notes, folders' notes and cards on the hub: agents reach them
 /// through the hub's own MCP server (`/mcp`, with a `bnd_` token of their own, HubAgentSetup) or the hub's runner. This
@@ -17,6 +18,17 @@ extension MCPServer {
         actor.isAgent && hubPlace(binderID) != nil
     }
 
+    /// Whether an agent is kept from this note here: it's in a linked binder and went up with it. One that stays unshared
+    /// isn't on the hub, so it isn't kept.
+    static func onHub(_ note: NoteItem, for actor: BoardActor) -> Bool {
+        !note.staysUnshared && onHub(note.binderID, for: actor)
+    }
+
+    /// How many of a binder's notes stay unshared, and so here for an agent when the binder is linked.
+    static func unsharedNotes(in binderID: UUID) -> Int {
+        (try? Store.shared.context.fetchCount(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID && $0.staysUnshared == true }))) ?? 0
+    }
+
     /// Why an agent can't have `what` (a note, a card) of a linked binder here, and where it can: the hub's MCP server, where
     /// it has the same id in lower case.
     static func onHubFailure(_ what: String, binder binderID: UUID?, id: UUID? = nil) -> MCPCore.ToolFailure {
@@ -29,7 +41,7 @@ extension MCPServer {
         let there = id.map { " There, its id is \(HubLink.hubID($0))." } ?? ""
         return "\(binder) is linked to “\(place.binderName)” on \(place.hub.host ?? place.hub.absoluteString), so its \(what) are on the hub: "
             + "use the hub's MCP server, \(HubAgents.mcpURL(hub: place.hub).absoluteString), with your own token.\(there) "
-            + "This server keeps the binder's meetings, captures, to-dos and knowledge."
+            + "This server keeps the binder's meetings, captures, to-dos, knowledge and the notes that stay unshared."
     }
 
     /// What the server tells agents about linked binders, when there are any; nil when none is.
@@ -41,7 +53,8 @@ extension MCPServer {
             Binders linked to a hub (list_binders gives their hub) keep their notes and cards on the hub: this server leaves \
             them out and won't change them. Work on them through the hub's MCP server (\(hubs.joined(separator: ", "))), \
             set up for you with a token of your own, where they have the same ids in lower case. This server still has \
-            those binders' meetings, captures, to-dos and knowledge.
+            those binders' meetings, captures, to-dos and knowledge, and their notes made from what the user said, which \
+            stay unshared and never go to the hub.
             """
     }
 }

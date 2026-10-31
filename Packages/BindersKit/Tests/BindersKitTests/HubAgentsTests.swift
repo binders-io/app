@@ -10,11 +10,23 @@ final class HubAgentsTests: XCTestCase {
     }
 
     func testServerName() {
-        XCTAssertEqual(HubAgents.serverName(spaceName: "Team"), "binders-team")
-        XCTAssertEqual(HubAgents.serverName(spaceName: "Robin's  Lab!"), "binders-robin-s-lab")
-        XCTAssertEqual(HubAgents.serverName(spaceName: "  "), "binders-hub", "nothing to name it by")
-        XCTAssertEqual(HubAgents.serverName(spaceName: "Binders"), "binders-hub", "never Binders' own server's name")
-        XCTAssertEqual(HubAgents.serverName(spaceName: "Équipe"), "binders-quipe")
+        let team = HubAgents.serverName(spaceName: "Team", hub: hub, space: "team")
+        XCTAssertTrue(team.hasPrefix("binders-team-"), team)
+        XCTAssertEqual(team.count, "binders-team-".count + 6)
+        XCTAssertEqual(team, HubAgents.serverName(spaceName: "Team", hub: URL(string: "https://hub.example.com/")!, space: "team"),
+                       "the same on every Mac and in every run, a trailing slash or not")
+        XCTAssertTrue(HubAgents.serverName(spaceName: "Robin's  Lab!", hub: hub, space: "lab").hasPrefix("binders-robin-s-lab-"))
+        XCTAssertTrue(HubAgents.serverName(spaceName: "  ", hub: hub, space: "x").hasPrefix("binders-hub-"), "nothing to name it by")
+        XCTAssertTrue(HubAgents.serverName(spaceName: "Binders", hub: hub, space: "x").hasPrefix("binders-hub-"), "never Binders' own server's name")
+        XCTAssertTrue(HubAgents.serverName(spaceName: "Équipe", hub: hub, space: "x").hasPrefix("binders-quipe-"))
+        XCTAssertFalse(HubAgents.serverName(spaceName: String(repeating: "a-", count: 30), hub: hub, space: "x").contains("--"))
+    }
+
+    func testServerNamesDontCollide() {
+        // Two Binders named Team, on one hub or on two, are two servers.
+        let one = HubAgents.serverName(spaceName: "Team", hub: hub, space: "team")
+        XCTAssertNotEqual(one, HubAgents.serverName(spaceName: "Team", hub: hub, space: "team-2"))
+        XCTAssertNotEqual(one, HubAgents.serverName(spaceName: "Team", hub: URL(string: "https://other.example.com")!, space: "team"))
     }
 
     func testProvider() {
@@ -68,11 +80,11 @@ final class HubAgentsTests: XCTestCase {
     func testAddingToAConfiguration() throws {
         let url = HubAgents.mcpURL(hub: hub)
         let theirs = Data(#"{"mcpServers":{"binders":{"command":"/x/Binders","args":["--mcp"]}},"other":1}"#.utf8)
-        let added = try MCPConfigFile.adding(HubAgents.entry(.url, url: url, token: "bnd_t"), named: "binders-team", to: theirs)
+        let added = try MCPConfigFile.adding(HubAgents.entry(.url, url: url, token: "bnd_t"), named: "binders-team-3f9a1c", to: theirs)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: added) as? [String: Any])
         let servers = try XCTUnwrap(object["mcpServers"] as? [String: Any])
         XCTAssertNotNil(servers["binders"], "Binders' own server stays")
-        XCTAssertTrue(HubAgents.isEntry(servers["binders-team"] as? [String: Any], for: url))
+        XCTAssertTrue(HubAgents.isEntry(servers["binders-team-3f9a1c"] as? [String: Any], for: url))
         XCTAssertEqual(object["other"] as? Int, 1)
     }
 }

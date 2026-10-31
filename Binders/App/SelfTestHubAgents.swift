@@ -5,10 +5,12 @@ import BindersKit
 /// Agents and binders linked to a hub, in a throwaway folder (BINDERS_DATA_DIR). This Mac's MCP server leaves a linked
 /// binder's notes and cards out for an agent and refuses to change them, saying where they are (the hub's /mcp, and the
 /// hub's id), while its meetings stay, the other binders are as before and the iPhone (you) reads everything; the app
-/// refuses an agent's write there too, and Binders wakes no agent of yours for its cards. Setting a tool up for the hub
+/// refuses an agent's write there too, and Binders wakes no agent of yours for its cards. A note there that stays unshared
+/// never goes to the hub, so it stays here for agents as before. Setting a tool up for the hub
 /// (HubAgentSetup), with a stand-in hub: an agent of its own there taking work from the linked projects, the hub's server
 /// in the tool's configuration with its token, set up again with the old agent revoked, a newly linked project added to
-/// it, and Remove taking both away.
+/// it, and Remove taking both away; two Binders of the same name each with an entry of their own, and Remove while the
+/// agent's projects are being changed.
 ///
 /// With BINDERS_TEST_HUB (a hub's address) and BINDERS_TEST_HUB_TOKEN (a bnp_ token there), it links a binder with a
 /// ready card to a new project on that hub, sets a tool up for it, and has that agent claim and complete the card through
@@ -42,6 +44,8 @@ extension SelfTest {
         var agents: [String: [String: Any]] = [:]
         var asked: [(method: String, path: String, space: String, body: [String: Any])] = []
         var issued = 0
+        // How long a PATCH takes, for Remove while the projects are being changed.
+        var patchDelay: UInt64 = 0
         account.send = { request in
             let path = request.url?.path ?? ""
             let method = request.httpMethod ?? "GET"
@@ -65,7 +69,10 @@ extension SelfTest {
                 let id = String(path.dropFirst("/api/agents/".count))
                 guard agents[id] != nil else { return answer(400, ["error": "No such agent."]) }
                 agents[id]?.merge(body) { _, new in new }
-                return answer(200, agents[id] ?? [:])
+                let answered = answer(200, agents[id] ?? [:])
+                // Changed on the hub, and the answer slow to come back.
+                if patchDelay > 0 { try await Task.sleep(nanoseconds: patchDelay) }
+                return answered
             case ("DELETE", _) where path.hasPrefix("/api/agents/"):
                 agents[String(path.dropFirst("/api/agents/".count))] = nil
                 return answer(200, ["ok": true])
@@ -94,6 +101,9 @@ extension SelfTest {
             return note
         }
         let tomatoes = note("# Tomatoes\n\nStake them in May.", in: garden)
+        // Made from what you said to yourself: it stays unshared, so it never went to the hub.
+        let reminder = note("# Seeds\n\nOrder the heirloom ones.", in: garden)
+        reminder.staysUnshared = true
         let budget = note("# Budget\n\nQ4 numbers.", in: work)
         let stakes = TaskCard(title: "Buy stakes", binderID: garden.id, column: .ready)
         let report = TaskCard(title: "Write the report", binderID: work.id, column: .ready)
@@ -118,15 +128,18 @@ extension SelfTest {
         let binders = list((await call("list_binders", [:])).text)
         let gardenEntry = binders.first { $0["name"] as? String == "Garden" }
         let gardenHub = gardenEntry?["hub"] as? [String: Any]
-        check(gardenHub?["mcp"] as? String == mcp && gardenHub?["binder"] as? String == "binder-garden" && gardenEntry?["notes"] as? Int == 0
-                && gardenEntry?["meetings"] as? Int == 1, "list_binders says Garden's notes and cards are on the hub, and its meeting here: \(gardenEntry ?? [:])")
+        check(gardenHub?["mcp"] as? String == mcp && gardenHub?["binder"] as? String == "binder-garden" && gardenEntry?["notes"] as? Int == 1
+                && gardenEntry?["meetings"] as? Int == 1, "list_binders says Garden's notes and cards are on the hub, and its meeting and unshared note here: \(gardenEntry ?? [:])")
         check(binders.first { $0["name"] as? String == "Work" }?["hub"] == nil, "Work isn't linked")
 
         let notes = list((await call("list_notes", [:])).text).compactMap { $0["id"] as? String }
-        check(notes.contains(budget.id.uuidString) && !notes.contains(tomatoes.id.uuidString), "list_notes leaves Garden's notes out")
-        let gardenNotes = await call("list_notes", ["binder": "Garden"])
-        check(!gardenNotes.ok && gardenNotes.text.contains(mcp) && gardenNotes.text.contains("meetings"),
-              "asked for Garden's notes, it says they're on the hub and what stays here: \(gardenNotes.text)")
+        check(notes.contains(budget.id.uuidString) && !notes.contains(tomatoes.id.uuidString) && notes.contains(reminder.id.uuidString),
+              "list_notes leaves Garden's notes out, but for the one that stays unshared")
+        let gardenNotes = list((await call("list_notes", ["binder": "Garden"])).text).compactMap { $0["id"] as? String }
+        check(gardenNotes == [reminder.id.uuidString], "asked for Garden's notes, it gives the one that stays here: \(gardenNotes)")
+        let noneHere = await call("list_notes", ["binder": "Garden", "tag": "compost"])
+        check(!noneHere.ok && noneHere.text.contains(mcp) && noneHere.text.contains("meetings"),
+              "with none of Garden's here, it says its notes are on the hub and what stays here: \(noneHere.text)")
         let read = await call("get_note", ["id": tomatoes.id.uuidString])
         check(!read.ok && read.text.contains(HubLink.hubID(tomatoes.id)), "get_note on Garden's note gives the hub's id for it: \(read.text)")
         let appended = await call("append_to_note", ["id": tomatoes.id.uuidString, "text": "And water them."])
@@ -137,6 +150,15 @@ extension SelfTest {
         let moved = await call("move_item", ["id": tomatoes.id.uuidString, "to": "Later"])
         check(!moved.ok && store.note(tomatoes.id)?.folderID == nil, "nor moved")
         check((await call("get_note", ["id": budget.id.uuidString])).ok, "Work's notes are as before")
+        let readReminder = await call("get_note", ["id": reminder.id.uuidString])
+        check(readReminder.ok && readReminder.text.contains("heirloom"), "Garden's note that stays unshared is read here: \(readReminder.text)")
+        let appendedReminder = await call("append_to_note", ["id": reminder.id.uuidString, "text": "And the beans."])
+        check(appendedReminder.ok && store.note(reminder.id)?.text.contains("And the beans.") == true && store.note(reminder.id)?.staysUnshared == true,
+              "and changed here, still unshared: \(appendedReminder.text)")
+        reminder.distill = true
+        store.save()
+        let distilled = await call("distill_note", ["id": reminder.id.uuidString])
+        check(!distilled.ok && distilled.text.contains(mcp), "but its cards would be the hub's, so Distill is refused: \(distilled.text)")
 
         let tasks = list((await call("list_tasks", [:])).text).compactMap { $0["id"] as? String }
         check(tasks.contains(report.id.uuidString) && !tasks.contains(stakes.id.uuidString), "list_tasks leaves Garden's cards out")
@@ -191,7 +213,7 @@ extension SelfTest {
             if failAdding { throw MCPHost.Failure.command("Claude Code's file is locked.") }
             servers["\(host.rawValue)/\(name)"] = (url, token)
         }
-        setup.removeServer = { host, name in servers["\(host.rawValue)/\(name)"] = nil }
+        setup.removeServer = { host, name, _ in servers["\(host.rawValue)/\(name)"] = nil }
 
         let spaces = setup.spaces()
         check(spaces.map(\.id) == ["team"] && spaces.first?.projects == ["binder-garden"] && spaces.first?.name == "Team",
@@ -202,16 +224,17 @@ extension SelfTest {
         let made1 = asked.first { $0.method == "POST" && $0.path == "/api/agents" }
         check(first && made1?.space == "team" && made1?.body["binders"] as? [String] == ["binder-garden"] && made1?.body["provider"] as? String == "claude"
                 && (made1?.body["name"] as? String ?? "").hasPrefix("Claude Code"), "Set Up asks the hub for a Claude Code agent taking Garden's project's work: \(made1?.body ?? [:])")
-        check(servers["claudeCode/binders-team"]?.url.absoluteString == mcp && servers["claudeCode/binders-team"]?.token == "bnd_token1",
-              "and adds the hub's server to Claude Code as binders-team, with that agent's token")
+        let teamServer = "claudeCode/" + HubAgents.serverName(spaceName: "Team", hub: hub, space: "team")
+        check(teamServer.hasPrefix("claudeCode/binders-team-") && servers[teamServer]?.url.absoluteString == mcp && servers[teamServer]?.token == "bnd_token1",
+              "and adds the hub's server to Claude Code as \(teamServer), with that agent's token: \(servers.keys.sorted())")
         let record = setup.record(.claudeCode, in: "team")
-        check(record?.agent == "agent-1" && record?.server == "binders-team", "Binders keeps which agent it is")
+        check(record?.agent == "agent-1" && "claudeCode/" + (record?.server ?? "") == teamServer, "Binders keeps which agent it is")
         let saved = AppDefaults.store.data(forKey: HubAgentSetup.recordsKey).map { String(decoding: $0, as: UTF8.self) } ?? ""
         check(saved.contains("agent-1") && !saved.contains("bnd_"), "and never its token")
 
         let again = await setup.add(.claudeCode, in: team)
         check(again && setup.record(.claudeCode, in: "team")?.agent == "agent-2" && agents["agent-1"] == nil && agents["agent-2"] != nil
-                && servers["claudeCode/binders-team"]?.token == "bnd_token2", "Set Up Again makes a new agent and revokes the old one")
+                && servers[teamServer]?.token == "bnd_token2", "Set Up Again makes a new agent and revokes the old one")
 
         failAdding = true
         let failed = await setup.add(.cursor, in: team)
@@ -230,8 +253,40 @@ extension SelfTest {
         await setup.refresh()
         check(agents["agent-2"]?["binders"] as? [String] == ["binder-garden"], "unlinking it takes it away")
 
+        // Another Binder on the hub named Team too: a server of its own, and Remove takes out only its own.
+        let patch = BinderRecord(name: "Patch", colorIndex: 4)
+        patch.hubLink = HubLink.Place(hub: hub, space: "team-2", spaceName: "Team", binder: "binder-patch", binderName: "Patch", client: "mac-test-3", uploaded: true).json
+        store.insert(patch)
+        store.save()
+        guard let otherTeam = setup.spaces().first(where: { $0.id == "team-2" }) else {
+            check(false, "the second Team is listed")
+            return 1
+        }
+        let otherServer = "claudeCode/" + HubAgents.serverName(spaceName: "Team", hub: hub, space: "team-2")
+        let otherAdded = await setup.add(.claudeCode, in: otherTeam)
+        check(otherAdded && otherServer != teamServer && servers[teamServer]?.token == "bnd_token2" && servers[otherServer]?.token == "bnd_token\(issued)",
+              "a second Binder named Team gets its own server, and the first keeps its token: \(servers.keys.sorted())")
+        await setup.remove(.claudeCode, in: otherTeam)
+        check(servers[otherServer] == nil && servers[teamServer]?.token == "bnd_token2" && agents["agent-2"] != nil,
+              "removing it leaves the first Team's server and agent")
+        HubLinks.shared.unlink(patch)
+        // Unlinking changes the agents' projects a moment later: let it, before the next.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        // Remove while the agent's projects are being changed: the change finds the setup gone, and leaves it gone.
+        shed.hubLink = HubLink.Place(hub: hub, space: "team", spaceName: "Team", binder: "binder-shed", binderName: "Shed", client: "mac-test-2", uploaded: true).json
+        store.save()
+        patchDelay = 300_000_000
+        asked = []
+        let refreshing = Task { await setup.refresh() }
+        for _ in 0..<100 where !asked.contains(where: { $0.method == "PATCH" }) { try? await Task.sleep(nanoseconds: 10_000_000) }
+        check(asked.contains { $0.method == "PATCH" }, "the agent's projects are being changed")
         await setup.remove(.claudeCode, in: team)
-        check(servers.isEmpty && agents.isEmpty && setup.record(.claudeCode, in: "team") == nil, "Remove takes the server out of Claude Code and the agent off the hub")
+        await refreshing.value
+        patchDelay = 0
+        check(servers.isEmpty && agents.isEmpty && setup.record(.claudeCode, in: "team") == nil && setup.records.isEmpty,
+              "Remove takes the server out of Claude Code and the agent off the hub, while the projects were being changed")
+        HubLinks.shared.unlink(shed)
 
         // MARK: A real hub, when one is given.
         if let realHub = ProcessInfo.processInfo.environment["BINDERS_TEST_HUB"], let token = ProcessInfo.processInfo.environment["BINDERS_TEST_HUB_TOKEN"] {
@@ -285,7 +340,7 @@ extension SelfTest {
         // Set up, keeping the token instead of writing any tool's configuration.
         var given: (url: URL, token: String)?
         setup.addServer = { _, _, url, token in given = (url, token) }
-        setup.removeServer = { _, _ in }
+        setup.removeServer = { _, _, _ in }
         guard let hubSpace = setup.spaces().first(where: { $0.id == space.id }) else {
             check(false, "the linked project is offered for setting up")
             return failed

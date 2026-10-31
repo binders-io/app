@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // An agent on this Mac working on a hub's cards: a binder linked to a hub keeps its notes and cards there, so the agent
@@ -12,12 +13,22 @@ public enum HubAgents {
         hub.appendingPathComponent("mcp")
     }
 
-    /// The server's name in a tool's configuration, beside Binders' own ("binders"): one per Binder on the hub, as its
-    /// tokens are, named from it ("binders-team"), so an agent's tools say which.
-    public static func serverName(spaceName: String) -> String {
+    /// The server's name in a tool's configuration, beside Binders' own ("binders"): one per Binder on a hub, as its tokens
+    /// are, named from it so an agent's tools say which, and marked with the hub and the Binder's id ("binders-team-3f9a1c"),
+    /// as two Binders can have the same name, on one hub or on two.
+    public static func serverName(spaceName: String, hub: URL, space: String) -> String {
         let slug = spaceName.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "-" }.joined()
             .split(separator: "-").joined(separator: "-")
-        return slug.isEmpty || slug == "binders" ? "binders-hub" : "binders-\(String(slug.prefix(40)))"
+        let named = slug.isEmpty || slug == "binders" ? "hub" : String(slug.prefix(40)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return "binders-\(named)-\(mark(hub: hub, space: space))"
+    }
+
+    /// Six hex digits for a hub and one of its Binders, the same on every Mac and in every run.
+    static func mark(hub: URL, space: String) -> String {
+        var address = hub.absoluteString.lowercased()
+        while address.hasSuffix("/") { address.removeLast() }
+        let digest = SHA256.hash(data: Data((address + "\u{0}" + space).utf8))
+        return digest.prefix(3).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The hub's word for the tool an agent is (its `provider`).

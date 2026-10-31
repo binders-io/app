@@ -30,6 +30,9 @@ final class HubAgentSetup {
         var server: String
         /// The projects it takes work from, as the hub was last told.
         var binders: [String]
+
+        /// The same setup, however its projects changed since: the agent on its hub.
+        func isSame(as other: Record) -> Bool { agent == other.agent && hub == other.hub }
     }
 
     /// One of the hub's Binders with binders linked here, and the projects they're linked to.
@@ -53,7 +56,9 @@ final class HubAgentSetup {
     @ObservationIgnored var addServer: (MCPHost, String, URL, String) async throws -> Void = { host, name, url, token in
         try await host.addHubServer(named: name, url: url, token: token)
     }
-    @ObservationIgnored var removeServer: (MCPHost, String) async throws -> Void = { host, name in try await host.removeHubServer(named: name) }
+    @ObservationIgnored var removeServer: (MCPHost, String, URL) async throws -> Void = { host, name, url in
+        try await host.removeHubServer(named: name, url: url)
+    }
 
     init() {
         records = AppDefaults.store.data(forKey: Self.recordsKey).flatMap { try? JSONDecoder().decode([Record].self, from: $0) } ?? []
@@ -92,7 +97,7 @@ final class HubAgentSetup {
                                           runsOn: Host.current().localizedName ?? "This Mac")
             let (data, _) = try await ask("api/agents", space: space.id, method: "POST", body: body)
             guard let issued = HubAgents.issued(from: data) else { throw HubLinks.Problem("The hub didn't give the agent a token.") }
-            let server = HubAgents.serverName(spaceName: space.name)
+            let server = HubAgents.serverName(spaceName: space.name, hub: space.hub, space: space.id)
             working[key] = "Adding it to \(host.name)…"
             do {
                 try await addServer(host, server, HubAgents.mcpURL(hub: space.hub), issued.token)
@@ -104,7 +109,11 @@ final class HubAgentSetup {
             if let earlier, earlier.agent != issued.agent {
                 _ = try? await ask("api/agents/\(earlier.agent)", space: space.id, method: "DELETE")
             }
-            records.removeAll { $0.host == host.rawValue && $0.space == space.id }
+            // Set up under another name before (an older build's, or the Binder renamed): that entry's token is revoked now.
+            if let earlier, earlier.server != server, !sharesServer(earlier) {
+                try? await removeServer(host, earlier.server, HubAgents.mcpURL(hub: earlier.hub))
+            }
+            records.removeAll { $0.host == host.rawValue && $0.space == space.id && $0.hub == space.hub }
             records.append(Record(host: host.rawValue, hub: space.hub, space: space.id, spaceName: space.name, agent: issued.agent,
                                   agentName: name, server: server, binders: space.projects))
             save()
@@ -125,8 +134,9 @@ final class HubAgentSetup {
         defer { working[key] = nil }
         working[key] = "Removing…"
         do {
-            try await removeServer(host, record.server)
-            records.removeAll { $0 == record }
+            // Only this setup's entry: one an older build named for another Binder of the same name stays for it.
+            if !sharesServer(record) { try await removeServer(host, record.server, HubAgents.mcpURL(hub: record.hub)) }
+            records.removeAll { $0.isSame(as: record) }
             save()
             // Gone from the tool either way; a hub that can't be reached keeps the agent until it's removed there.
             do {
@@ -141,19 +151,26 @@ final class HubAgentSetup {
     }
 
     /// Tells the hub which projects each tool's agent takes work from, after a binder is linked or unlinked.
+    /// The records are as they were when it began; each is found again after the hub answers, as Remove or Set Up Again may
+    /// have changed them meanwhile.
     func refresh() async {
         let spaces = spaces()
-        for index in records.indices where records[index].hub == account.address {
-            let projects = spaces.first { $0.id == records[index].space }?.projects ?? []
-            guard projects != records[index].binders else { continue }
+        for record in records where record.hub == account.address {
+            let projects = spaces.first { $0.id == record.space }?.projects ?? []
+            guard projects != record.binders else { continue }
             // No project left: an agent with none would take work from every project, so it takes none until linked again.
             let sent = projects.isEmpty ? ["none"] : projects
-            if (try? await ask("api/agents/\(records[index].agent)", space: records[index].space, method: "PATCH",
-                               body: HubAgents.agentBinders(sent))) != nil {
-                records[index].binders = projects
-            }
+            guard (try? await ask("api/agents/\(record.agent)", space: record.space, method: "PATCH", body: HubAgents.agentBinders(sent))) != nil,
+                  let index = records.firstIndex(where: { $0.isSame(as: record) }) else { continue }
+            records[index].binders = projects
         }
         save()
+    }
+
+    /// Whether another setup on the same tool has this one's server name: two Binders of the same name, set up by an
+    /// older build that named the server from the name alone. Its entry is the other's now, and stays.
+    private func sharesServer(_ record: Record) -> Bool {
+        records.contains { $0.host == record.host && $0.server == record.server && !$0.isSame(as: record) }
     }
 
     private func save() {

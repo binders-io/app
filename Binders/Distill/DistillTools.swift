@@ -62,8 +62,9 @@ enum DistillTools {
         guard let found else {
             throw MCPCore.ToolFailure(cardOnly ? "No card with that id. Give the id of the card you're working on." : "No note or distilled card with that id.")
         }
-        // A linked binder's notes and cards are the hub's: an agent distills them there.
-        if let actor, MCPServer.onHub(found.0.binderID, for: actor) {
+        // A linked binder's notes and cards are the hub's: an agent distills them there. A note of its that stays unshared
+        // never went up, so it's read here; its cards would be the hub's (distill_note, propose_work_items).
+        if let actor, found.1 != nil ? MCPServer.onHub(found.0.binderID, for: actor) : MCPServer.onHub(found.0, for: actor) {
             throw MCPServer.onHubFailure("notes", binder: found.0.binderID, id: found.1?.id ?? found.0.id)
         }
         if found.0.isTeamCopy, !reads.team {
@@ -167,10 +168,12 @@ enum DistillTools {
             guard !cardOnly else { throw MCPCore.ToolFailure("This server reaches the board only. Ask the user to distill the note in Binders.") }
             let (note, _) = try self.note(string("id"), cardOnly: false, reads: reads, actor: actor)
             guard note.distill else { throw MCPCore.ToolFailure("Distill is off for “\(note.title)”. The user turns it on with Distill This Note, in the note's menu.") }
+            if MCPServer.onHub(note.binderID, for: actor) { throw MCPServer.onHubFailure("cards", binder: note.binderID) }
             return proposal(try await write("distill_note", ["id": note.id.uuidString, "actor": actor.name, "actor_kind": actor.kind.rawValue]), note: note)
         case "propose_work_items":
             let (note, card) = try self.note(string("id"), cardOnly: cardOnly, reads: reads, actor: actor)
             guard note.distill else { throw MCPCore.ToolFailure("Distill is off for “\(note.title)”. The user turns it on with Distill This Note, in the note's menu.") }
+            if MCPServer.onHub(note.binderID, for: actor) { throw MCPServer.onHubFailure("cards", binder: note.binderID) }
             let items: String
             if let list = arguments["items"] as? [Any], let data = try? JSONSerialization.data(withJSONObject: list) {
                 items = String(decoding: data, as: UTF8.self)

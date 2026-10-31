@@ -270,8 +270,9 @@ extension MCPHost {
         try data.write(to: configURL, options: .atomic)
     }
 
-    /// Takes the hub's server by that name out of the tool's configuration, and nothing else.
-    func removeHubServer(named name: String) async throws {
+    /// Takes the hub's server by that name out of the tool's configuration, and nothing else: an entry by that name that
+    /// isn't the hub's server at `url` stays.
+    func removeHubServer(named name: String, url: URL) async throws {
         if self == .claudeCode {
             let quoted = "'" + name.replacingOccurrences(of: "'", with: "'\\''") + "'"
             let script = "command -v claude >/dev/null || exit 127; claude mcp remove -s user \(quoted) >/dev/null 2>&1; exit 0"
@@ -279,6 +280,7 @@ extension MCPHost {
             if result.status == 127 { throw Failure.notFound("The claude command") }
             return
         }
+        guard hasHubServer(named: name, url: url) else { return }
         let data: Data?
         do {
             data = try MCPConfigFile.removing(named: name, serversKey: serversKey, from: try? Data(contentsOf: configURL))
