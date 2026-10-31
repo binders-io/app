@@ -9,15 +9,15 @@ import BindersKit
 ///   `TaskEvent`s, each once, by its `hubKey`). A card the hub no longer has in a linked project goes from this Mac, once the
 ///   hub has had it; one made here, or put back by Undo, that the hub hasn't answered for yet (`TaskCard.hubPut`) goes up
 ///   again, with the same change id, and stays.
-/// - going: `BoardService` makes a change here at once and hands it over (`sent`): a claim as card.claim, which the hub
-///   decides; a move, an answer, a decision or an edit as card.update with its first line; the lines after it as
-///   card.activity; a new card as card.put; a deleted one as card.delete, and one put back by Undo as the card.put of the
-///   card as the hub had it. What the hub refuses (a claim it gave someone else included) isn't sent again: the card is put
-///   back as the hub has it, and a line by Binders says why. A card.put is the exception: kept on the card until the hub
-///   answers it, it's sent again until it does.
+/// - going: `BoardService` makes a change here at once and hands it over (`sent`): a move, an answer, a decision or an
+///   edit as card.update with its first line; the lines after it as card.activity; a new card as card.put; a deleted one
+///   as card.delete, and one put back by Undo as the card.put of the card as the hub had it. What the hub refuses isn't
+///   sent again: the card is put back as the hub has it, and a line by Binders says why. A card.put is the exception: kept
+///   on the card until the hub answers it, it's sent again until it does.
 ///
-/// The hub's agents work on its cards through its runner and /mcp, so a change that comes from the hub wakes no agent
-/// here.
+/// The hub's agents work on its cards through its runner and /mcp, and only they take them: the hub takes no card.claim
+/// from a person's app, so `BoardService` refuses a claim on a linked board here. A change that comes from the hub wakes no
+/// agent here.
 @MainActor
 @Observable
 final class HubBoard {
@@ -36,7 +36,7 @@ final class HubBoard {
     @ObservationIgnored var openLive: (URLRequest) -> AsyncThrowingStream<Data, Error> = HubBoard.webSocket
     /// How long after a drop the feed is opened again, doubling to a minute.
     @ObservationIgnored var retry: Duration = .seconds(2)
-    /// How long a claim waits for the feed to bring the hub's decision before the hub's state is read for it.
+    /// How long a card.put the hub answered waits for the feed to bring it before the hub's state is read for it.
     @ObservationIgnored var decisionWait: Duration = .seconds(3)
     /// How long after a card.put that didn't reach the hub the ones waiting are sent again.
     @ObservationIgnored var putRetry: Duration = .seconds(30)
@@ -332,21 +332,6 @@ final class HubBoard {
             return line
         }
 
-        // A claim: the hub decides who gets it.
-        if let first = lines.first, first.kind == .claimed, card.column == .inProgress, let holder = card.assignee {
-            // The hub writes its own line for it, at the same moment: that one takes this one's place.
-            first.hubKey = nil
-            guard card.assigneeIsAgent else {
-                return refused(card.id, words: "On a hub's board only agents take cards. Give it to one instead.", space: place.space)
-            }
-            let agent = hubBoard.agentID(named: holder, owner: person) ?? holder
-            let at = HubCards.iso(first.createdAt)
-            var changes = [HubCards.Outgoing(change: HubCards.claim(id, agent: agent, at: at))]
-            changes += activity.dropFirst().map { HubCards.Outgoing(change: HubCards.activity(id, $0)) }
-            send(changes, for: card, in: place, claim: (id, agent))
-            return
-        }
-
         var fields: [String: JSONValue] = [:]
         if let before {
             if before.column != card.column { fields = HubCards.moveFields(to: card.column) }
@@ -463,11 +448,9 @@ final class HubBoard {
     }
 
     /// Sends changes for a card. Refused, or lost on the way, they aren't sent again: the card is put back as the hub has
-    /// it, with why. A claim (`claim`: the card's id there and who asked) is the hub's to decide, so its answer is read back.
-    /// A card.put (`put`) is kept on the card until the hub answers it, and sent again (`unsent`).
+    /// it, with why. A card.put (`put`) is kept on the card until the hub answers it, and sent again (`unsent`).
     @discardableResult
-    private func send(_ changes: [HubCards.Outgoing], for card: TaskCard?, in place: HubLink.Place, claim: (card: String, agent: String)? = nil,
-                      put: Bool = false) -> Task<Void, Never> {
+    private func send(_ changes: [HubCards.Outgoing], for card: TaskCard?, in place: HubLink.Place, put: Bool = false) -> Task<Void, Never> {
         let cardID = card?.id
         let hubCardID = card.map(hubID(of:)) ?? ""
         if put, let cardID { putting[cardID, default: 0] += 1 }
@@ -481,25 +464,10 @@ final class HubBoard {
                 let (data, _) = try await ask("api/changes", space: place.space, body: HubCards.body(client: place.client, changes: changes))
                 if put, let cardID, let sent = changes.first?.id {
                     await landed(cardID, put: sent, hub: hubCardID, space: place.space, answer: data)
-                    return
                 }
-                guard let claim else { return }
-                // The log decides: someone else's claim may have come first.
-                let version = HubCards.versions(fromChanges: data)?.max() ?? 0
-                try await caughtUp(place.space, to: version)
-                guard let hubCard = feeds[place.space]?.board.cards[claim.card], hubCard.agentId != claim.agent else { return }
-                let words = if let holder = hubCard.agentId, let board = feeds[place.space]?.board {
-                    "\(board.name(of: holder)) took it first on the hub."
-                } else if hubCard.meantFor != nil {
-                    "On the hub it's meant for \(feeds[place.space]?.board.name(of: hubCard.meantFor ?? "") ?? "another agent")."
-                } else {
-                    "The hub didn't give it out: it's \(hubCard.column.title) there."
-                }
-                refused(cardID, words: words, space: place.space)
             } catch {
                 if put { return unsent(cardID, error: error, space: place.space) }
-                let words = Self.words(of: error)
-                refused(cardID, words: claim == nil ? words : "The hub didn't give it out. \(words)", space: place.space)
+                refused(cardID, words: Self.words(of: error), space: place.space)
             }
         }
     }

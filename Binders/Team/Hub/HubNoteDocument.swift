@@ -17,6 +17,8 @@ final class HubNoteDocument {
     }
 
     var text: String { document.text }
+    /// The words the hub's document started from: what the note was when the hub first made its document.
+    var startingText: String { document.startingText }
     func save() -> Data { document.save() }
 
     /// The change that takes its words to `text`, made and applied here, in base64 as a note.edit carries it. Nil when

@@ -127,6 +127,16 @@ public final class NoteDocument {
     /// How many changes it holds.
     public var changeCount: Int { document.getHistory().count }
 
+    /// The words it started from: its text at the changes made at time 0, the skeleton and the words a document made from
+    /// a note's text begins with (binders-server's noteDoc), the same everywhere for the same note and words. Empty when
+    /// it began empty.
+    public var startingText: String {
+        let first = document.getHistory().compactMap { document.change(hash: $0) }.filter { $0.timestamp.timeIntervalSince1970 == 0 }
+        let heads = Set(first.map(\.hash)).subtracting(first.flatMap(\.deps))
+        guard !heads.isEmpty else { return "" }
+        return (try? document.textAt(obj: textObject, heads: heads)) ?? ""
+    }
+
     public func has(_ hash: String) -> Bool {
         Self.changeHash(hash).map { document.change(hash: $0) != nil } ?? false
     }

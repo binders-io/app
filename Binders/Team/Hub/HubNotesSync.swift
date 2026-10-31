@@ -303,7 +303,8 @@ final class HubNotesSync {
         case .folderPut(let folder):
             space.state.apply(change)
             guard let binder = binders[folder.binderId] else {
-                if let here = store.folder(HubSync.localID(folder.id)) { store.deleteFolder(here) }
+                // In a project that isn't linked here: gone from a linked binder, or a copy an unlinked binder keeps.
+                if let here = store.folder(HubSync.localID(folder.id)), isLinked(here.binderID, binders) { store.deleteFolder(here) }
                 return
             }
             let id = HubSync.localID(folder.id)
@@ -323,13 +324,13 @@ final class HubNotesSync {
             space.state.shared.insert(folder.id)
         case .folderDelete(let id):
             space.state.apply(change)
-            if let here = store.folder(HubSync.localID(id)) { store.deleteFolder(here) }
+            if let here = store.folder(HubSync.localID(id)), isLinked(here.binderID, binders) { store.deleteFolder(here) }
         case .notePut(let note):
             // Its words written whole: the hub sets its document aside, and so does this Mac.
             forgetDocument(note.id, in: space, keepingEdits: true)
             let before = space.state.notes[note.id]?.text
             space.state.apply(change)
-            guard binders[note.binderId] != nil else { return removeNote(note.id) }
+            guard binders[note.binderId] != nil else { return removeNote(note.id, binders: binders) }
             if own, store.note(HubSync.localID(note.id)) != nil { return }
             write(note.id, from: before, to: note.text, by: own ? .you : .teammate(note.editors.last ?? "A teammate"), space: space,
                   binders: binders)
@@ -361,7 +362,7 @@ final class HubNotesSync {
             write(edit.id, from: before, to: hub.text, by: author, space: space, binders: binders)
         case .noteMove(let id, let binderId, let folderId):
             space.state.apply(change)
-            guard let binder = binders[binderId] else { return removeNote(id) }
+            guard let binder = binders[binderId] else { return removeNote(id, binders: binders) }
             if let note = store.note(HubSync.localID(id)) {
                 let folder = folderId.map(HubSync.localID)
                 if note.binderID != binder || note.folderID != folder {
@@ -374,7 +375,7 @@ final class HubNotesSync {
         case .noteDelete(let id):
             space.state.apply(change)
             forgetDocument(id, in: space, keepingEdits: false)
-            removeNote(id)
+            removeNote(id, binders: binders)
         case .binderPut, .binderDelete, .noteLink, .noteSaved, .other:
             space.state.apply(change)
         }
@@ -419,8 +420,15 @@ final class HubNotesSync {
         space.state.shared.insert(hub.id)
     }
 
-    private func removeNote(_ hubID: String) {
-        guard let note = store.note(HubSync.localID(hubID)) else { return }
+    /// Whether a note or folder here is in a binder linked to this Binder (`binders`), so the hub's changes reach it.
+    private func isLinked(_ binder: UUID?, _ binders: [String: UUID]) -> Bool {
+        binder.map { binders.values.contains($0) } ?? false
+    }
+
+    /// A note goes from here when the hub deletes it or it leaves for a project that isn't linked here, but only from a
+    /// binder linked to this Binder: a binder unlinked here keeps its copy, whatever the hub does to the note.
+    private func removeNote(_ hubID: String, binders: [String: UUID]) {
+        guard let note = store.note(HubSync.localID(hubID)), isLinked(note.binderID, binders) else { return }
         NotificationCenter.default.post(name: TeamSyncService.itemsWillBeRemoved, object: self, userInfo: ["ids": Set([note.id])])
         ScratchpadController.shared.noteWillBeDeleted(note)
         NotePopouts.shared.close(note.id)

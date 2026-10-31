@@ -1148,6 +1148,8 @@ private struct TeamSettings: View {
     @State private var teamError: String?
     /// Move This Team to a Database… (lane DB3).
     @State private var moving = false
+    /// Move to a Hub…, from the team database's part (HubMoveSheet), shown here so it stays once that part goes.
+    @State private var movingToHub = false
     /// What came of joining a team here.
     @State private var said: String?
     /// The team database, held back from 0.10.0 behind its default (TeamDatabaseFeature), read as it changes.
@@ -1234,6 +1236,7 @@ private struct TeamSettings: View {
                 .fitProbe("team.footer.\(way.rawValue)")
         }
         .sheet(isPresented: $moving) { TeamMoveSheet() }
+        .sheet(isPresented: $movingToHub) { HubMoveSheet(team: controller.teamBoard) }
         .confirmationDialog("Leave the team space?", isPresented: $confirmLeave) {
             Button("Leave", role: .destructive) { Task { await team.leave() } }
         } message: {
@@ -1242,7 +1245,7 @@ private struct TeamSettings: View {
         // Held back from 0.10.0 behind its default (TeamDatabaseFeature): only the shared-folder way while it's off. On,
         // in a team folder or on a team database, its part. A team starting now goes to a hub, above.
         if way == .folder || way == .database {
-            TeamDatabaseSection()
+            TeamDatabaseSection(moveToHub: { movingToHub = true })
                 .fitProbe("team.database")
         }
     }

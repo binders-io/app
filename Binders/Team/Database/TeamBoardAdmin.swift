@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import BindersKit
 
 /// Settings → Team's team database (lane DB2): setting one up, joining with an invite, leaving, and an admin's members.
@@ -143,6 +144,34 @@ extension TeamBoard {
         guard let server else { return }
         for id in sharedBinders { binderGone(id) }
         await stop()
+        TeamDatabase.forget(server)
+        if let folder { try? FileManager.default.removeItem(at: folder) }
+        Self.save(nil)
+        self.server = nil
+        state = TeamBoardState()
+        sharedChanged()
+        if Self.current === self { Self.current = nil }
+    }
+
+    /// Moved to a hub (HubMove): this Mac leaves the team database as Leave does, but every binder it shared stays here,
+    /// teammates' included, with everything in it, for the hub to keep from now on. Teammates' notes are ordinary notes
+    /// here now, as they are on the hub; teammates' meetings and captures stay on this Mac as the copies they were. The
+    /// database keeps everything as it is, for teammates who haven't moved yet.
+    func leaveDatabaseKeepingBinders() async {
+        guard let server else { return }
+        let ids = sharedBinders
+        await stop()
+        for id in ids {
+            guard let binder = store.binder(id) else { continue }
+            binder.teamDatabaseKey = ""
+            binder.teamMadeBy = ""
+            for card in controller?.board.cards(in: id) ?? [] { card.teamShadow = "" }
+            let binderID: UUID? = id
+            for note in (try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID && $0.isTeamCopy }))) ?? [] {
+                note.isTeamCopy = false
+            }
+        }
+        store.save()
         TeamDatabase.forget(server)
         if let folder { try? FileManager.default.removeItem(at: folder) }
         Self.save(nil)
