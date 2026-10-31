@@ -280,6 +280,19 @@ extension SelfTest {
         check(pictures.counts["fetched"] ?? 0 >= 1 && pictures.counts["sent"] == 2 && pictures.counts["refused"] == nil,
               "pictures: \(pictures.counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
 
+        // The same picture in another linked binder goes up again, to that binder: the hub keeps a picture with its
+        // note's project, and a reader of only that one couldn't see the first copy.
+        let other = BinderRecord(name: "Also from a Mac \(Int(Date().timeIntervalSince1970))", colorIndex: 5)
+        store.insert(other)
+        let reused = NoteItem(text: "# Reused\n\nThe same picture.\n\n" + pastedLine)
+        reused.binderID = other.id
+        store.insert(reused)
+        store.save()
+        check(await links.link(other, space: space, to: nil), "a second binder linked to a new project in \(space.name)")
+        took = await onHub(8) { $0.notes[id(reused)].map { HubFiles.hubNames(in: $0.text) == [pastedName ?? "none"] } ?? false }
+        check(took != nil, "on the hub the second binder's note names the picture (\(within(took))): \(hubState.notes[id(reused)]?.text.debugDescription ?? "nothing")")
+        check(pictures.counts["sent"] == 3, "and it went up again for that binder, not taken from the first: sent \(pictures.counts["sent"] ?? 0)")
+
         // MARK: Offline, through quitting
 
         offline = true

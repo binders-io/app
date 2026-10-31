@@ -19,18 +19,40 @@ final class HubPictures {
 
     private var account: HubAccount { .shared }
 
+    /// Where a picture goes: the hub, its Binder and the project there. The hub keeps a picture with its note's project
+    /// and looks for it only in the Binders the reader may open, so each place gets its own copy: one sent to another
+    /// Binder, or another hub, isn't one this place's readers can see.
+    struct Place: Hashable {
+        let hub: URL
+        let space: String
+        let binder: String
+
+        init(_ place: HubLink.Place) {
+            hub = place.hub
+            space = place.space
+            binder = place.binder
+        }
+    }
+
+    /// A picture here on its way to one place.
+    private struct Upload: Hashable {
+        let place: Place
+        let name: String
+    }
+
     /// Notes whose pictures are on their way up: their words wait for them, so the hub gets the note naming its copies.
     private var notesSending: Set<UUID> = []
-    private var sending: Set<String> = []
-    /// Pictures here that have gone up, by their name in the attachments folder, to the hub's name for each.
-    private var sent: [String: String] = [:]
+    private var sending: Set<Upload> = []
+    /// Pictures here that have gone up, for each place: their name in the attachments folder, to the hub's name there.
+    private var sent: [Place: [String: String]] = [:]
     /// Ones the hub won't take (too big, or not a picture it keeps): they stay on this Mac.
     private var refused: Set<String> = []
     private var fetching: Set<String> = []
     /// The hub's pictures known to be here, so drawing a note doesn't look on disk each time.
     private var here: Set<String> = []
-    /// When a picture last couldn't be sent or fetched: a hub that's away isn't asked again on every save.
+    /// When a picture last couldn't be fetched, or sent to a place: a hub that's away isn't asked again on every save.
     private var failed: [String: Date] = [:]
+    private var failedSending: [Upload: Date] = [:]
     var retryAfter: TimeInterval = 30
     /// How many went each way, for the self-tests: "sent", "fetched", "refused".
     private(set) var counts: [String: Int] = [:]
@@ -41,37 +63,41 @@ final class HubPictures {
     func isSending(_ note: UUID) -> Bool { notesSending.contains(note) }
 
     /// A linked note's pictures that are only on this Mac go to the hub, then the note names the hub's copies.
-    /// `hubID`: the note's id on the hub, which keeps its pictures with its binder; `space`: the hub's Binder.
-    func send(_ note: NoteItem, hubID: String, space: String) {
+    /// `hubID`: the note's id on the hub, which keeps its pictures with its binder; `link`: where its binder is linked.
+    func send(_ note: NoteItem, hubID: String, link: HubLink.Place) {
         guard account.isSignedIn, !notesSending.contains(note.id) else { return }
         let pictures = HubFiles.localPictures(in: note.text)
         guard !pictures.isEmpty else { return }
+        let place = Place(link)
+        let there = sent[place] ?? [:]
         let waiting = pictures.filter { name in
-            sent[name] == nil && !refused.contains(name) && !recentlyFailed(name)
+            there[name] == nil && !refused.contains(name) && !recentlyFailed(Upload(place: place, name: name))
                 && FileManager.default.fileExists(atPath: Attachments.folder.appendingPathComponent(name).path)
         }
-        // Nothing to send, and none of its pictures went up before: nothing to change.
-        guard !waiting.isEmpty || pictures.contains(where: { sent[$0] != nil }) else { return }
+        // Nothing to send, and none of its pictures went up to this place before: nothing to change.
+        guard !waiting.isEmpty || pictures.contains(where: { there[$0] != nil }) else { return }
         let id = note.id
         notesSending.insert(id)
         Task {
-            for name in waiting where !sending.contains(name) {
-                sending.insert(name)
-                await upload(name, note: hubID, space: space)
-                sending.remove(name)
+            for name in waiting {
+                let upload = Upload(place: place, name: name)
+                guard !sending.contains(upload) else { continue }
+                sending.insert(upload)
+                await self.upload(upload, note: hubID)
+                sending.remove(upload)
             }
-            point(id)
+            point(id, to: place)
             notesSending.remove(id)
             // Its words go now, naming the hub's copies (or as they were, for pictures that couldn't go yet).
             HubNotesSync.shared.sweepSoon()
         }
     }
 
-    /// The note names the hub's copies of the pictures that have gone up.
-    private func point(_ id: UUID) {
+    /// The note names the hub's copies of the pictures that have gone up to its place.
+    private func point(_ id: UUID, to place: Place) {
         MarkdownEditor.flushAll()
         guard let note = Store.shared.note(id) else { return }
-        let text = HubFiles.pointing(note.text, to: sent)
+        let text = HubFiles.pointing(note.text, to: sent[place] ?? [:])
         guard text != note.text else { return }
         NoteHistory.willChange(note, to: text, always: true, by: .you)
         note.text = text
@@ -79,43 +105,45 @@ final class HubPictures {
         Store.shared.save()
     }
 
-    private func upload(_ name: String, note: String, space: String) async {
+    private func upload(_ upload: Upload, note: String) async {
+        let name = upload.name
         let file = Attachments.folder.appendingPathComponent(name)
         guard let (data, type) = Self.prepared(file) else {
             refuse(name, "it isn't a picture the hub keeps, or it's over 20 MB")
             return
         }
-        guard var request = account.authorized("api/files"), let url = request.url,
+        // Signed in to another hub since: it waits for this one.
+        guard account.address == upload.place.hub, var request = account.authorized("api/files"), let url = request.url,
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         components.queryItems = [URLQueryItem(name: "note", value: note)]
         request.url = components.url
         request.httpMethod = "POST"
         request.httpBody = data
         request.setValue(type, forHTTPHeaderField: "Content-Type")
-        request.setValue(space, forHTTPHeaderField: "x-binders-space")
+        request.setValue(upload.place.space, forHTTPHeaderField: "x-binders-space")
         request.timeoutInterval = 120
         guard let (body, response) = try? await account.send(request) else {
-            failed[name] = Date()
+            failedSending[upload] = Date()
             return
         }
         switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
         case 200:
             let answer = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
             guard let hubName = answer?["name"] as? String, HubFiles.isHubName(hubName) else {
-                failed[name] = Date()
+                failedSending[upload] = Date()
                 return
             }
             // Kept here under the hub's name, so the note shows it as soon as it names it.
             keep(data, as: hubName)
-            sent[name] = hubName
+            sent[upload.place, default: [:]][name] = hubName
             counts["sent", default: 0] += 1
         case 401:
-            failed[name] = Date()
+            failedSending[upload] = Date()
             await account.refresh()
         case 400, 413, 415:
             refuse(name, HubLink.error(in: body) ?? "the hub turned it down")
         default:
-            failed[name] = Date()
+            failedSending[upload] = Date()
         }
     }
 
@@ -193,9 +221,14 @@ final class HubPictures {
         failed[name].map { Date().timeIntervalSince($0) < retryAfter } ?? false
     }
 
+    private func recentlyFailed(_ upload: Upload) -> Bool {
+        failedSending[upload].map { Date().timeIntervalSince($0) < retryAfter } ?? false
+    }
+
     /// The hub's back: what couldn't go or come is tried again on the next look.
     func backOnline() {
         failed = [:]
+        failedSending = [:]
     }
 
     /// A picture tidied away is no longer here.

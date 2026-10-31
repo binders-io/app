@@ -458,12 +458,12 @@ final class HubNotesSync {
         func hubID(_ id: UUID) -> String { ids[id] ?? HubLink.hubID(id) }
         var everywhere: [UUID: Set<String>] = [:]
         var notesHere: [UUID: [NoteItem]] = [:]
-        for (binder, _) in links {
+        for (binder, place) in links {
             let notes = notes(in: binder.id)
             notesHere[binder.id] = notes
             everywhere[binder.id] = Set(notes.map { hubID($0.id) })
             // Pictures only on this Mac go up first; the note's words follow, naming the hub's copies.
-            for note in notes { HubPictures.shared.send(note, hubID: hubID(note.id), space: space.id) }
+            for note in notes { HubPictures.shared.send(note, hubID: hubID(note.id), link: place) }
         }
         var changed = false
         for (binder, place) in links {
