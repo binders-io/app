@@ -106,6 +106,18 @@ final class HubBoard {
 
     func covers(binder: UUID) -> Bool { linked[binder] != nil }
 
+    /// The binders whose boards follow a hub now, for putting a to-do on one: by name, each with its hub's Binder.
+    var linkedBinders: [(binder: BinderRecord, place: HubLink.Place)] {
+        linked.compactMap { id, place in store.binder(id).map { ($0, place) } }.sorted { $0.binder.name < $1.binder.name }
+    }
+
+    /// The card in the web app: its Binder's address on the hub, at the card. Nil for a card the hub doesn't decide.
+    func webAddress(of card: TaskCard) -> URL? {
+        guard let binder = card.binderID, let place = linked[binder] else { return nil }
+        let hub = place.hub.absoluteString.hasSuffix("/") ? String(place.hub.absoluteString.dropLast()) : place.hub.absoluteString
+        return URL(string: "\(hub)/\(place.space)/#/work/\(hubID(of: card))")
+    }
+
     private func binder(forProject project: String, in space: String) -> UUID? {
         linked.first { $0.value.space == space && $0.value.binder == project }?.key
     }
@@ -224,7 +236,10 @@ final class HubBoard {
         if card.title != hub.title, !hub.title.isEmpty { card.title = hub.title }
         let details = HubCards.details(brief: hub.brief, doneWhen: hub.doneWhen)
         if card.details != details { card.details = details }
+        let was = local?.column
         card.state = CardState(column: hub.column, assignee: hub.agentId.map { board.name(of: $0) }, assigneeIsAgent: hub.agentId != nil)
+        // Made from a to-do here: finished on the hub, the to-do is ticked off; reopened there, it's open again.
+        if let was { service.follow(card, from: was) }
         let meant = hub.meantFor.map { board.name(of: $0) }
         if card.meantFor != meant || card.meantForByAgent {
             card.meantFor = meant
