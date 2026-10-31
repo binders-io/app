@@ -54,7 +54,7 @@ extension SelfTest {
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let (spaces, current) = try? await links.spaces(),
+        guard let (spaces, current, hub) = try? await links.spaces(),
               let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
@@ -94,7 +94,7 @@ extension SelfTest {
         let first = NoteItem(text: "# Already here\n\nA note of the team's.")
         first.binderID = team.id
         store.insert(first)
-        check(await links.link(team, space: space, to: nil), "a binder is linked to a new project in \(space.name)")
+        check(await links.link(team, on: hub, space: space, to: nil), "a binder is linked to a new project in \(space.name)")
         guard let place = HubLinks.place(of: team) else { return 1 }
         check(await until(10) { sync.spaces[place.space]?.connected == true }, "the live feed is open")
         let inProject = { (state: HubSync.State) in state.notes.values.filter { $0.binderId == place.binder } }

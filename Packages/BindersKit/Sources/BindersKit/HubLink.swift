@@ -228,6 +228,10 @@ public enum HubLink {
     /// A new project's id on the hub.
     public static func newProjectID() -> String { "binder-" + hubID(UUID()) }
 
+    /// The project a binder moved off a team database goes to (Move to a Hub): made from the binder's id, which is the
+    /// same on every teammate's Mac, so the first Mac to move makes it and the others find it and join it.
+    public static func movedProjectID(_ binder: UUID) -> String { "binder-" + hubID(binder) }
+
     /// A card's place on the hub's board. The hub has no Backlog: a card there waits for a person as `proposed`, so the
     /// hub's agents don't take it. Done is `live`.
     public static func stage(_ column: BoardColumn) -> String {

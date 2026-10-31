@@ -19,6 +19,8 @@ struct TeamDatabaseSection: View {
     @State private var stopping: BinderRecord?
     @State private var leavingBinder: BinderRecord?
     @State private var leaving = false
+    /// Move to a Hub…: its sheet is the Team page's, which stays once this part goes with the database (HubMoveSheet).
+    var moveToHub: () -> Void = {}
     @State private var said: String?
     @State private var problem: String?
     /// Copies of notes an earlier Binders made when teammates joined, as an admin's Mac found them (lane DB9).
@@ -146,6 +148,14 @@ struct TeamDatabaseSection: View {
             }
             .padding(.vertical, 2)
         }
+        // Teams move to a hub (HubMove): once, every binder here goes to the hub, then this Mac leaves the database.
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Team databases are being replaced by hubs. Move to a Hub sends each binder here to a hub, with its notes, folders and cards, then leaves the team database. Each teammate moves their Mac the same way.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button("Move to a Hub…") { moveToHub() }
+                .fitProbe("team.moveToHub")
+        }
+        .padding(.vertical, 2)
         HStack {
             if team.isAdmin { Button("Add Member…") { adding = true }.disabled(!team.isConnected) }
             Spacer()

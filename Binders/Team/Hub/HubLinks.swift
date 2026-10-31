@@ -34,10 +34,11 @@ final class HubLinks {
 
     static func place(of binder: BinderRecord) -> HubLink.Place? { HubLink.Place(json: binder.hubLink) }
 
-    /// Why a binder can't be linked, in words, or nil when it can.
-    func whyNot(_ binder: BinderRecord) -> String? {
+    /// Why a binder can't be linked, in words, or nil when it can. `moving`: Move to a Hub, which takes a binder off the
+    /// team database once it's on the hub (HubMove), so one on it can go.
+    func whyNot(_ binder: BinderRecord, moving: Bool = false) -> String? {
         if binder.isTeamCopy { return "This binder is a teammate's copy. Only its owner can link it to a hub." }
-        if binder.sharedWithTeam || !binder.teamDatabaseKey.isEmpty {
+        if binder.sharedWithTeam || (!binder.teamDatabaseKey.isEmpty && !moving) {
             return "This binder is shared with your team already. Stop sharing it first, so it doesn't reach the team twice."
         }
         if !account.isSignedIn { return "Sign in to a hub in Settings → Team first." }
@@ -124,6 +125,72 @@ final class HubLinks {
         return sent
     }
 
+    /// Move to a Hub, for one binder on the team database: to its project in `space` on `hub` (`HubLink.movedProjectID`). The
+    /// first Mac to move it makes the project and sends everything up; a teammate's Mac that finds the project there
+    /// (`existing`) joins it, and from then on takes the hub's words and cards, sending only what the hub doesn't have.
+    /// A move cut short goes on where it stopped. True when the binder is on the hub.
+    @discardableResult
+    func move(_ binder: BinderRecord, on hub: URL, space: HubLink.Space, existing: HubLink.Project?) async -> Bool {
+        if let place = Self.place(of: binder) { return place.uploaded ? true : await send(binder) }
+        if let why = whyNot(binder, moving: true) ?? whyNotOn(hub) {
+            problems[binder.id] = why
+            return false
+        }
+        let projectID = HubLink.movedProjectID(binder.id)
+        var place = HubLink.Place(hub: hub, space: space.id, spaceName: space.name, binder: projectID,
+                                  binderName: existing?.name ?? binder.name, client: HubLink.newClient(), newProject: existing == nil)
+        problems[binder.id] = nil
+        guard existing != nil else {
+            binder.hubLink = place.json
+            binder.updatedAt = Date()
+            store.save()
+            return await send(binder)
+        }
+        // Nothing is kept as linked until this Mac's words are merged with the hub's: Move Again starts it over.
+        do {
+            try await keepWrittenHere(binder, on: hub, project: projectID, space: space.id, since: place.linkedAt)
+        } catch {
+            problems[binder.id] = (error as? Problem)?.words ?? "Couldn't reach \(hub.host ?? "the hub"): \(error.localizedDescription)"
+            return false
+        }
+        place.uploaded = true
+        binder.hubLink = place.json
+        binder.updatedAt = Date()
+        store.save()
+        done[binder.id] = "Joined \(place.binderName), which a teammate moved first."
+        HubBoard.shared.follow()
+        HubNotesSync.shared.refresh()
+        return true
+    }
+
+    /// Joining a project a teammate's Mac moved first: the hub has the notes as that Mac had them, and they've changed there
+    /// since. What was written here and never reached that Mac (offline, or on the team database after it moved) is kept:
+    /// each note whose words differ from the hub's is merged with them, from the words the hub's document started from.
+    /// One whose words still aren't the hub's is marked changed after `linkedAt`, so once linked it goes up as an edit
+    /// rather than taking the hub's words (HubNotesSync.takeNewer); the rest take the hub's.
+    private func keepWrittenHere(_ binder: BinderRecord, on hub: URL, project: String, space: String, since linkedAt: Date) async throws {
+        let (data, _) = try await ask("api/state", on: hub, space: space)
+        guard let state = HubSync.State(hubState: data) else { throw Problem("The hub sent something that isn't its state.") }
+        let binderID = binder.id
+        let notes = ((try? store.context.fetch(FetchDescriptor<NoteItem>(predicate: #Predicate { $0.binderID == binderID }))) ?? [])
+            .filter { !$0.staysUnshared }
+        for note in notes {
+            guard let theirs = state.notes[HubLink.hubID(note.id)], theirs.binderId == project, theirs.text != note.text else { continue }
+            working[binderID] = "Keeping what was written here in “\(note.title)”…"
+            let (saved, _) = try await ask("api/notes/\(theirs.id)/doc", on: hub, space: space)
+            let base = (try? HubNoteDocument(note: note.id, saved: saved))?.startingText ?? theirs.text
+            let merged = HubNoteDocument.merge(base: base, theirs: theirs.text, ours: note.text)
+            guard merged != theirs.text else { continue }
+            if merged != note.text {
+                NoteHistory.willChange(note, to: merged, always: true, by: .teammate(theirs.editors.last ?? "A teammate"))
+                note.text = merged
+            }
+            note.updatedAt = max(Date(), linkedAt.addingTimeInterval(0.001))
+        }
+        working[binderID] = nil
+        store.save()
+    }
+
     /// Sends what's left of a link that didn't finish. Nothing goes twice.
     @discardableResult
     func sendAgain(_ binder: BinderRecord) async -> Bool {
@@ -162,9 +229,8 @@ final class HubLinks {
             binder.hubLink = place.json
             store.save()
             done[id] = "Sent \(HubLink.counted(changes)) to \(place.binderName)."
-            // From now on its board follows the hub's.
+            // From now on its board follows the hub's, and its notes are kept the same both ways.
             HubBoard.shared.follow()
-            // From now on it's kept the same both ways.
             HubNotesSync.shared.refresh()
             return true
         } catch {

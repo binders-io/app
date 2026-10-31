@@ -9,7 +9,7 @@ import BindersKit
 /// linked; an edit on this Mac shows on the hub within a couple of seconds and the teammate's here; a note and folder
 /// the web app makes come here in their place, and this Mac's new folder, move and deletion go; two people typing in the
 /// same paragraph both keep their words; edits made offline, kept through quitting, go when it's back without losing the
-/// teammate's.
+/// teammate's; a picture pasted on this Mac goes to the hub and the web app's comes here.
 ///
 /// BINDERS_TEST_HUB (the hub's address), BINDERS_TEST_HUB_TOKEN (a bnp_ token there) and BINDERS_TEST_HUB_WEB_COOKIE (a
 /// teammate's session cookie) are set by scripts/hub-sync-test.sh, which starts a hub of its own:
@@ -58,16 +58,24 @@ extension SelfTest {
         account.openPage = { _ in }
         // Offline: nothing reaches the hub, the feed included.
         var offline = false
+        // A note's document read from the hub, whose answer comes back only once `holding` is cleared.
+        var holding: String?
+        var held = false
         account.send = { request in
             if offline { throw URLError(.notConnectedToInternet) }
-            return try await URLSession.shared.data(for: request)
+            let answer = try await URLSession.shared.data(for: request)
+            if let note = holding, request.url?.path.hasSuffix("/\(note)/doc") == true {
+                held = true
+                while holding != nil { try? await Task.sleep(for: .milliseconds(20)) }
+            }
+            return answer
         }
         sync.openFeed = { request in offline ? DeadFeed() as HubFeed : HubWebSocketFeed(request) }
 
         account.signIn(to: hubAddress)
         await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
         check(account.isSignedIn, "signed in as \(account.person?.line ?? account.problem ?? "no one")")
-        guard let hub = account.address, let (spaces, current) = try? await links.spaces(),
+        guard let (spaces, current, hub) = try? await links.spaces(),
               let space = spaces.first(where: { $0.id == current }) ?? spaces.first else {
             print("FAIL: the hub's Binders")
             return 1
@@ -127,8 +135,9 @@ extension SelfTest {
         let doomed = note("# Old note\n\nDelete me.")
         let para = note("# Paragraph\n\nThe quick fox jumps.")
         let away = note("# Away\n\nWritten before going offline.")
+        let pics = note("# Pictures\n\nFrom both sides.")
         store.save()
-        let linked = await links.link(binder, space: space, to: nil)
+        let linked = await links.link(binder, on: hub, space: space, to: nil)
         check(linked, "linked to a new project in \(space.name)")
         guard let place = HubLinks.place(of: binder) else { return 1 }
         let id = { (note: NoteItem) in HubLink.hubID(note.id) }
@@ -213,6 +222,140 @@ extension SelfTest {
         took = await onHub { $0.notes[id(para)].map { twice($0.text) } ?? false }
         check(took != nil, "and on the hub: \(hubState.notes[id(para)]?.text.debugDescription ?? "none")")
         check((sync.counts["edit"] ?? 0) > edits, "that went as changes made on the Mac's copy of the document")
+        // What a Mac joining a moved binder merges from (HubLinks.keepWrittenHere): the words the hub's document began with.
+        let begun = (try? HubNoteDocument(note: para.id, saved: again))?.startingText
+        check(begun == "# Paragraph\n\nThe quick fox jumps.", "the hub's document says the words it started from: \(begun.debugDescription)")
+
+        // MARK: A binder unlinked keeps its copy
+
+        // A second binder in the same Binder, unlinked: what the web app then does to its notes and folders stays there.
+        let other = BinderRecord(name: "Kept on a Mac \(Int(Date().timeIntervalSince1970))", colorIndex: 4)
+        store.insert(other)
+        let shelf = store.createFolder(named: "Shelf", in: other.id)!
+        let keptNote = NoteItem(text: "# Kept\n\nStays on the Mac.")
+        keptNote.binderID = other.id
+        store.insert(keptNote)
+        let gone = NoteItem(text: "# Kept too\n\nDeleted in the web app.")
+        gone.binderID = other.id
+        store.insert(gone)
+        store.save()
+        check(await links.link(other, on: hub, space: space, to: nil), "a second binder is linked into the same Binder")
+        guard let otherPlace = HubLinks.place(of: other) else { return 1 }
+        took = await onHub { $0.notes[id(keptNote)] != nil && $0.notes[id(gone)] != nil && $0.folders[HubLink.hubID(shelf.id)] != nil }
+        check(took != nil, "its notes and folder are on the hub (\(within(took)))")
+        links.unlink(other)
+        let renamed = await webSend(["type": "folder.put", "folder": ["id": HubLink.hubID(shelf.id), "binderId": otherPlace.binder, "name": "Shelf, renamed"]])
+        let moved = await webSend(["type": "note.move", "id": id(keptNote), "binderId": otherPlace.binder, "folderId": HubLink.hubID(shelf.id)])
+        let whole = await webSend(["type": "note.put", "note": ["id": id(keptNote), "title": "Kept", "binderId": otherPlace.binder, "folderId": HubLink.hubID(shelf.id),
+                                                                "editedAt": HubLink.iso(Date()), "editors": ["dana-w"], "text": "# Kept\n\nWritten whole by Dana."]])
+        let deleted = await webSend(["type": "note.delete", "id": id(gone)])
+        check([renamed, moved, whole, deleted] == [200, 200, 200, 200],
+              "the web app renames its folder, moves a note into it, writes it whole and deletes another: \([renamed, moved, whole, deleted])")
+        // A change after them in the linked binder: once it's here, the feed has brought them too.
+        let marker = (hubState.notes[id(plan)]?.text ?? text(plan.id)) + "\nAfter the unlinked binder's changes."
+        _ = await webEdit(id(plan), marker)
+        took = await until { text(plan.id).contains("After the unlinked binder's changes.") }
+        check(took != nil && store.folder(shelf.id)?.name == "Shelf" && store.note(keptNote.id)?.text == "# Kept\n\nStays on the Mac."
+                && store.note(keptNote.id)?.binderID == other.id && store.note(gone.id) != nil,
+              "on the Mac the unlinked binder's folder and notes are as they were")
+
+        // MARK: Pictures, both ways
+
+        /// A small picture of one colour, as PNG or TIFF.
+        func picture(_ color: NSColor, as type: NSBitmapImageRep.FileType = .png) -> Data {
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24, pixelsHigh: 16, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                       isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            color.setFill()
+            NSRect(x: 0, y: 0, width: 24, height: 16).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            return rep.representation(using: type, properties: [:])!
+        }
+        func hubFile(_ name: String) async -> Data? {
+            let (data, status) = await web("GET", "api/files/\(name)")
+            return status == 200 ? data : nil
+        }
+        let pictures = HubPictures.shared
+        let pasted = picture(.systemOrange)
+        let pastedLine = (try? Attachments.add(imageData: pasted, type: .png)) ?? ""
+        // A TIFF, as some apps drop them: the hub takes it as a PNG.
+        let tiff = FileManager.default.temporaryDirectory.appendingPathComponent("Scan \(UUID().uuidString.prefix(6)).tiff")
+        try? picture(.systemTeal, as: .tiff).write(to: tiff)
+        let droppedLine = (try? Attachments.add(tiff)) ?? ""
+        check(pastedLine.hasPrefix("![](attachments/") && droppedLine.hasPrefix("![](attachments/"), "pictures pasted and dropped into a linked note on the Mac")
+        pics.text = text(pics.id) + "\n\n" + pastedLine + "\n\nA scan:\n\n" + droppedLine
+        store.save()
+        let named = { (text: String) in HubFiles.hubNames(in: text).count == 2 && !text.contains("attachments/") }
+        took = await onHub(8) { $0.notes[id(pics)].map { named($0.text) } ?? false }
+        let picsOnHub = hubState.notes[id(pics)]?.text ?? ""
+        check(took.map { $0 < 4 } ?? false, "on the hub (\(within(took))) the note names the hub's copies: \(picsOnHub.debugDescription)")
+        let sentNames = HubFiles.hubNames(in: picsOnHub)
+        let pastedName = sentNames.first { picsOnHub.range(of: "From both sides.\n\n![](/api/files/\($0))") != nil }
+        let pastedOnHub = await hubFile(pastedName ?? "none")
+        check(pastedOnHub == pasted, "the web app gets the pasted picture as it was")
+        let scanName = sentNames.first { $0 != pastedName }
+        check(scanName?.hasSuffix(".png") == true, "the TIFF went up as a PNG: \(scanName ?? "none")")
+        if let scanName, let scan = await hubFile(scanName) { check(NSBitmapImageRep(data: scan)?.pixelsWide == 24, "and it's the picture") }
+        check(named(text(pics.id)), "the note on the Mac names them too")
+        check(sentNames.allSatisfy { FileManager.default.fileExists(atPath: Attachments.folder.appendingPathComponent($0).path) },
+              "and the Mac keeps its copies under the hub's names, so it shows them")
+
+        // The web app's picture: sent to the hub, then written into the note as the web app writes it.
+        let theirs = picture(.systemPurple)
+        var upload = URLRequest(url: hub.appendingPathComponent("api/files"))
+        upload.url = URL(string: upload.url!.absoluteString + "?note=\(id(pics))")
+        upload.httpMethod = "POST"
+        upload.httpBody = theirs
+        upload.setValue("image/png", forHTTPHeaderField: "Content-Type")
+        upload.setValue(cookie, forHTTPHeaderField: "Cookie")
+        upload.setValue("1", forHTTPHeaderField: "x-binders")
+        upload.setValue(space.id, forHTTPHeaderField: "x-binders-space")
+        let answer = try? await URLSession.shared.data(for: upload)
+        let address = answer.flatMap { (try? JSONSerialization.jsonObject(with: $0.0)) as? [String: Any] }?["url"] as? String ?? ""
+        check(HubFiles.hubName(in: address) != nil, "the web app sends a picture to the hub: \(address)")
+        await refreshHub()
+        check(await webEdit(id(pics), (hubState.notes[id(pics)]?.text ?? "") + "\n\n![From Dana](\(address))") == 200, "and puts it in the note")
+        let theirName = HubFiles.hubName(in: address) ?? "none"
+        let theirFile = Attachments.folder.appendingPathComponent(theirName)
+        took = await until(6) { text(pics.id).contains("![From Dana](\(address))") && (try? Data(contentsOf: theirFile)) == theirs }
+        check(took.map { $0 < 4 } ?? false, "the web app's picture is in the note on the Mac, fetched and kept here (\(within(took)))")
+        check(Attachments.url(for: address) == theirFile, "the Mac's editor shows it from there")
+        check(pictures.counts["fetched"] ?? 0 >= 1 && pictures.counts["sent"] == 2 && pictures.counts["refused"] == nil,
+              "pictures: \(pictures.counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+
+        // The same picture in another linked binder goes up again, to that binder: the hub keeps a picture with its
+        // note's project, and a reader of only that one couldn't see the first copy.
+        let also = BinderRecord(name: "Also from a Mac \(Int(Date().timeIntervalSince1970))", colorIndex: 5)
+        store.insert(also)
+        let reused = NoteItem(text: "# Reused\n\nThe same picture.\n\n" + pastedLine)
+        reused.binderID = also.id
+        store.insert(reused)
+        store.save()
+        check(await links.link(also, on: hub, space: space, to: nil), "a second binder linked to a new project in \(space.name)")
+        took = await onHub(8) { $0.notes[id(reused)].map { HubFiles.hubNames(in: $0.text) == [pastedName ?? "none"] } ?? false }
+        check(took != nil, "on the hub the second binder's note names the picture (\(within(took))): \(hubState.notes[id(reused)]?.text.debugDescription ?? "nothing")")
+        check(pictures.counts["sent"] == 3, "and it went up again for that binder, not taken from the first: sent \(pictures.counts["sent"] ?? 0)")
+
+        // MARK: Deleted while its document is read
+
+        // The web app's note has no document here yet: an edit on the Mac reads it from the hub first. The hub answers, but
+        // the answer comes only after the teammate has deleted the note and that's here: it's dropped, with the edit.
+        holding = "note-web-1"
+        if let webOne = store.note(webNote) {
+            webOne.text += "\nTyped on the Mac as Dana deletes it."
+            store.save()
+        }
+        took = await until { held }
+        check(took != nil, "the Mac reads the note's document to send its edit (\(within(took)))")
+        check(await webSend(["type": "note.delete", "id": "note-web-1"]) == 200, "the web app deletes the note meanwhile")
+        took = await until { store.note(webNote) == nil }
+        check(took != nil, "the deletion is on the Mac (\(within(took)))")
+        holding = nil
+        took = await until { sync.status(of: binder) == nil }
+        check(took != nil, "the hub's late answer is dropped with the edit: \(sync.status(of: binder) ?? "nothing waits")")
+        took = await onHub(2) { $0.notes["note-web-1"] != nil }
+        check(took == nil && store.note(webNote) == nil, "the note stays deleted on both sides")
 
         // MARK: Offline, through quitting
 
