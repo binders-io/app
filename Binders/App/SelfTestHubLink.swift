@@ -6,8 +6,9 @@ import BindersKit
 /// Linking a binder to a hub (HubLinks), in a throwaway folder (BINDERS_DATA_DIR), with a stand-in hub that keeps changes
 /// as binders-server does (one per client and id) and answers /api/me and /api/state: a binder with nested folders, notes
 /// and cards links to a new project, and they're all on the hub, a note from what you said to yourself left out; a link
-/// cut short is finished by Send Again with nothing put twice; unlinking keeps everything here; a second binder links into
-/// a project the hub has already, with no binder.put. Draws Link to Hub… choosing and linked to `dir`, when one is given.
+/// cut short is finished by Send Again with nothing put twice, and with what was edited here since as it is now; it waits
+/// while this Mac is signed in to another hub with a Binder of the same id, and stops if that happens while it sends;
+/// unlinking keeps everything here; a second binder links into a project the hub has already, with no binder.put. Draws Link to Hub… choosing and linked to `dir`, when one is given.
 ///
 /// With BINDERS_TEST_HUB (a hub's address) and BINDERS_TEST_HUB_TOKEN (a bnp_ token there), it links a binder to a new
 /// project on that hub for real and reads the hub's state back, as the web app does.
@@ -36,7 +37,9 @@ extension SelfTest {
         let links = HubLinks.shared
         account.openPage = { _ in }
 
-        // A stand-in hub with two Binders: what's in each, the changes it kept, and every request.
+        // A stand-in hub with two Binders: what's in each, the changes it kept, and every request. Another hub, with a Binder
+        // called team too, keeps what reaches it apart.
+        var other: [String] = []
         var states: [String: [String: [[String: Any]]]] = ["team": ["binders": [["id": "binder-old", "name": "Roadmap"]]], "lab": [:]]
         var log: Set<String> = []
         var asked: [String] = []
@@ -45,10 +48,22 @@ extension SelfTest {
             let path = request.url?.path ?? ""
             let method = request.httpMethod ?? "GET"
             let space = request.value(forHTTPHeaderField: "x-binders-space") ?? "team"
-            asked.append("\(method) \(path) \(space)")
             func answer(_ status: Int, _ json: Any) -> (Data, URLResponse) {
                 (try! JSONSerialization.data(withJSONObject: json), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
             }
+            if request.url?.host == "other.example.com" {
+                other.append("\(method) \(path) \(space)")
+                guard request.value(forHTTPHeaderField: "Authorization") == "Bearer bnp_robin00002" else { return answer(401, ["error": "Sign in again."]) }
+                switch (method, path) {
+                case ("GET", "/api/me"):
+                    return answer(200, ["user": ["login": "robin-h", "name": "Robin Hale"], "space": "team", "spaces": [["id": "team", "name": "Team", "role": "owner"]]])
+                case ("GET", "/api/state"):
+                    return answer(200, ["version": 0, "state": ["binders": [], "folders": [], "notes": [], "cards": [], "agents": []]])
+                default:
+                    return answer(200, ["versions": [], "version": 0])
+                }
+            }
+            asked.append("\(method) \(path) \(space)")
             guard request.value(forHTTPHeaderField: "Authorization") == "Bearer bnp_robin00001" else { return answer(401, ["error": "Sign in again."]) }
             switch (method, path) {
             case ("GET", "/api/me"):
@@ -138,9 +153,25 @@ extension SelfTest {
               "Link to Hub… offers the hub's Binders, a project or a new one, and Link: \(choosing.keys.sorted())")
         check(choosing["hubLink.counts"] != nil, "and says what goes up")
         let spaces = try? await links.spaces()
-        check(spaces?.spaces.map(\.name) == ["Team", "Lab"] && spaces?.current == "team", "the hub's Binders, from /api/me")
-        let projects = (try? await links.projects(in: "team")) ?? []
+        check(spaces?.spaces.map(\.name) == ["Team", "Lab"] && spaces?.current == "team" && spaces?.hub.host == "hub.example.com",
+              "the hub's Binders, from /api/me")
+        let hub = URL(string: "https://hub.example.com")!
+        let projects = (try? await links.projects(in: "team", on: hub)) ?? []
         check(projects.map(\.name) == ["Roadmap"], "the projects in Team, from /api/state: \(projects.map(\.name))")
+
+        // Signed in to another hub with a Binder of the same id, nothing chosen on this one is linked there.
+        func signIn(_ address: String, _ token: String) async {
+            account.signIn(to: address)
+            await account.finish(URL(string: "binders://auth?token=\(token)&state=\(account.pending?.state ?? "")")!)
+        }
+        let team = HubLink.Space(id: "team", name: "Team")
+        await signIn("other.example.com", "bnp_robin00002")
+        let elsewhere = await links.link(garden, on: hub, space: team, to: nil)
+        check(!elsewhere && HubLinks.place(of: garden) == nil && other.isEmpty == false && !other.contains { $0.hasPrefix("POST") }
+                && links.problems[garden.id]?.contains("signed in to other.example.com") == true,
+              "what was chosen on one hub isn't linked on another: \(links.problems[garden.id] ?? "")")
+        await signIn("hub.example.com", "bnp_robin00001")
+        other = []
 
         // MARK: Linked to a new project, cut short once, then Send Again.
         links.batchCount = 4
@@ -148,24 +179,63 @@ extension SelfTest {
         var posts = 0
         let send = account.send
         account.send = { request in
-            if request.httpMethod == "POST" {
+            if request.httpMethod == "POST", request.url?.host == "hub.example.com" {
                 posts += 1
-                // The second request fails: the first four changes are on the hub, the rest aren't.
-                if posts == 2 { failNextChanges = true }
+                // The third request fails: the first eight changes are on the hub, with a card, the rest aren't.
+                if posts == 3 { failNextChanges = true }
             }
             return try await send(request)
         }
-        let team = HubLink.Space(id: "team", name: "Team")
-        let first = await links.link(garden, space: team, to: nil)
+        let first = await links.link(garden, on: hub, space: team, to: nil)
         let place = HubLinks.place(of: garden)
         check(!first && place != nil && place?.uploaded == false && links.problems[garden.id]?.contains("restarting") == true,
               "a link cut short is kept, not all sent, and says why: \(links.problems[garden.id] ?? "")")
         let project = place?.binder ?? ""
         check(project.hasPrefix("binder-") && place?.newProject == true && place?.binderName == "Garden" && place?.space == "team",
               "linked to a new project named Garden in Team")
+        let stakesFirst = onHub("team", "cards", in: project).first { $0["id"] as? String == HubLink.hubID(stakes.id) }
+        check(stakesFirst?["title"] as? String == "Buy stakes", "a card went up before it was cut short")
+
+        // Edited here before Send Again: they go again as they are now, not as the hub first had them.
+        stakes.title = "Buy bamboo stakes"
+        stakes.updatedAt = Date()
+        tomatoes.text = "# Tomatoes\n\nStake them in late May."
+        tomatoes.updatedAt = Date()
+        store.save()
+
+        // Signed in to another hub with a Binder called team too: Send Again waits, and nothing goes there.
+        await signIn("other.example.com", "bnp_robin00002")
+        let why = links.whyNotSendAgain(garden)
+        check(why?.contains("hub.example.com") == true && why?.contains("other.example.com") == true, "Send Again says which hub it's for: \(why ?? "")")
+        let waits = await drawnAlone(HubLinkSheet(binder: garden), controller: controller, name: "hub-link-other-hub",
+                                     size: NSSize(width: 520, height: 260), directory: directory)
+        check(waits["hubLink.whyNotSendAgain"] != nil, "and Link to Hub… shows it: \(waits.keys.sorted())")
+        let wrongHub = await links.sendAgain(garden)
+        check(!wrongHub && other == ["GET /api/me team"] && HubLinks.place(of: garden)?.uploaded == false,
+              "Send Again sends nothing to another hub, which was only asked who's signed in: \(other)")
+
+        // Signed in to the other hub while it sends: it stops after the request under way, and nothing goes there.
+        await signIn("hub.example.com", "bnp_robin00001")
+        posts = 0
+        account.send = { request in
+            if request.httpMethod == "POST", request.url?.host == "hub.example.com" {
+                posts += 1
+                if posts == 1 { await signIn("other.example.com", "bnp_robin00002") }
+            }
+            return try await send(request)
+        }
+        let cutOff = await links.sendAgain(garden)
+        check(!cutOff && posts == 1 && !other.contains { $0.hasPrefix("POST") || $0.hasPrefix("GET /api/state") }
+                && links.problems[garden.id]?.contains("other.example.com") == true,
+              "signed in to another hub while it sends, it stops: \(other) \(links.problems[garden.id] ?? "")")
+        account.send = send
+        await signIn("hub.example.com", "bnp_robin00001")
+        other = []
+
         let again = await links.sendAgain(garden)
         check(again && HubLinks.place(of: garden)?.uploaded == true && links.done[garden.id] == "Sent 3 notes, 2 folders and 3 cards to Garden.",
               "Send Again sends what's left: \(links.done[garden.id] ?? links.problems[garden.id] ?? "")")
+        check(other.isEmpty, "and only to the hub it's linked on")
         account.send = send
         links.batchCount = 500
 
@@ -192,15 +262,18 @@ extension SelfTest {
                 && card(stakes)?["brief"] as? String == "Bamboo, 2 m.", "a card keeps what it waits for, its note and its brief")
         let activity = (card(stakes)?["activity"] as? [[String: Any]])?.compactMap { $0["kind"] as? String }
         check(activity == ["created", "comment"], "and the comments on it: \(activity ?? [])")
-        // Four, then four refused, then four again (already kept), four and one.
+        check(card(stakes)?["title"] as? String == "Buy bamboo stakes" && tomatoesOnHub?["text"] as? String == "# Tomatoes\n\nStake them in late May.",
+              "a card and a note edited before Send Again are on the hub as they are now: \(card(stakes)?["title"] ?? "")")
+        // Four, four, then four refused; one cut off (four, already kept); then four, four (already kept, but for the two
+        // edited) and one.
         let requests = asked.filter { $0.hasPrefix("POST") }.count
-        check(log.count == 1 + 2 + 3 + 3 && requests == 5, "nothing went twice: \(log.count) changes kept from \(requests) requests")
+        check(log.count == 1 + 2 + 3 + 3 + 2 && requests == 7, "nothing went twice: \(log.count) changes kept from \(requests) requests")
 
         let linked = await drawnAlone(HubLinkSheet(binder: garden), controller: controller, name: "hub-link-linked",
                                       size: NSSize(width: 520, height: 240), directory: directory)
         check(linked["hubLink.done"] != nil && linked["hubLink.link"] == nil && linked["hubLink.sendAgain"] == nil,
               "Link to Hub… on a linked binder says where it went: \(linked.keys.sorted())")
-        let notTwice = await links.link(garden, space: team, to: nil)
+        let notTwice = await links.link(garden, on: hub, space: team, to: nil)
         check(!notTwice && HubLinks.place(of: garden)?.binder == project, "a linked binder isn't linked again")
 
         // MARK: Unlinking keeps everything here, and on the hub.
@@ -217,7 +290,7 @@ extension SelfTest {
         store.insert(paint)
         store.save()
         states["lab"] = ["binders": [["id": "binder-lab", "name": "Workshop"]]]
-        let into = await links.link(shed, space: HubLink.Space(id: "lab", name: "Lab"), to: HubLink.Project(id: "binder-lab", name: "Workshop"))
+        let into = await links.link(shed, on: hub, space: HubLink.Space(id: "lab", name: "Lab"), to: HubLink.Project(id: "binder-lab", name: "Workshop"))
         check(into && onHub("lab", "binders").count == 1 && onHub("lab", "notes", in: "binder-lab").count == 1 && onHub("team", "notes", in: "binder-lab").isEmpty,
               "a binder links into a project the hub has, in the Binder chosen, with no new project")
         check(HubLinks.place(of: shed)?.binderName == "Workshop" && links.done[shed.id] == "Sent 1 note, 0 folders and 0 cards to Workshop.",
@@ -228,7 +301,7 @@ extension SelfTest {
         shared.sharedWithTeam = true
         store.insert(shared)
         check(links.whyNot(shared)?.hasPrefix("This binder is shared with your team already.") == true, "a binder shared with a team folder isn't linked")
-        let refused = await links.link(shared, space: team, to: nil)
+        let refused = await links.link(shared, on: hub, space: team, to: nil)
         check(!refused && HubLinks.place(of: shared) == nil, "and Link does nothing for it")
 
         // MARK: A real hub, when one is given.
@@ -279,7 +352,7 @@ extension SelfTest {
             check(false, "the hub says which Binders you're in")
             return failed
         }
-        let linked = await links.link(binder, space: first, to: nil)
+        let linked = await links.link(binder, on: found.hub, space: first, to: nil)
         check(linked, "linked to a new project in \(first.name): \(links.done[binder.id] ?? links.problems[binder.id] ?? "")")
         guard let place = HubLinks.place(of: binder), var request = account.authorized("api/state") else { return failed + 1 }
         request.setValue(place.space, forHTTPHeaderField: "x-binders-space")

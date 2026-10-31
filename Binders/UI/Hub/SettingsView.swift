@@ -1745,6 +1745,21 @@ private struct MCPSettings: View {
             Text("Each tool keeps its servers in its own file. Binders makes a dated backup beside that file first, and changes only the binders entry. The question mark button shows how to do it by hand.")
         }
 
+        let hubSpaces = HubAgentSetup.shared.spaces()
+        if !hubSpaces.isEmpty {
+            Section {
+                ForEach(hubSpaces) { space in
+                    ForEach(MCPHost.hubHosts.filter(\.isPresent)) { host in
+                        hubRow(host, in: space, named: hubSpaces.count > 1)
+                    }
+                }
+            } header: {
+                Text("Work on the hub's cards")
+            } footer: {
+                Text("Binders linked to a hub keep their notes and cards there, so this server leaves them out for agents, and Binders doesn't wake your agents for their cards. Set Up gives a tool an agent of its own on the hub, taking work only from the binders linked here, and adds the hub's server to the tool with that agent's token. The hub's runner can start agents for those cards too. Meetings, captures, to-dos and knowledge stay here.")
+            }
+        }
+
         Section {
             StackedRow("Configuration") {
                 HStack(spacing: 6) {
@@ -1782,6 +1797,40 @@ private struct MCPSettings: View {
             }))
             .toggleStyle(.checkbox)
             .font(.caption)
+    }
+
+    /// One tool and one of the hub's Binders: whether it works on that Binder's cards through the hub, as which agent.
+    private func hubRow(_ host: MCPHost, in space: HubAgentSetup.Space, named: Bool) -> some View {
+        let setup = HubAgentSetup.shared
+        let key = HubAgentSetup.key(host, space.id)
+        let record = setup.record(host, in: space.id)
+        let busy = setup.working[key] != nil
+        return LabeledContent(named ? "\(host.label) · \(space.name)" : host.label) {
+            HStack(spacing: 8) {
+                if let working = setup.working[key] {
+                    ProgressView().controlSize(.small)
+                    Text(working).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                } else if let problem = setup.problems[key] {
+                    StatusLabel(problem, .problem).font(.caption).lineLimit(3)
+                } else if let done = setup.done[key] {
+                    Text(done).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                } else if let record {
+                    StatusLabel("As “\(record.agentName)”", .ready).font(.caption).lineLimit(1)
+                }
+                Button(record == nil ? "Set Up" : "Set Up Again") {
+                    Task { await setup.add(host, in: space) }
+                }
+                .disabled(busy)
+                .help("Gives \(host.name) an agent of its own on the hub and adds the hub's server to it")
+                if record != nil {
+                    Button("Remove") {
+                        Task { await setup.remove(host, in: space) }
+                    }
+                    .disabled(busy)
+                }
+            }
+        }
+        .fitProbe("mcp.hub.\(host.rawValue)")
     }
 
     /// One tool: whether it is here, whether Binders is in it, a button to add it, and the way to do it by hand.

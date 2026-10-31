@@ -332,14 +332,23 @@ public enum HubCards {
 
     // MARK: What goes up
 
-    /// One change and its id, as POST /api/changes takes them.
-    public struct Outgoing: Encodable, Equatable, Sendable {
+    /// One change and its id, as POST /api/changes takes them. The hub keeps each id once: the same change sent again
+    /// with it does nothing, so a change sent again until the hub has it is sent with the same id.
+    public struct Outgoing: Codable, Equatable, Sendable {
         public let id: String
         public let change: JSONValue
 
         public init(id: String = "mac-" + UUID().uuidString.lowercased(), change: JSONValue) {
             self.id = id
             self.change = change
+        }
+
+        /// As JSON, to keep it until the hub has it (`TaskCard.hubPut`).
+        public var json: String { (try? JSONEncoder.hub.encode(self)).flatMap { String(data: $0, encoding: .utf8) } ?? "" }
+
+        public init?(json: String) {
+            guard !json.isEmpty, let value = try? JSONDecoder().decode(Outgoing.self, from: Data(json.utf8)) else { return nil }
+            self = value
         }
     }
 
@@ -385,6 +394,12 @@ public enum HubCards {
         fields["waitsFor"] = .array(card.waitsFor.map { $0.lowercased() }.filter(known.contains).map(JSONValue.string))
         change["card"] = .object(fields)
         return .object(change)
+    }
+
+    /// A card the hub had, put back as it had it (Undo of a deletion): its id, stage, agent and activity as they were, by a
+    /// change of its own, as the hub keeps the first put of it once and wouldn't take that one again.
+    public static func putBack(_ card: Card) -> Outgoing {
+        Outgoing(change: .object(["type": .string("card.put"), "card": .object(card.fields)]))
     }
 
     /// What a move on this Mac changes on the hub, as the web app's board moves a card: a card that leaves an agent's

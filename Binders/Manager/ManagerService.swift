@@ -412,7 +412,9 @@ final class ManagerService {
         case .deletedCard:
             guard board.card(change.id) == nil else { return nil }
             guard let was = ManagerCardSnapshot.read(change.snapshot) else { return "“\(change.line)”: Binders didn't keep enough of it to make it again." }
-            let shared = controller?.teamBoard.isShared(binder: was.binder) == true
+            // On a board shared with the team, or a hub's, it comes back as a new card: the team's deletion stands, and the
+            // hub keeps a card's first put once, so the same id there wouldn't bring it back.
+            let shared = controller?.teamBoard.isShared(binder: was.binder) == true || was.binder.map { board.hub?.covers(binder: $0) == true } == true
             let column = BoardColumn(rawValue: was.column) ?? .backlog
             let card = board.create(title: was.title, details: was.details, binderID: was.binder, column: column == .done ? .backlog : column, due: was.due,
                                     source: was.sourceKind.flatMap { kind in was.sourceID.map { (kind, $0, was.sourceTitle ?? "") } },

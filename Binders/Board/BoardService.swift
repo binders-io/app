@@ -836,7 +836,8 @@ final class BoardService {
     }
 
     /// A card's to-do is ticked off when the card reaches Done, and opened again if the card leaves Done.
-    private func follow(_ card: TaskCard, from before: BoardColumn) {
+    /// Also for a hub's card, as the hub moves it (HubBoard).
+    func follow(_ card: TaskCard, from before: BoardColumn) {
         guard let todo = card.sourceRef, (before == .done) != (card.column == .done) else { return }
         if Todos.setDone(todo, card.column == .done, commitments: commitments) == nil {
             Log.app.info("A card's to-do has changed or is gone, so it wasn't ticked")
