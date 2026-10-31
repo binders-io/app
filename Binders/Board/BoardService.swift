@@ -16,6 +16,11 @@ final class BoardService {
     /// Boards shared through a team database (lane DB2): a change to one of their cards is made here as on any board, then
     /// handed to the database, its lines waiting for the answer.
     @ObservationIgnored weak var team: TeamBoard?
+    /// Boards of binders linked to a hub (HubBoard): a change to one of their cards is made here, then sent to the hub's
+    /// log, which has the last word.
+    @ObservationIgnored weak var hub: HubBoard?
+    /// Changes to a hub's cards made while another was being made: they go after it, so the hub has the card first.
+    @ObservationIgnored private var hubDeferred: [(() -> Void)?] = []
     /// The lines each change being made writes, while it's made (one list per change, as changes can nest).
     @ObservationIgnored private var teamCaptures: [[TaskEvent]] = []
     /// While Distill's placing makes its cards here: their lines, which go as one call (`batchForTeam`).
@@ -66,6 +71,7 @@ final class BoardService {
     /// `whenWritten`: only when the change wrote a line (an assignment that changed nothing sends nothing).
     private func teamChange(_ card: TaskCard, by actor: BoardActor, whenWritten: Bool = false,
                             _ call: (_ agent: UUID?, _ operation: UUID) -> TeamCall?, change: () throws -> Void) rethrows {
+        if let hub, hub.covers(card) { return try hubChange(card, by: actor, hub: hub, change: change) }
         guard let team, team.sends(card) else { return try change() }
         // The card as it was, to put it back if a change the database decides is taken back unsent (lane DB8).
         let before = TeamCardBefore(card)
@@ -87,12 +93,37 @@ final class BoardService {
         if teamCaptures.isEmpty { flushDeferred() }
     }
 
+    /// A change to a card on a binder linked to a hub: made here, then sent to the hub with the lines it wrote
+    /// (`HubBoard.sent`), after the change it was made inside, if any.
+    private func hubChange(_ card: TaskCard, by actor: BoardActor, hub: HubBoard, before: HubBoard.Before? = nil,
+                           change: () throws -> Void) rethrows {
+        let before = before ?? HubBoard.Before(card)
+        // Its place among the changes being made, kept before the ones made inside it.
+        let slot = hubDeferred.count
+        hubDeferred.append(nil)
+        teamCaptures.append([])
+        do {
+            try change()
+        } catch {
+            teamCaptures.removeLast()
+            if teamCaptures.isEmpty { flushDeferred() }
+            throw error
+        }
+        let lines = teamCaptures.removeLast()
+        hubDeferred[slot] = { [weak hub] in hub?.sent(card, before: before, lines: lines, by: actor) }
+        if teamCaptures.isEmpty { flushDeferred() }
+    }
+
     /// A change goes now, or, made inside another change (or while a placing gathers its cards), right after that one.
     private func sendOrDefer(_ call: TeamCall, lines: [TaskEvent], before: TeamCardBefore? = nil) {
         if teamCaptures.isEmpty, teamBatch == nil { team?.send(call, lines: lines, before: before) } else { teamDeferred.append((call, lines, before)) }
     }
 
     private func flushDeferred() {
+        // A hub's changes go in the order they were begun, the outermost first.
+        let hubWaiting = hubDeferred
+        hubDeferred = []
+        for send in hubWaiting { send?() }
         guard teamBatch == nil else { return }
         let waiting = teamDeferred
         teamDeferred = []
@@ -166,6 +197,19 @@ final class BoardService {
         let all = (try? store.context.fetch(FetchDescriptor<TaskCard>())) ?? []
         let graph = Dictionary(all.map { ($0.id.uuidString, $0.waitsFor) }, uniquingKeysWith: { a, _ in a })
         if CardWaits.makesCycle(card: card.id.uuidString, waitsFor: wanted, graph: graph) { throw WaitProblem.circle }
+        // On a hub's board, what it waits for goes up with its line, as any change does.
+        if let hub, hub.covers(card) {
+            let before = HubBoard.Before(card)
+            card.waitsFor = wanted
+            guard !quietly else {
+                card.updatedAt = Date()
+                store.save()
+                return hub.sent(card, before: before, lines: [], by: actor)
+            }
+            return hubChange(card, by: actor, hub: hub, before: before) {
+                log(card, .edited, by: actor, text: CardWaits.line(waits(of: card)).map { $0 + "." } ?? "Waits for nothing now.")
+            }
+        }
         let before = card.waitsFor
         card.waitsFor = wanted
         guard !quietly else {
@@ -575,9 +619,10 @@ final class BoardService {
 
     /// Why a card can't move to another binder now, in words for whoever asked; nil when it can.
     enum MoveProblem: LocalizedError {
-        case held(String), done, offTeam
+        case held(String), done, offTeam, hub
         var errorDescription: String? {
             switch self {
+            case .hub: "A card doesn't move to or from a binder linked to a hub. Make a new card on the other board instead."
             case .held(let binder): "Someone is working on it, so it stays on the \(binder) board until they let it go."
             case .done: "It's done, so it stays where it was finished."
             case .offTeam: "Only a person takes a card off the team's board."
@@ -594,6 +639,7 @@ final class BoardService {
         if BoardRules.isClaimed(card.state, at: Date()) { throw MoveProblem.held(from) }
         if card.column == .done { throw MoveProblem.done }
         if actor.isAgent, isTeams(card), team?.isShared(binder: binder.id) != true { throw MoveProblem.offTeam }
+        if let hub, hub.covers(card) || hub.covers(binder: binder.id) { throw MoveProblem.hub }
         // Off a board shared through a team database, or between its boards, the database decides; onto one, while team
         // databases are off here, nothing could take it there (lane DB8).
         try needsTeam(.moveToBoard, on: card, by: actor)
@@ -694,6 +740,8 @@ final class BoardService {
     }
 
     func edit(_ card: TaskCard, title: String? = nil, details: String? = nil, due: Date?? = nil, by actor: BoardActor) {
+        let before = hub?.covers(card) == true ? HubBoard.Before(card) : nil
+        defer { if let before { hub?.sent(card, before: before, lines: [], by: actor) } }
         if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { card.title = title }
         if let details { card.details = details }
         if let due { card.dueAt = due }
@@ -706,6 +754,8 @@ final class BoardService {
     @discardableResult
     func delete(_ card: TaskCard) -> String? {
         if let refusal = teamRefusal(.delete, on: card, by: .you) { return refusal }
+        // On a hub's board, it goes for everyone.
+        if let hub, hub.covers(card) { hub.deleted(card) }
         // On the team's board, it goes for everyone (a person deletes it).
         if let team, team.sends(card) {
             team.send(.deleteCard(card.id), lines: [])
@@ -806,7 +856,10 @@ final class BoardService {
             MacNotifications.shared.post(status: .init(news), on: card, by: actor.name, summary: kind == .completed ? text : "")
         }
         if from == .review, card.column != .review { MacNotifications.shared.withdrawStatus(card.id) }
-        dispatcher?.noticed(card, kind, by: actor, from: from, to: to, wake: wake, cause: wakeCause)
+        // A hub's agents take its cards through its runner and /mcp: nothing here is woken for them.
+        if hub?.covers(card) != true {
+            dispatcher?.noticed(card, kind, by: actor, from: from, to: to, wake: wake, cause: wakeCause)
+        }
         return event
     }
 }

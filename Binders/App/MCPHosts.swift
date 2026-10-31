@@ -221,3 +221,74 @@ enum MCPHost: String, CaseIterable, Identifiable {
         try FileManager.default.copyItem(at: url, to: copy)
     }
 }
+
+// MARK: - A hub's server
+
+/// A hub's MCP server in a tool's configuration, beside Binders' own (HubAgentSetup): for the binders linked to the hub,
+/// whose notes and cards an agent reaches there with a token of its own. Only for the tools that reach a server over HTTP
+/// with a header Binders can write; the same backup first, and only that entry touched.
+extension MCPHost {
+    static let hubHosts: [MCPHost] = [.claudeCode, .cursor, .vsCode, .windsurf]
+
+    private var hubShape: HubAgents.EntryShape {
+        switch self {
+        case .cursor: .url
+        case .windsurf: .serverURL
+        default: .typed
+        }
+    }
+
+    /// Whether the tool's configuration has the hub's server by that name, at that address.
+    func hasHubServer(named name: String, url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: configURL),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return HubAgents.isEntry((object[serversKey] as? [String: Any])?[name] as? [String: Any], for: url)
+    }
+
+    /// Puts the hub's server in the tool's configuration as `name`, with the agent's token.
+    func addHubServer(named name: String, url: URL, token: String) async throws {
+        guard Self.hubHosts.contains(self) else { throw Failure.command("Binders can't set \(self.name) up for a hub.") }
+        if self == .claudeCode {
+            // The tool's own command, as for Binders' own server; removing first makes this repeatable.
+            func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            let script = "command -v claude >/dev/null || exit 127; claude mcp remove -s user \(quoted(name)) >/dev/null 2>&1; "
+                + "claude mcp add --transport http -s user \(quoted(name)) \(quoted(url.absoluteString)) --header \(quoted("Authorization: Bearer \(token)"))"
+            let result = try await AutomationService.runProcess("/bin/zsh", ["-lc", script], stdin: nil, environment: nil, timeout: 60)
+            if result.status == 127 { throw Failure.notFound("The claude command") }
+            guard result.status == 0 else { throw Failure.command(result.stderr.trimmed.isEmpty ? "claude mcp add exited with \(result.status)" : result.stderr.trimmed) }
+            return
+        }
+        let data: Data
+        do {
+            data = try MCPConfigFile.adding(HubAgents.entry(hubShape, url: url, token: token), named: name, serversKey: serversKey,
+                                            to: try? Data(contentsOf: configURL))
+        } catch {
+            throw Failure.command("\(Self.shown(configURL)) has comments or isn't plain JSON, so Binders didn't change it.")
+        }
+        try Self.backup(configURL)
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: configURL, options: .atomic)
+    }
+
+    /// Takes the hub's server by that name out of the tool's configuration, and nothing else: an entry by that name that
+    /// isn't the hub's server at `url` stays.
+    func removeHubServer(named name: String, url: URL) async throws {
+        if self == .claudeCode {
+            let quoted = "'" + name.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            let script = "command -v claude >/dev/null || exit 127; claude mcp remove -s user \(quoted) >/dev/null 2>&1; exit 0"
+            let result = try await AutomationService.runProcess("/bin/zsh", ["-lc", script], stdin: nil, environment: nil, timeout: 60)
+            if result.status == 127 { throw Failure.notFound("The claude command") }
+            return
+        }
+        guard hasHubServer(named: name, url: url) else { return }
+        let data: Data?
+        do {
+            data = try MCPConfigFile.removing(named: name, serversKey: serversKey, from: try? Data(contentsOf: configURL))
+        } catch {
+            throw Failure.command("\(Self.shown(configURL)) has comments or isn't plain JSON, so Binders didn't change it. Take the \(name) entry out there by hand.")
+        }
+        guard let data else { return }
+        try Self.backup(configURL)
+        try data.write(to: configURL, options: .atomic)
+    }
+}
