@@ -1,7 +1,7 @@
 # The Binders website
 
 `site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `hub-privacy.html`, `hub-terms.html`,
-`licenses.html`, `404.html`, `hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no
+`licenses.html`, `404.html`, `hub.html`, `hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no
 runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
@@ -30,7 +30,7 @@ state instead of auto-playing.
 
 ## The Hub page
 
-`site/hub/index.html` and `site/hub/hub.css` are the Binders Hub page: light and dark, no script, its own stylesheet. The
+`site/hub.html` and `site/hub/hub.css` are the Binders Hub page: light and dark, no script, its own stylesheet. The
 colours at the top of `hub.css` are the proposed shared tokens, kept there until a shared stylesheet exists. The pictures
 are drawn in HTML and CSS with invented data, and the page says so; replace them when the Hub's screenshots exist.
 
@@ -82,6 +82,13 @@ Live at https://binders.io and https://www.binders.io.
 - The bucket and the distribution are named in `site/.deploy.env`, which is not committed. `scripts/deploy-site.sh` uploads
   pages with a 5-minute cache, assets with a week, downloads as immutable, the update archive before the feed, then invalidates
   the pages.
+
+## Asking for access
+
+The Hub's access request is a mail link, not a form: `mailto:hello@binders.io?subject=Binders%20Hub%20access%20request`.
+The subject is how requests are counted, so every "Request access" link on the site uses it, and the Hub privacy page says
+where a request goes. The pages stay static and load nothing from another company; only the visitor's mail app sends
+anything.
 
 ## Contact addresses
 
