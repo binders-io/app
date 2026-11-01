@@ -1,7 +1,7 @@
 # The Binders website
 
 `site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
-`landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
+`hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
 ## The design
@@ -26,6 +26,16 @@ state instead of auto-playing.
 - The interface showcase uses the light product pictures. The dark set remains in `assets/` for other surfaces.
 - The hero app preview is drawn in HTML and CSS, not a screenshot, so it stays crisp and can change with the product.
 - The page uses system fonts and makes no third-party requests.
+
+## The Hub page
+
+`site/hub/index.html` and `site/hub/hub.css` are the Binders Hub page: light and dark, no script, its own stylesheet. The
+colours at the top of `hub.css` are the proposed shared tokens, kept there until a shared stylesheet exists. The pictures
+are drawn in HTML and CSS with invented data, and the page says so; replace them when the Hub's screenshots exist.
+
+Every Hub claim on the page has to be true of the Hub's code, so check the code before changing a sentence. The page
+doesn't link to a Hub address or give install steps. `scripts/release.sh` keeps its download links current, as it does for
+`index.html`.
 
 ## Screenshots never contain real data
 
