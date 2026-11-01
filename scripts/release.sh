@@ -10,8 +10,10 @@
 #
 #   scripts/release.sh                 # auto
 #   BINDERS_RELEASE_MODE=local scripts/release.sh
+#   scripts/release.sh --dry-run       # builds nothing: the website's rewrite and checks, on a copy of the pages
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[[ "${1:-}" == "--dry-run" ]] && exec scripts/site-download.sh dry-run
 
 TEAM=$(grep 'DEVELOPMENT_TEAM:' project.yml | head -1 | awk '{print $2}')
 VERSION=$(grep 'MARKETING_VERSION:' project.yml | head -1 | sed 's/.*"\(.*\)".*/\1/')
@@ -24,6 +26,8 @@ if [[ -z "$MODE" ]]; then
   if [[ -n "$IDENTITY" ]] && xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then MODE=local; else MODE=xcode; fi
 fi
 command -v xcodegen >/dev/null || { echo "✗ xcodegen is required: brew install xcodegen"; exit 1; }
+# Before the long part: by the time the rewrite runs, the build is notarized and in the update feed.
+scripts/site-download.sh preflight
 if [[ -f dist/updates/appcast.xml ]] && grep -q "<sparkle:version>$BUILD</sparkle:version>" dist/updates/appcast.xml; then
   echo "✗ Build $BUILD is already in the update feed. Raise CURRENT_PROJECT_VERSION in project.yml: the updater only offers higher build numbers."; exit 1
 fi
@@ -153,8 +157,7 @@ perl -pi -e 's#https://binders\.io/download/Binders-([0-9][0-9.]*)\.zip#https://
 
 echo "→ Site"
 SUM=$(shasum -a 256 "$OUT.dmg" | cut -d' ' -f1)
-perl -pi -e "s#https://github\.com/binders-io/app/releases/download/v[0-9.]+/Binders-[0-9.]+\.dmg#https://github.com/binders-io/app/releases/download/v$VERSION/Binders-$VERSION.dmg#g; s#Download Binders [0-9.]+, free#Download Binders $VERSION, free#; s#Download Binders [0-9.]+ for Mac#Download Binders $VERSION for Mac#; s#Version [0-9.]+, a preview\.#Version $VERSION, a preview.#; s#Version [0-9.]+ · macOS#Version $VERSION · macOS#; s#SHA-256 <code>[0-9a-f]{64}</code>#SHA-256 <code>$SUM</code>#" site/index.html
-perl -pi -e "s#as of version [0-9.]+\.#as of version $VERSION.#" site/privacy.html
+scripts/site-download.sh update "$VERSION" "$SUM"
 tar -czf "$OUT.tar.gz" -C "$(dirname "$APP")" "$(basename "$APP")"
 (cd dist && shasum -a 256 "Binders-$VERSION.dmg" "Binders-$VERSION.zip" "Binders-$VERSION.tar.gz" > SHA256SUMS.txt)
 echo "✓ Version $VERSION (build $BUILD) is ready. Next, in this order:"

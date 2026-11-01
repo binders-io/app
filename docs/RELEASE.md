@@ -11,7 +11,8 @@ the **hardened runtime**, and **notarized** by Apple. `scripts/release.sh` does 
 3. Run `scripts/release.sh`. It runs the tests, archives a Release build, signs it for Developer ID, sends it to
    Apple's notary service, waits for approval (a few minutes), checks the signature, the stapled ticket and
    Gatekeeper's verdict, packs the DMG, the zip and the tarball with their checksums, writes the signed update feed, and
-   moves the site's download button, version line and checksum to the new version.
+   moves the site's download button, version line and checksum to the new version, on every page that has them. It stops
+   before building if `/` or `/mac` has lost those lines; `scripts/release.sh --dry-run` tries that part alone.
 4. Publish the GitHub release with the four files; the script prints the command. Every download of the app comes
    from there, the site's button and the updater included, so GitHub's download counts are the whole picture.
 5. Commit the site change and push, then run `scripts/deploy-site.sh`: the site, then the feed, once the release's

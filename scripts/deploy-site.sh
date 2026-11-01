@@ -12,22 +12,27 @@
 #
 #   scripts/deploy-site.sh              # site + update feed
 #   scripts/deploy-site.sh --site-only  # site only
+#   scripts/deploy-site.sh --check      # only the checks on the pages: publishes nothing, needs no AWS
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[[ -f site/.deploy.env ]] && source site/.deploy.env
-: "${BINDERS_SITE_BUCKET:?Set BINDERS_SITE_BUCKET in site/.deploy.env (see docs/SITE.md)}"
-: "${BINDERS_SITE_DISTRIBUTION:?Set BINDERS_SITE_DISTRIBUTION in site/.deploy.env (see docs/SITE.md)}"
 VERSION=$(grep 'MARKETING_VERSION:' project.yml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 RELEASE="https://github.com/binders-io/app/releases/download/v$VERSION"
 SITE_ONLY=""
 [[ "${1:-}" == "--site-only" || "${1:-}" == "--no-dmg" ]] && SITE_ONLY=1
 
-grep -q "$RELEASE/Binders-$VERSION.dmg" site/index.html || { echo "✗ site/index.html does not link to $RELEASE/Binders-$VERSION.dmg. scripts/release.sh updates it."; exit 1; }
-if [[ -f "dist/Binders-$VERSION.dmg" ]]; then
-  SUM=$(shasum -a 256 "dist/Binders-$VERSION.dmg" | cut -d' ' -f1)
-  grep -q "$SUM" site/index.html || { echo "✗ The checksum on the page is not the checksum of dist/Binders-$VERSION.dmg ($SUM)."; exit 1; }
+# Every page: /, /mac and any other with the download. Without the disk image here, the pages must at least agree on a checksum.
+SUM=""
+[[ -f "dist/Binders-$VERSION.dmg" ]] && SUM=$(shasum -a 256 "dist/Binders-$VERSION.dmg" | cut -d' ' -f1)
+scripts/site-download.sh check "$VERSION" $SUM || { echo "✗ The pages are not current for $VERSION. scripts/release.sh updates them."; exit 1; }
+if [[ "${1:-}" == "--check" ]]; then
+  echo "✓ The pages link to $VERSION${SUM:+ and carry the checksum of dist/Binders-$VERSION.dmg}."
+  exit 0
 fi
+
+[[ -f site/.deploy.env ]] && source site/.deploy.env
+: "${BINDERS_SITE_BUCKET:?Set BINDERS_SITE_BUCKET in site/.deploy.env (see docs/SITE.md)}"
+: "${BINDERS_SITE_DISTRIBUTION:?Set BINDERS_SITE_DISTRIBUTION in site/.deploy.env (see docs/SITE.md)}"
 
 echo "→ Pages (short cache)"
 aws s3 sync site/ "s3://$BINDERS_SITE_BUCKET/" --delete --exclude ".deploy.env" --exclude ".DS_Store" --exclude "download/*" --exclude "appcast.xml" --exclude "assets/*" \
@@ -48,6 +53,6 @@ fi
 
 echo "→ Refreshing the CDN"
 # Pages, the stylesheet and script, and the pictures (which keep their names when they are re-rendered).
-aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
+aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/mac" "/mac/" "/mac/index.html" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
   --query "Invalidation.Id" --output text
 echo "✓ Published"
