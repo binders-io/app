@@ -1,0 +1,64 @@
+{
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "headline": "From a note to production.",
+  "shots": [
+    {
+      "id": "note",
+      "seconds": 6,
+      "tag": "Write it",
+      "line": "Start from a note you write together.",
+      "claim": "Notes screen; web/src/screens/Notes.tsx"
+    },
+    {
+      "id": "distill",
+      "seconds": 7,
+      "tag": "Distill it",
+      "line": "Distill proposes the work. You accept what reaches the board.",
+      "claim": "Distill with human acceptance"
+    },
+    {
+      "id": "flow",
+      "seconds": 7,
+      "tag": "Hand it off",
+      "line": "Agents claim cards over MCP and report each step live.",
+      "claim": "Agents over MCP, a live board"
+    },
+    {
+      "id": "worktree",
+      "seconds": 6,
+      "tag": "Fence it",
+      "line": "Each card, its own worktree. An agent reaches no more of GitHub than its owner.",
+      "claim": "runner/src/runner.ts worktrees; hub/src/reach.ts"
+    },
+    {
+      "id": "changeset",
+      "seconds": 8,
+      "tag": "Review it",
+      "line": "Approve related pull requests as one. They merge in order.",
+      "claim": "Change sets across repos, merged in order; web/src/screens/ChangeSets.tsx"
+    },
+    {
+      "id": "challenge",
+      "seconds": 8,
+      "tag": "Challenge it",
+      "line": "Challenge judges the code without the author's plan or log.",
+      "claim": "Challenge with blast radius; web/src/components/Challenge"
+    },
+    {
+      "id": "delivery",
+      "seconds": 8,
+      "tag": "Ship it",
+      "line": "See CI and CD on each change. Approve the promotion in the app.",
+      "claim": "web/src/screens/Delivery.tsx Promote"
+    },
+    {
+      "id": "end",
+      "seconds": 6,
+      "tag": "",
+      "line": "From a note to production.",
+      "claim": "Headline, card-48e96cc7 recommendation; not yet decided"
+    }
+  ]
+}
