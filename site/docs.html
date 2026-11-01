@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binders Hub docs: notes, Distill, the board, agents, change sets and Delivery</title>
+<meta name="description" content="How to get access to Binders Hub and use it: notes, Distill, the board, agents, change sets, Challenge and Delivery.">
+<meta name="color-scheme" content="dark light">
+<link rel="canonical" href="https://binders.io/docs">
+<meta property="og:title" content="Binders Hub docs: notes, Distill, the board, agents, change sets and Delivery">
+<meta property="og:description" content="How to get access to Binders Hub and use it: notes, Distill, the board, agents, change sets, Challenge and Delivery.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://binders.io/docs">
+<meta property="og:site_name" content="Binders">
+<meta property="og:image" content="https://binders.io/assets/og-docs.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Binders Hub docs: notes, Distill, the board, agents, change sets, Challenge and Delivery.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://binders.io/assets/og-docs.png">
+<meta name="twitter:image:alt" content="Binders Hub docs: notes, Distill, the board, agents, change sets, Challenge and Delivery.">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<meta name="theme-color" content="#3a2bb8">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="brand" href="index.html" aria-label="Binders home">
+      <img src="assets/icon-128.png" width="40" height="40" alt="">
+      <span>Binders</span>
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="index.html">Home</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="help.html">Help</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="licenses.html">Licences</a>
+    </nav>
+    <a class="button small" href="index.html#download">Download</a>
+  </div>
+</header>
+<main id="main">
+<section class="cover page-cover">
+  <div class="wrap">
+    <p class="kicker">Docs</p>
+    <h1>Using Binders Hub</h1>
+    <p class="lede">Binders Hub is a team server, signed in with GitHub. A note becomes cards, agents do the work, and people approve what ships. Looking for the app on your Mac or iPhone? That's <a href="help.html">Binders help</a>.</p>
+  </div>
+</section>
+<article class="page">
+  <div class="wrap">
+    <nav class="toc" aria-label="On this page">
+      <a href="#access">Getting access</a>
+      <a href="#screens">Finding your way</a>
+      <a href="#note-to-merge">From a note to a merge</a>
+      <a href="#agents">Agents</a>
+      <a href="#mac">With the Mac app</a>
+      <a href="#data">Where your work is kept</a>
+    </nav>
+
+    <h2 id="access">Getting access</h2>
+
+    <h3 id="get">How do I get the Hub?</h3>
+    <p>Ask for access: write to <a href="mailto:hello@binders.io?subject=Binders%20Hub%20access%20request">hello@binders.io</a> with your GitHub username or organization and what your team builds. There's no sign up yet. A hub lets in only the GitHub accounts and organizations it allows.</p>
+
+    <h3 id="install">Can I install it myself?</h3>
+    <p>Not today. The Hub's code isn't public, so there's nothing for you to download and run, and there's no hosted version to sign up for.</p>
+
+    <h3 id="need">What will my team need?</h3>
+    <ul>
+      <li>A GitHub account for each person. You sign in with it, and approvals and merges happen as you.</li>
+      <li>Your code on GitHub. Cards are saved as issues in a binder's repo, and agents open pull requests there.</li>
+      <li>For agents, a Mac or Linux machine that has your code and Node 20 or newer, and an agent to run: Claude Code, Codex, your own command, or any tool that speaks MCP.</li>
+    </ul>
+
+    <h3 id="sign-in">Signing in</h3>
+    <p>Open your hub's address and choose <strong>Sign in with GitHub</strong>. If it says you aren't one of the hub's people, ask whoever runs it to add you. If it says no binder has you as a member, ask the binder's owner: owners and admins add people in Settings → Binder.</p>
+    <p>Next, connect your GitHub from your account page (your picture, top right). A binder's agents and approvals act on your repos through that connection, and the top bar reminds you if it's missing.</p>
+
+    <h3 id="binders">What's a binder?</h3>
+    <p>One notebook: its folders and notes, its board, its GitHub repo and its members, at its own address on the hub. Anyone signed in can make one, and owns it. You also get a personal binder at <code>/~yourname</code>, which the app opens to no one else, the hub's admins included.</p>
+
+    <h2 id="screens">Finding your way</h2>
+    <div class="table">
+      <table>
+        <tbody>
+          <tr><td><strong>Home</strong></td><td>What your agents are doing now, what's waiting on you, and what's been happening</td></tr>
+          <tr><td><strong>Work</strong></td><td>The board, and a live feed of activity. Click a card to open it full screen.</td></tr>
+          <tr><td><strong>Notes</strong></td><td>A Markdown editor with live preview, <code>[[links]]</code>, tables and Mermaid, with Chat and Distill beside each note</td></tr>
+          <tr><td><strong>Change sets</strong></td><td>Related pull requests, reviewed and approved as one</td></tr>
+          <tr><td><strong>Delivery</strong></td><td>Which change set is in which environment, and the runs that took it there</td></tr>
+          <tr><td><strong>Agents</strong></td><td>Set up agents and see who's online, what each holds, and their scheduled runs</td></tr>
+          <tr><td><strong>Settings</strong></td><td>The binder, its members and its repo, and, for admins, the hub's options</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="board">What do the board's columns mean?</h3>
+    <div class="table">
+      <table>
+        <tbody>
+          <tr><td><strong>Proposed</strong></td><td>Distilled from notes or suggested by agents, waiting for you</td></tr>
+          <tr><td><strong>Ready</strong></td><td>An agent can take these</td></tr>
+          <tr><td><strong>Agents working</strong></td><td>Claimed, being built, with each step reported as it happens</td></tr>
+          <tr><td><strong>Blocked</strong></td><td>Waiting on you. Answer, or write on the card, and its agent carries on.</td></tr>
+          <tr><td><strong>In review</strong></td><td>Pull request open, checks running</td></tr>
+          <tr><td><strong>Done</strong></td><td>Merged, or finished</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="note-to-merge">From a note to a merge</h2>
+
+    <h3 id="write">1. Write the note</h3>
+    <p>Write the spec in Notes, together if you like. Agents can join in too: Chat, beside the note, asks one to read it or change it with you.</p>
+
+    <h3 id="distill">2. Distill it into cards</h3>
+    <p>Open <strong>Distill</strong> beside the note, pick an agent and start it. The agent reads the note and proposes work items, each with who it's for, so you need an <a href="#set-up">agent set up</a> first. Accept the items you want and dismiss the rest. Nothing reaches the board until you accept it. <strong>New card</strong>, on Work, adds a card by hand.</p>
+
+    <h3 id="work">3. Agents take the cards</h3>
+    <p>An agent claims a card from Ready and works on its own branch, in a worktree of its own, never in your checkout. You can watch each step live. When it needs a person it asks, and the card waits in Blocked until you answer.</p>
+
+    <h3 id="change-set">4. Review the change set</h3>
+    <p>When an agent finishes, its pull request joins a change set, so you review the change as a whole, even when it spans several repos. <strong>Close it to new pull requests</strong> keeps later work out of it. Two things help you judge it:</p>
+    <ul>
+      <li><strong>Debrief:</strong> an agent reads the change and sets out what it does, what changed, how it stands against the brief, things to look at and how to try it.</li>
+      <li><strong>Challenge:</strong> an agent in a fresh session looks for what's wrong, from the diff, the brief and the done-when alone. It doesn't see the author's plan or log. The hub prefers an agent that didn't write the change, or you can pick one. Its findings come worst first, with the change's blast radius: what the change touched and where that's still used. That's found by name, so treat it as a first look and not a proof. You can then ask the author to reply to each finding, for one round.</li>
+    </ul>
+
+    <h3 id="approve">5. Approve and merge</h3>
+    <p>The button says how many, such as <strong>Approve 3 and merge</strong>. It approves the set's pull requests as you and merges them in order, each once its checks pass. If a check fails, nothing merges until it passes. If a pull request conflicts with its base, the hub settles what it can, and changes to the same lines go back to the agent.</p>
+
+    <h3 id="delivery">6. Follow it to production</h3>
+    <p>Delivery shows each environment and what's running there, from your GitHub Actions runs and deployments. An environment that needs approval waits for someone to press <strong>Promote</strong>.</p>
+
+    <h2 id="agents">Agents</h2>
+
+    <h3 id="set-up">How do I set up an agent?</h3>
+    <p>In Agents, choose <strong>Set up an agent</strong>. It gets a token, shown once, and the settings to paste into Claude Code, Codex, Claude Desktop or another MCP client. Anyone with the token can act as that agent, so keep it where the agent runs. <strong>New token</strong> replaces it, and <strong>Revoke</strong> stops it at once.</p>
+
+    <h3 id="runner">How do I keep one taking cards?</h3>
+    <p>An agent on its own only calls the hub while it's working on something you asked. The runner keeps it listening, and starts it for each card on the machine where your code is. <strong>Start the runner</strong>, on the Agents page, gives you a one-line install with the token filled in. Then:</p>
+    <pre><code>binders list            # every agent on this machine, and how it's doing
+binders logs NAME -f    # what it's doing
+binders restart NAME    # also stop, start, remove; --all for every one</code></pre>
+    <p>It runs as a service of yours (a LaunchAgent on a Mac, a <code>systemd --user</code> unit on Linux), starts at login and restarts after a crash. Sign in to your tools, such as Claude Code or Codex, beforehand: a background service can't show their sign-in.</p>
+    <p>An agent that says nothing for 15 minutes is stopped as stuck, and its card says so. The time limit, model and tool are in its settings on the Agents page.</p>
+
+    <h3 id="access-level">How much can an agent do on my machine?</h3>
+    <p>That's the agent's access setting. <strong>Full access</strong>, the default, runs with no prompts. <strong>Auto</strong>, for Claude Code only, lets it decide what's safe. <strong>Edits only</strong> lets the tool edit files without asking, and what else it can do depends on the tool. The runner reads this before each card. With full access, a worktree keeps the work away from your checkout, but it isn't a sandbox: the tool can do whatever your account can on that machine.</p>
+
+    <h3 id="github-reach">How much of GitHub can an agent reach?</h3>
+    <p>No more than the person who set it up. An agent takes a card only in a repo its owner can push to, and each run gets a token for that one repo, lasting an hour and renewed on long runs. The machine's own GitHub login isn't used, unless the hub has no GitHub App: then tokens can't be narrowed, the agent uses that login, and the runner's log says so.</p>
+
+    <h2 id="mac">With the Mac app</h2>
+
+    <h3 id="link">Can I use a hub from Binders for Mac?</h3>
+    <p>Yes, with Binders 0.14.0 or later. Settings → Team signs your Mac in to a hub, in your browser. <strong>Link to Hub…</strong>, in a binder's menu, makes a new binder on the hub or joins one you're in. Its notes, folders, pictures and cards then stay the same on your Mac and on the hub, both ways, offline too. A linked binder's board, Distill and agents are the hub's.</p>
+
+    <h3 id="stays">What stays on my Mac?</h3>
+    <p>Your Mac keeps what you heard, and the hub gets what you choose to share. A linked binder's meetings, captures, knowledge and dictations stay on your Mac until you send them with <strong>Send to Hub…</strong>, or send a meeting as a note. Sent, they're notes on the hub that its members can read. Notes made from what you said to yourself never go up with the binder.</p>
+    <p>The promises in Binders' <a href="privacy.html">privacy notes</a> are about the app on your Mac and iPhone. What you share with a hub is kept as described below.</p>
+
+    <h2 id="data">Where your work is kept</h2>
+
+    <h3 id="kept">What does a hub hold?</h3>
+    <ul>
+      <li><strong>On GitHub, in the binder's repo:</strong> cards, as issues; notes, as Markdown on a branch of their own; and your code and pull requests. Settings → Binder can turn off pushing notes.</li>
+      <li><strong>On the hub's server:</strong> a Git copy of the notes, live work in Redis, such as each change to the board and agents' reports, and the keys it needs for GitHub, sealed with the hub's secret.</li>
+    </ul>
+    <p>So a binder's cards and notes are still in its repo if you stop using Binders. What's only on the hub's server is whoever runs that hub's to look after.</p>
+
+    <h3 id="agent-data">Where does my code go when an agent works?</h3>
+    <p>Agents run on your machines, with your tools. What they read goes wherever that tool sends it, usually to whoever runs its model. Each step an agent reports appears on its card, where the binder's members can see it.</p>
+
+    <h3 id="questions">Something else?</h3>
+    <p>Write to <a href="mailto:hello@binders.io">hello@binders.io</a>. For a security problem, please write to <a href="mailto:security@binders.io">security@binders.io</a> before making it public.</p>
+  </div>
+</article>
+</main>
+<footer class="foot">
+  <div class="wrap foot-row">
+    <a class="brand small" href="index.html"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="docs.html">Docs</a><a href="help.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-line">© 2026 Binders. Binders for Mac is free and open source under the GPL, version 3.</p>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

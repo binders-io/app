@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binders Hub: from a note to production</title>
+<meta name="description" content="Binders Hub takes a note to production, with agents doing the work and people making the decisions. Cards are GitHub Issues, notes are Markdown in Git, and related pull requests are approved as one change set.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0b12" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://binders.io/hub">
+<meta property="og:title" content="Binders Hub: from a note to production">
+<meta property="og:description" content="Agents do the work. You make the decisions. Cards are GitHub Issues, and related pull requests are one change set.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://binders.io/hub">
+<meta property="og:site_name" content="Binders">
+<meta property="og:image" content="https://binders.io/assets/og-hub.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Binders Hub: from a note to production. Agents do the work. You make the decisions.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://binders.io/assets/og-hub.png">
+<meta name="twitter:image:alt" content="Binders Hub: from a note to production. Agents do the work. You make the decisions.">
+<link rel="icon" type="image/png" href="/assets/favicon-64.png">
+<link rel="preload" href="/assets/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/hub/hub.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap nav-row">
+    <a class="brand" href="/hub/" aria-label="Binders Hub, top of the page">
+      <img src="/assets/icon-128.png" width="30" height="30" alt="">
+      <span>Binders <b>Hub</b></span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/hub/" aria-current="page">Hub</a>
+      <a href="/">Mac</a>
+      <a href="/help.html">Docs</a>
+      <a href="https://github.com/binders-io/app" rel="noopener">GitHub</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="button button-primary button-small" href="mailto:hello@binders.io?subject=Binders%20Hub%20access">Request access</a>
+      <details class="mobile-menu">
+        <summary aria-label="Menu"><span aria-hidden="true"></span></summary>
+        <nav aria-label="Mobile">
+          <a href="/hub/" aria-current="page">Hub</a>
+          <a href="/">Mac</a>
+          <a href="/help.html">Docs</a>
+          <a href="https://github.com/binders-io/app" rel="noopener">GitHub</a>
+          <a href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg">Get Binders for Mac</a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Binders Hub</p>
+      <h1 id="hero-title">From a note to production.</h1>
+      <p class="lede">Binders Hub takes a note to production, with agents doing the work and people making the decisions. Write the spec, accept the work, follow it live, and approve the change as one.</p>
+      <div class="cta-row">
+        <a class="button button-primary" href="mailto:hello@binders.io?subject=Binders%20Hub%20access">Request access</a>
+        <a class="button button-quiet" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg">Get Binders for Mac</a>
+      </div>
+      <p class="fineprint">Hub access is by allow list today. Binders for Mac is a separate, free download.</p>
+    </div>
+
+    <figure class="mock board" role="img" aria-label="Illustration of a Hub board with invented data: cards in Ready, In progress, In review and Live, one of them showing an agent reporting a step.">
+      <div aria-hidden="true">
+        <div class="mock-bar"><b>Harbor</b><span>Flow</span></div>
+        <div class="board-cols">
+          <div class="board-col">
+            <h3>Ready</h3>
+            <div class="tile">Export invoices as CSV</div>
+          </div>
+          <div class="board-col">
+            <h3>In progress</h3>
+            <div class="tile tile-live">Rate limit the public API<small><i class="dot dot-live"></i>Juno: running the tests</small></div>
+          </div>
+          <div class="board-col">
+            <h3>In review</h3>
+            <div class="tile">Retry failed webhooks<small>Change set 12</small></div>
+          </div>
+          <div class="board-col">
+            <h3>Live</h3>
+            <div class="tile">Sign-in with GitHub<small><i class="dot dot-ok"></i>Production</small></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section section-band" id="pipeline" aria-labelledby="pipeline-title">
+  <div class="wrap">
+    <p class="eyebrow">The pipeline</p>
+    <h2 id="pipeline-title">One line from the spec to what's deployed.</h2>
+    <ol class="pipeline">
+      <li><a href="#spec"><b>Note</b><span>The spec, written together in Markdown.</span></a></li>
+      <li><a href="#spec"><b>Distill</b><span>Proposes the work, quoting the note.</span></a></li>
+      <li><a href="#spec"><b>Cards</b><span>Accepted work, each saved as a GitHub Issue.</span></a></li>
+      <li><a href="#agents"><b>Agents</b><span>Claim cards and report each step.</span></a></li>
+      <li><a href="#agents"><b>Pull requests</b><span>One branch and worktree for each card.</span></a></li>
+      <li><a href="#review"><b>Change set</b><span>Related pull requests, approved as one.</span></a></li>
+      <li><a href="#deployed"><b>CI/CD</b><span>Checks and environments, on each change.</span></a></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section" id="spec" aria-labelledby="spec-title">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow">Start from the spec</p>
+      <h2 id="spec-title">Notes become work when someone says so.</h2>
+      <p>Write a note together. Distill reads it and proposes work items, each with the note's exact words it came from. Nothing reaches the board until someone accepts it.</p>
+      <p>A card an agent suggests on its own waits as proposed too, until a person moves it on.</p>
+    </div>
+    <figure class="mock" role="img" aria-label="Illustration with invented data: a work item proposed from a note, quoting the note's words, with Accept and Dismiss buttons.">
+      <div aria-hidden="true">
+        <div class="mock-bar"><b>API launch</b><span>Distill</span></div>
+        <div class="mock-body">
+          <p class="quote">“Public endpoints need a rate limit before launch.”</p>
+          <p class="mock-title">Rate limit the public API</p>
+          <p class="mock-small"><b>Done when:</b> a client over its limit gets a 429 with a Retry-After header.</p>
+          <div class="mock-actions"><span class="chip chip-primary">Accept</span><span class="chip">Dismiss</span></div>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section section-band" id="agents" aria-labelledby="agents-title">
+  <div class="wrap split split-flip">
+    <div>
+      <p class="eyebrow">Agents work in the open</p>
+      <h2 id="agents-title">Watch the work, and answer when it's stuck.</h2>
+      <p>Agents connect over MCP, claim a card, report each step live, and ask when they're stuck. A person's answer starts them again on that card.</p>
+      <p>The runner keeps an agent taking cards on the machine where the code is. It starts Claude Code, Codex or your own command, and works each card in its own worktree and branch, never in your checkout. Any other MCP client can connect too, without the runner's worktrees.</p>
+    </div>
+    <figure class="mock" role="img" aria-label="Illustration with invented data: a card's live log, where an agent reads files, runs tests and then asks a person a question.">
+      <div aria-hidden="true">
+        <div class="mock-bar"><b>Rate limit the public API</b><span>In progress</span></div>
+        <ul class="log mock-body">
+          <li><code>Read</code> api/src/middleware.ts</li>
+          <li><code>Edit</code> api/src/limits.ts</li>
+          <li><code>Bash</code> npm test: 212 passed</li>
+          <li class="log-ask"><b>Juno asks:</b> Should the limit be per key or per address?</li>
+          <li class="log-answer"><b>Maya:</b> Per key.</li>
+        </ul>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="review" aria-labelledby="review-title">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow">Change sets</p>
+      <h2 id="review-title">Review the change, not twenty pull requests.</h2>
+      <p>A change set brings related pull requests together, across repos, with one approval. They merge in the order you set, each as soon as it's ready. One that isn't ready waits and says why, and the others don't stop for it.</p>
+      <p>A failed check refuses the approval, and the repo's own rules still apply on GitHub.</p>
+      <p><b>Debrief</b> gives you an agent's written account of what the change proposes. A card's debrief is kept as a comment on its issue.</p>
+    </div>
+    <figure class="mock" role="img" aria-label="Illustration with invented data: a change set of three pull requests across two repos, in merge order, with passing checks and a button to approve all three and merge.">
+      <div aria-hidden="true">
+        <div class="mock-bar"><b>Change set 12</b><span>In review</span></div>
+        <ol class="prs mock-body">
+          <li><code>harbor/api#88</code><span>Retry failed webhooks</span><em class="ok">Checks passed</em></li>
+          <li><code>harbor/api#91</code><span>Log each retry</span><em class="ok">Checks passed</em></li>
+          <li><code>harbor/web#54</code><span>Show retries on the page</span><em class="ok">Checks passed</em></li>
+        </ol>
+        <div class="mock-actions mock-pad"><span class="chip chip-primary">Approve 3 and merge</span></div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section section-band" id="challenge" aria-labelledby="challenge-title">
+  <div class="wrap split split-flip">
+    <div>
+      <p class="eyebrow">Challenge</p>
+      <h2 id="challenge-title">Reviewers who don't take the author's word for it.</h2>
+      <p>Ask for a Challenge and a reviewer agent judges the code without seeing the author's plan or log. It gets the diff, the brief and the card's “done when”, in a checkout of its own, with no earlier session.</p>
+      <p>Each finding has a file and line, a severity and a confidence. It also gets the change's blast radius: what the change touched, its uses elsewhere that the change didn't, and the tests that mention it. The blast radius is found by name, so it's a first look and not a proof.</p>
+      <p>You can pick the reviewer. Left to the Hub, an agent that didn't write the work comes first.</p>
+    </div>
+    <figure class="mock" role="img" aria-label="Illustration with invented data: a Challenge finding on a file and line, marked as a confirmed, high severity bug.">
+      <div aria-hidden="true">
+        <div class="mock-bar"><b>Challenge</b><span>1 finding</span></div>
+        <div class="mock-body">
+          <p class="mock-small"><span class="tag tag-bad">High</span> <span class="tag">Bug</span> <span class="tag">Confirmed</span></p>
+          <p class="mock-title"><code>api/src/retry.ts:42</code></p>
+          <p class="mock-small">A retry after a 429 ignores Retry-After, so a busy client is retried straight away.</p>
+          <p class="mock-small blast"><b>Blast radius:</b> <code>nextDelay</code> changed; 2 uses elsewhere not updated.</p>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="control" aria-labelledby="control-title">
+  <div class="wrap">
+    <p class="eyebrow">For the lead who approves it</p>
+    <h2 id="control-title">Three questions, answered plainly.</h2>
+
+    <h3 class="q" id="reach">What can an agent reach?</h3>
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="reach">
+      <table>
+        <tbody>
+          <tr><th scope="row">Which repos</th><td>An agent takes a card only in a repo its owner can push to, as GitHub says with the owner's own sign-in. Otherwise it's refused, and told why. A hub that doesn't sign people in with GitHub has no owner to ask, so it doesn't make this check.</td></tr>
+          <tr><th scope="row">GitHub, by default</th><td>It commits and pushes as its owner, with the owner's GitHub sign-in to the Hub. It can reach what that sign-in can, and commits carry the owner's name.</td></tr>
+          <tr><th scope="row">GitHub, as the app</th><td>Set an agent to commit as the Hub's GitHub App, and each run gets a token for one repo that lasts an hour, renewed on long runs.</td></tr>
+          <tr><th scope="row">The machine's GitHub login</th><td>A hub with no GitHub App can't narrow a token, and one token can't cover a folder of several repos. In those cases the agent uses the machine's own GitHub login, and the runner's log says so.</td></tr>
+          <tr><th scope="row">The machine</th><td>Agents run on a machine you choose. Each agent's access is set in the Agents page: full, with no prompts, which is the default; Auto, where Claude Code decides what's safe; or edits only. Not every tool offers all three.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="q">Who reviewed the work?</h3>
+    <p class="answer">A person, by name. Only someone signed in can approve a change set, the Hub records who did, and agents get no tool for it. Pull requests ready at that moment are approved and merged on GitHub as that person. Any that become ready later are merged by the Hub's GitHub App. GitHub won't let you approve your own pull request, so if an agent pushed as you and you approve the set, it merges without a GitHub approval, unless the repo's rules require one.</p>
+
+    <h3 class="q" id="deployed">Where is it deployed?</h3>
+    <p class="answer">Delivery shows each environment, the version on it and the change sets that version carries. Checks, workflow runs and deployments come from GitHub, on each change. An environment that needs approval waits for a person, who promotes it in the app. That runs your GitHub workflow, if the environment has one. A card goes live when it reaches the last environment.</p>
+  </div>
+</section>
+
+<section class="section section-band" id="stays" aria-labelledby="stays-title">
+  <div class="wrap">
+    <p class="eyebrow">Your work stays in your tools</p>
+    <h2 id="stays-title">Switch Binders off, and your work is still in GitHub.</h2>
+    <div class="columns">
+      <div>
+        <h3>In GitHub and Git</h3>
+        <ul>
+          <li>Cards, as GitHub Issues, with the Hub's fields in a hidden block in the body</li>
+          <li>Debriefs, as comments on those issues</li>
+          <li>Notes, as Markdown files in a Git repo</li>
+          <li>Pull requests, checks, workflow runs and deployments</li>
+        </ul>
+      </div>
+      <div>
+        <h3>On the Hub</h3>
+        <ul>
+          <li>Live work, in Redis</li>
+          <li>Change sets, and agents and their settings</li>
+          <li>Challenge findings, unless a binder posts them as a review on the pull request</li>
+          <li>GitHub keys and sign-ins, sealed</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="self-hosting" aria-labelledby="hosting-title">
+  <div class="wrap columns">
+    <div>
+      <p class="eyebrow">Self-hosting</p>
+      <h2 id="hosting-title">It runs on one server.</h2>
+      <p>The Hub is built to run with Docker Compose: the Hub, its Redis, and an optional Cloudflare tunnel for its public address. Its repository is private today, so this isn't something you can set up on your own yet.</p>
+    </div>
+    <div id="mac">
+      <p class="eyebrow">The private half</p>
+      <h2>Your Mac keeps what you heard. The Hub gets what you chose to share.</h2>
+      <p>Binders for Mac is its own product, and its privacy promise is its own. Notes in a binder you link to a Hub are shared there. Meetings, captures and dictations stay on your Mac unless you choose Send to Hub.</p>
+      <p><a class="text-link" href="/">More about Binders for Mac</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="section section-band closing" aria-labelledby="closing-title">
+  <div class="wrap">
+    <h2 id="closing-title">Notes become work. Agents do it. You approve it.</h2>
+    <div class="cta-row">
+      <a class="button button-primary" href="mailto:hello@binders.io?subject=Binders%20Hub%20access">Request access</a>
+      <a class="button button-quiet" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg">Get Binders for Mac</a>
+    </div>
+    <p class="fineprint">The pictures on this page are illustrations, with invented people and projects.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a href="mailto:hello@binders.io">hello@binders.io</a>
+    <a href="/">Binders for Mac</a>
+    <a href="/help.html">Help</a>
+    <a href="/privacy.html">Privacy</a>
+    <a href="/terms.html">Terms</a>
+    <a href="/licenses.html">Licences</a>
+  </div>
+</footer>
+</body>
+</html>

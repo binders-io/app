@@ -77,3 +77,11 @@ Live at https://binders.io and https://www.binders.io.
 `hello@binders.io` and `security@binders.io` are forwarded to the publisher's inbox by Amazon SES: a receive rule stores each
 message and a small Lambda re-sends it, with the original sender in Reply-To. DNS for it (MX, SPF, DMARC, DKIM) is in the
 binders.io zone.
+
+## Open Graph cards
+
+Every public page has its own card in `site/assets/og-<page>.png`, and the Mac page keeps the older `og-mac.jpg`. A card
+carries the page's own words, so it changes with the page: `scripts/make-og-cards.py` renders them all, and `--check` fails
+if one is missing or is not 1200x630. It needs Pillow and the macOS system fonts (SF Pro, SF Pro Rounded, New York). A new
+page needs a card in that list, its own `og:` tags, an entry in `sitemap.xml`, and both of its names in the invalidation
+list in `scripts/deploy-site.sh`.
