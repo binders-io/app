@@ -41,9 +41,9 @@
 <main id="main">
 <section class="cover page-cover">
   <div class="wrap">
-    <p class="kicker">Privacy</p>
+    <p class="kicker">Privacy · Mac and iPhone</p>
     <h1>Where your data lives</h1>
-    <p class="lede">Binders is a local-first app for Mac and iPhone. It has no account system, no analytics and no server of its own. This page describes Binders for iPhone 2.2 and the Mac app as of version 0.14.0.</p>
+    <p class="lede">Binders for Mac and iPhone is a local-first app. It has no account system and no analytics, and it needs no server to work. If you link a binder to a Binders Hub, what you share goes to that Hub, as <a href="#hub">this page explains</a>, and the <a href="hub-privacy.html">Hub’s privacy page</a> covers what happens there. This page describes Binders for iPhone 2.2 and the Mac app as of version 0.14.0.</p>
   </div>
 </section>
 <article class="page">
@@ -59,10 +59,24 @@
     <h2>What leaves your Mac, and only when</h2>
     <ul>
       <li><strong>Your language model.</strong> Formatting, meeting notes, note digests, answers, to-do detection and Distill (reading a note into work items) send text to the language model you configure, and so does indexing for search by meaning. By default that runs on your own Mac: built into Binders on a Mac with Apple silicon, or Ollama. If you point Binders at another server, that text goes to that server and is covered by its terms.</li>
-      <li><strong>Team sharing.</strong> When you share a binder, its notes and meeting notes, with the files attached to those notes, are written to the folder you picked inside your own cloud drive. Your drive provider syncs them to your teammates. Captures, notes made from what you said to yourself, and the audio Binders records are never shared.</li>
+      <li><strong>Team sharing through a folder.</strong> When you share a binder through a folder, its notes and meeting notes, with the files attached to those notes, are written to the folder you picked inside your own cloud drive. Your drive provider syncs them to your teammates. Captures, notes made from what you said to yourself, and the audio Binders records are never shared this way.</li>
+      <li><strong>A Binders Hub.</strong> Only if you link a binder to one. See <a href="#hub">If you link a binder to a Hub</a>.</li>
       <li><strong>Model downloads.</strong> The speech models, and the built-in language and search models if you use them, are downloaded once, on first use, from Hugging Face or the mirror you set. A decision model you choose in Settings → AI is downloaded the same way when you click Download; Binders never downloads Tev1 0.8B.</li>
       <li><strong>Ollama, if you ask for it.</strong> When you click Install Ollama, Binders downloads it from ollama.com, checks that it was signed by its makers and notarized by Apple, and puts it in your Applications folder. Ollama is separate software with its own terms and its own updates. The language model you choose is then downloaded by Ollama from its library.</li>
       <li><strong>Things you ask for.</strong> A voice command such as “search the web for…” opens your browser with that query.</li>
+    </ul>
+
+    <h2 id="hub">If you link a binder to a Hub</h2>
+    <p>A Binders Hub is a server a team shares notes, a board and agents through. Nothing goes to one until you sign in to it in Settings → Team and choose Link to Hub… on a binder. Binders you don’t link are not affected. Your sign-in is kept in the macOS Keychain.</p>
+    <ul>
+      <li><strong>What linking sends.</strong> The binder’s folders, its notes and the pictures in them, and its cards with their comments, questions and answers go to the Hub you chose. From then on, notes, folders, pictures and cards stay the same on your Mac and on the Hub, both ways. The people in that binder on the Hub can read them, and the Hub’s agents can take its cards. Videos and other files attached to notes stay on your Mac.</li>
+      <li><strong>Cards on a linked board.</strong> A card made on a linked binder’s board goes to the Hub, wherever it came from. That includes a card made from a to-do and a card made from something you said to your iPhone, if it’s filed in that binder.</li>
+      <li><strong>What stays on your Mac.</strong> Linking does not send the binder’s meetings or captures, your dictations, the knowledge graph, your to-dos or notes made from what you said to yourself. They stay here unless you send them. The audio Binders records never goes to a Hub.</li>
+      <li><strong>What you can choose to send.</strong> Send to Binder, on a meeting, writes it as a note in a linked binder: its title, when it was and for how long, the app it was in, who was there and its summary, and the transcript if you ask for it. Your own notes on the meeting stay here. Send to Hub…, on a linked binder, writes what you tick as notes in that binder: its meetings, with their transcripts if you ask; its captures, which always include what was heard, other people’s words among it; the people, projects and links the knowledge graph found in it; and every dictation on this Mac, with what you said to yourself, from any binder. Each of these then goes up like any other note, and everyone in that binder can read it. Sending again updates those notes.</li>
+      <li><strong>Agents and tools.</strong> On a linked binder, Binders’ own MCP server leaves out its notes and cards, and Binders doesn’t wake the agents on your Mac for its cards. Agents reach them through the Hub instead. Your tools can still reach that binder’s meetings and captures, your dictations, knowledge and to-dos through this Mac, under the rules below.</li>
+      <li><strong>Your iPhone.</strong> Binders for iPhone talks to your Mac, never to a Hub. What it hands your Mac is treated as this section says.</li>
+      <li><strong>Unlinking.</strong> Unlinking stops changes going between them. The binder stays on your Mac, and what the Hub has stays on the Hub. Sign Out revokes this Mac’s sign-in on the Hub when it can reach it, and deletes it here.</li>
+      <li><strong>Who is responsible.</strong> Whoever runs that Hub holds what you send it. The <a href="hub-privacy.html">Hub’s privacy page</a> says what a Hub keeps, where it goes and who can read it.</li>
     </ul>
 
     <h2>AI tools and agents you connect</h2>
@@ -111,7 +125,7 @@
     <p>Meeting notes record what the other people on a call say, and All-day capture, on the Mac or the iPhone, writes down conversations around you. Many places require everyone’s consent before a conversation is recorded. Binders reminds you of this before your first recording; telling people, and not recording when someone objects, is your responsibility.</p>
 
     <h2>How your data is stored</h2>
-    <p>Your data sits in ordinary files in your user Library. Binders does not add its own encryption, so it is protected the way the rest of your Mac is: by your login and, when you have it switched on, FileVault. The API key for a language model server, if you use one, and the keys your paired iPhones connect with are kept in the macOS Keychain.</p>
+    <p>Your data sits in ordinary files in your user Library. Binders does not add its own encryption, so it is protected the way the rest of your Mac is: by your login and, when you have it switched on, FileVault. The API key for a language model server, if you use one, the keys your paired iPhones connect with and your sign-in to a Hub, if you have one, are kept in the macOS Keychain.</p>
 
     <h2>Permissions</h2>
     <ul>
@@ -134,7 +148,7 @@
 <footer class="foot">
   <div class="wrap foot-row">
     <a class="brand small" href="index.html"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
-    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="help.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="https://github.com/binders-io/app" rel="noopener">GitHub</a><a href="help.html">Help</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="hub-privacy.html">Hub privacy</a><a href="hub-terms.html">Hub terms</a><a href="licenses.html">Licences</a></p>
     <p class="foot-line">© 2026 Binders. Free, private, on your Mac. Open source under the GPL, version 3.</p>
   </div>
 </footer>
