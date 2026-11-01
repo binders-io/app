@@ -479,7 +479,7 @@ kbd { display: inline-grid; place-items: center; min-width: 30px; height: 28px; 
 .page h3 { font-size: 1.12rem; margin-top: 30px; scroll-margin-top: calc(var(--nav-h) + 24px); }
 .page h2 { scroll-margin-top: calc(var(--nav-h) + 24px); }
 .page h3 + p { margin-top: 8px; }
-.page code { font: 0.9em/1.4 var(--mono); padding: 2px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.page code { overflow-wrap: anywhere; font: 0.9em/1.4 var(--mono); padding: 2px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text); }
 .page pre { margin: 14px 0 0; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); overflow-x: auto; }
 .page pre code { padding: 0; background: none; font-size: 0.88rem; line-height: 1.6; white-space: pre; }
 .page kbd { height: 24px; min-width: 26px; font-size: 0.78rem; vertical-align: 0.05em; }

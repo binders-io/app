@@ -76,7 +76,7 @@
 
     <h3 id="ollama">Do I need Ollama?</h3>
     <p>Not for dictation: speech recognition is built in and works on its own. For the AI parts (cleaning up what you dictate, meeting notes, answers, and finding to-dos in what you write) Binders uses a language model that runs on your Mac through <a href="https://ollama.com" rel="noopener">Ollama</a>, free software from its own makers. If you don't have it, Binders can install it for you: it downloads the official build and checks it was signed by its makers and notarized by Apple. It then suggests a model for your Mac's memory:</p>
-    <div class="table">
+    <div class="table" tabindex="0">
       <table>
         <thead><tr><th>Memory</th><th>Suggested model</th><th>Download</th></tr></thead>
         <tbody>
@@ -98,7 +98,7 @@
     <h3 id="fn-nothing">Holding fn does nothing</h3>
     <p>This is nearly always the Accessibility permission. Open Binders → Settings → Privacy, which shows each permission and opens the right place in System Settings. Make sure Binders is listed under Accessibility and switched on; that page in Binders says “Active” once the shortcut can be heard.</p>
     <p>If it is on and fn still does nothing, macOS may be holding on to an entry for an older copy of the app. Reset it, then open Binders and allow Accessibility again:</p>
-    <pre><code>tccutil reset Accessibility io.binders.mac</code></pre>
+    <pre tabindex="0"><code>tccutil reset Accessibility io.binders.mac</code></pre>
     <p>Paste that into Terminal and press Return. It only affects Binders. Then quit Binders from its menu bar icon and open it again.</p>
 
     <h3 id="after-update">It stopped working after I reinstalled or moved the app</h3>
@@ -138,14 +138,14 @@
 
     <h3 id="uninstall">How do I remove Binders completely?</h3>
     <p>Quit Binders, move it from Applications to the Trash, then delete its folders:</p>
-    <pre><code>rm -rf ~/Library/Application\ Support/Binders ~/Library/Application\ Support/FluidAudio
+    <pre tabindex="0"><code>rm -rf ~/Library/Application\ Support/Binders ~/Library/Application\ Support/FluidAudio
 defaults delete io.binders.mac</code></pre>
     <p>The first folder holds your data; the second holds the Parakeet speech model (delete it only if no other app of yours uses FluidAudio). Ollama and its models are separate software: remove them the way Ollama describes, if you no longer want them.</p>
 
     <h2 id="features">Features</h2>
 
     <h3 id="shortcuts">What are the shortcuts?</h3>
-    <div class="table">
+    <div class="table" tabindex="0">
       <table>
         <tbody>
           <tr><td><kbd>fn</kbd> hold</td><td>Dictate; let go to insert</td></tr>
