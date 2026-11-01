@@ -47,6 +47,23 @@ these runs on the site: they show the path the app is running from on the Mac th
 
 The demo content lives in `Binders/App/DemoData.swift`. With `--ask` the run also puts the questions in `DemoData.questions` to the real knowledge pipeline (index, search, local model) and prints the answers and their sources. The answers in the site's Ask section are copied from that output, so re-run it and update `site/main.js` if the demo data changes. `scripts/make-site-shots.py` needs Pillow.
 
+### The Hub's pictures
+
+The Hub's `hub-flow`, `hub-card`, `hub-change-set`, `hub-challenge` and `hub-delivery` images (each with a `-dark` twin, at
+2400×1500) never come from a real hub. They are taken from a throwaway hub in binders-io/binders-server, which holds
+the same invented Harbor team in memory, follows one piece of work from a note to production, and can't reach a real
+Redis, notes repo or GitHub. From a clone of binders-server beside this repo:
+
+```
+(cd hub && npm install) && (cd web && npm install)
+cd demo && npm install && npx playwright install chromium
+npm run shots -- ../../app/site/assets
+```
+
+The script stops if a page holds anything real (the machine's name and paths, your git name and email, the real team's
+names, anything shaped like a token) or asks for anything from elsewhere. It only reads the page's words, so look at
+the pictures too. The invented data is in `demo/data.ts` there, its dates count back from the run, and its README has the rest.
+
 ## Publishing
 
 `scripts/deploy-site.sh` syncs `site/` to the S3 bucket behind CloudFront, publishes the update feed, and refreshes the CDN.
