@@ -1,7 +1,8 @@
 # The Binders website
 
-`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
-`hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
+`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `hub-privacy.html`, `hub-terms.html`,
+`licenses.html`, `404.html`, `hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no
+runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
 ## The design
@@ -18,7 +19,7 @@ six-step rail can be clicked to inspect any state, the replay button restarts it
 state instead of auto-playing.
 
 - Tokens are at the top of `landing.css`. The landing is dark by design; `styles.css` keeps the older light/dark treatment
-  for help, privacy, terms, licenses and 404.
+  for help, privacy, terms, the Hub's privacy and terms, licenses and 404.
 - `landing.js` handles the nav surface, reveals, interface tabs, mobile menu, the workflow's steps and approval, and the tour
   dialog. Without JavaScript the content and the details menu still work, and a note under the workflow explains that its
   demo needs scripting; reduced motion removes the app preview's float, the waveforms, the workflow transitions and the
