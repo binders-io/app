@@ -1,9 +1,12 @@
-# Binders
+# Binders for Mac
 
 **Remembers everything. Tells no one.**
 
-Binders is a free Mac app that turns what you say, what you hear in meetings and what you write into notes, to-dos and a
-memory you can ask questions. The speech models, the language model and your data all stay on your Mac.
+Binders for Mac is a free Mac app that turns what you say, what you hear in meetings and what you write into notes, to-dos
+and a memory you can ask questions. The speech models, the language model and your data all stay on your Mac.
+
+**Binders Hub** is the other half of Binders: it takes a note to production, with agents doing the work and people making
+the decisions. Your Mac keeps what you heard; the Hub gets what you chose to share.
 
 [![Tests](https://github.com/binders-io/app/actions/workflows/tests.yml/badge.svg)](https://github.com/binders-io/app/actions/workflows/tests.yml)
 [![Latest release](https://img.shields.io/github/v/release/binders-io/app?label=download)](https://github.com/binders-io/app/releases/latest)
@@ -63,7 +66,8 @@ memory you can ask questions. The speech models, the language model and your dat
   each agent and read its replies, a conversation per card. One agent, Claude Code or a local model, can be the Manager: it tidies your boards and folders,
   distills notes and answers what you ask it, with Binders' tools alone and an Undo for each request.
 - **Binders and teams.** One binder per thing you are working on. Share a binder with teammates through a folder you already sync
-  (OneDrive, Dropbox, Google Drive, iCloud Drive). There is no server of ours in between.
+  (OneDrive, Dropbox, Google Drive, iCloud Drive), with no server of ours in between, or link it to Binders Hub and work from
+  the same board there.
 - **Open to other software.** Rules run a Shortcut, open a URL, run a script or call a web hook when you say a phrase or when
   something happens in Binders; `binders://` links let Shortcuts, Raycast or a script drive it; and an MCP server (`Binders --mcp`)
   lets Claude Code, Claude Desktop and other AI tools search and ask your knowledge base and work from your boards, on this
@@ -72,7 +76,7 @@ memory you can ask questions. The speech models, the language model and your dat
 
 ## Privacy
 
-Binders has no account, no analytics and no cloud of its own.
+Binders for Mac has no account, no analytics and no cloud of its own.
 
 - Speech is transcribed on the Neural Engine with Parakeet or Whisper. Audio is never uploaded.
 - Formatting, notes, answers and to-do detection use a language model in [Ollama](https://ollama.com) on your Mac by default,
@@ -82,6 +86,9 @@ Binders has no account, no analytics and no cloud of its own.
 - Writing capture is off until you switch it on. In the terminal it keeps only the prompts you send AI tools such as Claude Code, Codex, Gemini CLI, Copilot CLI and OpenCode, from their own records, never the screen (docs/CAPTURE.md). It never reads secure fields, password managers or terminal screens, skips pages that
   look like a login or a payment, and redacts labelled passwords, card numbers and long keys before storing anything.
 - With your permission, the app checks binders.io for a signed update at most once a day. Nothing about you is sent.
+
+Linking a binder to Binders Hub sends what you chose to share there; meetings and captures stay on this Mac unless you send
+them.
 
 The full breakdown is on the site's privacy page (`site/privacy.html`).
 
@@ -265,7 +272,7 @@ hello@binders.io. Security reports: security@binders.io.
 
 Copyright © 2026 Helder Feixas.
 
-Binders is free software: you can redistribute it and modify it under the terms of the
+Binders for Mac is free software: you can redistribute it and modify it under the terms of the
 [GNU General Public License, version 3](LICENSE). It comes with no warranty. If you distribute a modified version, you must
 publish its source under the same licence, and you must give it its own name and icon: see [TRADEMARKS.md](TRADEMARKS.md).
 
