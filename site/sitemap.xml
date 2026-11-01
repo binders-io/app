@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://binders.io/</loc></url>
-  <url><loc>https://binders.io/help.html</loc></url>
-  <url><loc>https://binders.io/privacy.html</loc></url>
-  <url><loc>https://binders.io/licenses.html</loc></url>
-  <url><loc>https://binders.io/terms.html</loc></url>
+  <url><loc>https://binders.io/help</loc></url>
+  <url><loc>https://binders.io/privacy</loc></url>
+  <url><loc>https://binders.io/licenses</loc></url>
+  <url><loc>https://binders.io/terms</loc></url>
 </urlset>
