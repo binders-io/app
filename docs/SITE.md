@@ -1,6 +1,6 @@
 # The Binders website
 
-`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
+`site/` is a static site for binders.io: `index.html`, `docs.html`, `help.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
 `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
@@ -26,6 +26,12 @@ state instead of auto-playing.
 - The interface showcase uses the light product pictures. The dark set remains in `assets/` for other surfaces.
 - The hero app preview is drawn in HTML and CSS, not a screenshot, so it stays crisp and can change with the product.
 - The page uses system fonts and makes no third-party requests.
+
+## Hub docs
+
+`help.html` is Mac and iPhone help. Shipped apps link to it and its anchors (`help.html#library`), so it keeps its address. `docs.html` is the Binders Hub's, and "Docs" in the nav goes there.
+
+binders-server is private, so the site can't link to its README and carries its own words. The page leads with using a hub, since nobody outside can install one yet. When the server's behaviour or how people get the Hub changes, check `docs.html` against the code in binders-server: its labels come from the web app (the board's nav label is Work, its columns are in `web/src/data/model.ts`). Don't publish the hub's address or offer self-hosting there until that's decided.
 
 ## Screenshots never contain real data
 
