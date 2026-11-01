@@ -66,11 +66,42 @@ Live at https://binders.io and https://www.binders.io.
 - A private, encrypted S3 bucket, readable only by a CloudFront distribution through an origin access control. Requests straight
   to the bucket are refused.
 - CloudFront: HTTPS only (HTTP redirects), HTTP/2 and 3, Brotli, the managed security headers policy (HSTS, nosniff, frame
-  options, referrer policy), 403 and 404 mapped to `/404.html`, a free ACM certificate for both names.
+  options, referrer policy), 403 and 404 mapped to `/404.html`, a free ACM certificate for both names, and a CloudFront Function
+  for clean URLs (below).
 - Route 53: alias A and AAAA records for the apex and `www`.
 - The bucket and the distribution are named in `site/.deploy.env`, which is not committed. `scripts/deploy-site.sh` uploads
   pages with a 5-minute cache, assets with a week, downloads as immutable, the update archive before the feed, then invalidates
-  the pages.
+  the pages, under both their names.
+
+## Addresses
+
+Pages have clean addresses: `/hub`, `/mac`, `/help`, `/privacy`. The CloudFront Function `binders-clean-urls`
+(`scripts/site-urls/clean-urls.js`) runs on every request:
+
+| Request | Answer |
+|---|---|
+| `/hub` | serves `hub.html`, and the address stays `/hub` |
+| `/help.html`, `/help.html?a=1` | 301 to `/help`, `/help?a=1` |
+| `/hub/` | 301 to `/hub` |
+| `/index.html` | 301 to `/` |
+| any other extension, such as `/appcast.xml` or `/assets/tour.mp4` | left alone |
+
+- **A new page is a file at the top of `site/`:** `site/hub.html`, not `site/hub/index.html`. It needs no change on AWS. Add both
+  of its names to the invalidation in `scripts/deploy-site.sh`, and its clean address to `site/sitemap.xml`.
+- **Pages link to each other by file name** (`help.html`), so they still work opened from disk or with `python3 -m http.server`,
+  which don't know clean addresses. On the live site each of those links is one redirect.
+- **Canonical addresses and the sitemap use the clean address.**
+- **The apps can't change their links.** Shipped apps open `help.html#library`, `privacy.html` and `licenses.html`, and the updater
+  reads `/appcast.xml`. A browser keeps the `#library` across the redirect, but an anchor never reaches the server, so `help` must
+  keep an element with `id="library"` and `/` one with `id="download"`, whatever else changes on those pages.
+
+`scripts/deploy-site-urls.sh` tests the function on CloudFront, publishes it and attaches it. That changes the live site at once,
+with no site deploy, so it's for changes to the function only. `scripts/deploy-site-urls.sh --off` detaches it again.
+`scripts/deploy-site.sh` refuses to publish without the function attached, because the pages name their clean addresses.
+
+After anything that changes addresses, run `scripts/check-site-urls.sh`: it checks every address ever handed out on the live site.
+Add to its list, and don't remove from it. The function's own tests are `node --test scripts/site-urls/clean-urls.test.mjs`, and
+`scripts/deploy-site-urls.sh` won't publish unless they pass.
 
 ## Contact addresses
 

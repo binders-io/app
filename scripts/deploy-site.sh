@@ -29,6 +29,11 @@ if [[ -f "dist/Binders-$VERSION.dmg" ]]; then
   grep -q "$SUM" site/index.html || { echo "✗ The checksum on the page is not the checksum of dist/Binders-$VERSION.dmg ($SUM)."; exit 1; }
 fi
 
+# The pages name their clean addresses, which only answer with the function attached.
+FUNCTION=$(aws cloudfront get-distribution-config --id "$BINDERS_SITE_DISTRIBUTION" --output text \
+  --query "DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Items[?EventType=='viewer-request'].FunctionARN")
+[[ "$FUNCTION" == *binders-clean-urls* ]] || { echo "✗ The clean URL function is not attached to the distribution. Run scripts/deploy-site-urls.sh first."; exit 1; }
+
 echo "→ Pages (short cache)"
 aws s3 sync site/ "s3://$BINDERS_SITE_BUCKET/" --delete --exclude ".deploy.env" --exclude ".DS_Store" --exclude "download/*" --exclude "appcast.xml" --exclude "assets/*" \
   --cache-control "public, max-age=300" --only-show-errors
@@ -47,7 +52,8 @@ if [[ -z "$SITE_ONLY" ]]; then
 fi
 
 echo "→ Refreshing the CDN"
-# Pages, the stylesheet and script, and the pictures (which keep their names when they are re-rendered).
-aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
+# Pages under both their names (a new page goes in here), the stylesheet and script, and the pictures (which keep their
+# names when they are re-rendered).
+aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/hub" "/hub.html" "/mac" "/mac.html" "/help" "/help.html" "/privacy" "/privacy.html" "/licenses" "/licenses.html" "/terms" "/terms.html" "/404.html" "/sitemap.xml" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
   --query "Invalidation.Id" --output text
 echo "✓ Published"
