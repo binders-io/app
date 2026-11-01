@@ -67,22 +67,71 @@
 
 <main id="main">
   <section class="hero" aria-labelledby="hero-title">
-    <div class="wrap">
-      <p class="eyebrow"><i></i>Binders Hub · Open source</p>
-      <h1 id="hero-title">From a note to production.</h1>
-      <p class="lede">Write the spec with your team. Binders turns it into cards, your agents take them on your own machines, and you review the whole change at once before it ships. Self-hosted and open source, built on GitHub.</p>
-      <div class="actions">
-        <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Run it on your server</a>
-        <a class="button quiet" href="mac.html">Binders for Mac<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <p class="eyebrow"><i></i>Binders Hub · Open source</p>
+        <h1 id="hero-title">From a note to production.</h1>
+        <p class="lede">Write the spec with your team. Binders turns it into cards, your agents take them on your own machines, and you review the whole change at once before it ships.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Run it on your server</a>
+          <a class="button quiet" href="mac.html">Binders for Mac<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        </div>
+        <ul class="meta" role="list">
+          <li>Self-hosted</li><li>AGPL</li><li>Claude Code, Codex or your own agents</li>
+        </ul>
       </div>
-      <p class="meta">Open source (AGPL) · Docker Compose · Works with Claude Code, Codex and your own agents</p>
 
+      <div class="stage">
+        <figure class="window">
+          <div class="window-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">hub.harbor.example/work</span></div>
+          <picture>
+            <source srcset="assets/hub-flow-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-flow-light.webp" width="1600" height="1000" fetchpriority="high" alt="The board of a demo company: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
+          </picture>
+        </figure>
+
+        <div class="float ask" aria-hidden="true">
+          <div class="float-head"><span class="who">CC</span><b>Claude Code · api</b><span class="pill waiting">Asks you</span></div>
+          <p>Do beta customers keep their 20% discount on annual plans?</p>
+          <div class="answer"><span>Keep their 20%. No free months on top.</span><span class="send">Answer</span></div>
+        </div>
+
+        <div class="float finding" aria-hidden="true">
+          <div class="float-head"><span class="pill found">High</span><span class="pill">Confirmed</span><code>src/billing/prorate.ts:9</code></div>
+          <p>Switching on day 31 of a long month credits −1 unused day. Found by Codex, which didn’t write it.</p>
+        </div>
+
+        <div class="float set" aria-hidden="true">
+          <div><span class="kicker-s">Change set #12</span><b>Annual plans for customers</b><small><i class="dot done"></i>3 pull requests · 2 repos · checks passed</small></div>
+          <span class="approve">Approve 3 and merge</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <ol class="lifecycle" role="list" aria-label="The flow, in seven steps">
+        <li class="done"><a href="#step-1"><i></i><b>Note</b><span>Spec and Distill</span></a></li>
+        <li class="done"><a href="#step-2"><i></i><b>Agents</b><span>On your machines</span></a></li>
+        <li class="done"><a href="#step-3"><i></i><b>Brief</b><span>Knows the repo</span></a></li>
+        <li class="working"><a href="#step-4"><i></i><b>Live</b><span>Every step shown</span></a></li>
+        <li class="waiting"><a href="#step-5"><i></i><b>Change set</b><span>One review</span></a></li>
+        <li><a href="#step-6"><i></i><b>Challenge</b><span>A second agent</span></a></li>
+        <li><a href="#step-7"><i></i><b>Ship</b><span>You approve</span></a></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section film-band" aria-labelledby="film-title">
+    <div class="wrap">
+      <div class="film-head">
+        <h2 id="film-title">See the whole flow in 74 seconds.</h2>
+        <p>A talk on the way in becomes a spec, the spec becomes cards, and the change ships after a second agent tries to break it. No sound needed; the company and people in it are made up.</p>
+      </div>
       <div class="film">
         <video controls muted playsinline preload="none" poster="assets/hub-tour-poster.webp" aria-label="A 74-second tour of Binders Hub, from a note to production">
           <source src="assets/hub-tour.mp4" type="video/mp4">
         </video>
       </div>
-      <p class="film-note">A 74-second tour, without sound. The company, people and data in it are made up.</p>
     </div>
   </section>
 
@@ -95,7 +144,7 @@
       </div>
 
       <ol class="flow" role="list">
-        <li class="step">
+        <li class="step" id="step-1">
           <div class="step-text">
             <span class="step-num">01</span>
             <h3>Start with a note.</h3>
@@ -106,7 +155,7 @@
             <img src="assets/hub-note-light.webp" width="1600" height="1000" loading="lazy" alt="A spec note called Annual plans, with Distill's proposed cards beside it, each with Accept and Dismiss.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-2">
           <div class="step-text">
             <span class="step-num">02</span>
             <h3>Your agents, on your machines.</h3>
@@ -117,7 +166,7 @@
             <img src="assets/hub-flow-light.webp" width="1600" height="1000" loading="lazy" alt="The board: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-3">
           <div class="step-text">
             <span class="step-num">03</span>
             <h3>Every agent knows the repo.</h3>
@@ -128,7 +177,7 @@
             <img src="assets/hub-briefs-light.webp" width="1600" height="1000" loading="lazy" alt="Repo briefs in Settings: each repo's brief, who wrote it, and the lessons agents added since.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-4">
           <div class="step-text">
             <span class="step-num">04</span>
             <h3>Watch the work as it happens.</h3>
@@ -140,7 +189,7 @@
             <img src="assets/hub-card-steps-light.webp" width="1600" height="1000" loading="lazy" alt="A card being worked: every file the agent read and edited, the commands it ran, and its live session.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-5">
           <div class="step-text">
             <span class="step-num">05</span>
             <h3>Review the change as one.</h3>
@@ -152,7 +201,7 @@
             <img src="assets/hub-change-set-light.webp" width="1600" height="1000" loading="lazy" alt="A change set of three pull requests with its debrief: what it does, what changed, and each point of the brief marked met or not.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-6">
           <div class="step-text">
             <span class="step-num">06</span>
             <h3>A second agent tries to break it.</h3>
@@ -164,7 +213,7 @@
             <img src="assets/hub-challenge-light.webp" width="1600" height="1000" loading="lazy" alt="A Challenge of the change set: its blast radius, a verdict, and findings worst first, each with a fix.">
           </picture>
         </li>
-        <li class="step">
+        <li class="step" id="step-7">
           <div class="step-text">
             <span class="step-num">07</span>
             <h3>Ship it from the same place.</h3>
