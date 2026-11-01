@@ -1,8 +1,12 @@
 # The Binders website
 
-`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
-`landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
-`site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
+`site/` is a static site for binders.io: `index.html`, `mac/index.html`, `privacy.html`, `terms.html`, `licenses.html`,
+`404.html`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Serve
+it with `python3 -m http.server --directory site`; opened straight from the disk, `mac/index.html` can't find its stylesheet,
+because a page in a folder links to everything from the site's root (`/landing.css`, `/assets/...`).
+
+`mac/index.html` is the Mac app's page. `index.html` is a copy of it, with relative links and its own canonical address,
+until the home page is rewritten around the Hub. Whatever `/` becomes, it keeps `id="download"` and a link to the disk image.
 
 ## The design
 
@@ -50,13 +54,20 @@ The demo content lives in `Binders/App/DemoData.swift`. With `--ask` the run als
 ## Publishing
 
 `scripts/deploy-site.sh` syncs `site/` to the S3 bucket behind CloudFront, publishes the update feed, and refreshes the CDN.
-It checks that the page links to the current version's GitHub release asset and that the checksum on the page matches the
-disk image. Bucket and distribution are named in `site/.deploy.env` (not committed).
+It checks every page first: `/` and `/mac` link to the current version's GitHub release asset, no page has another version's
+link, button, version line or checksum, and the checksum matches the disk image if it's in `dist/`.
+`scripts/deploy-site.sh --check` runs only those checks. Bucket and distribution are named in `site/.deploy.env` (not
+committed).
+
+`scripts/site-download.sh` is what rewrites and checks those lines, on every page in `site/`, so a page that gains a download
+link needs no change to it. `/mac` must keep the button, the version line and the checksum, in the wording the script
+looks for, and `/` the link. If they're reworded or moved, `scripts/release.sh` stops before it builds and says which.
+`scripts/release.sh --dry-run` tries the rewrite on a copy of the pages, and `scripts/site-download-test.sh` tests all of this.
 
 The app itself is not on the site: the download button links to the DMG on the GitHub release, where every download is
 counted, and the update feed points the updater at the zip there. The site serves only pages, images and the feed.
 
-For a new release: `scripts/release.sh` (which updates the page), the GitHub release, then `scripts/deploy-site.sh`. See
+For a new release: `scripts/release.sh` (which updates the pages), the GitHub release, then `scripts/deploy-site.sh`. See
 docs/RELEASE.md.
 
 ## Hosting
