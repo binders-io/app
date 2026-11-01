@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hub privacy · Binders</title>
+<meta name="description" content="What a Binders Hub keeps, where it goes, who can read it, and what deleting does.">
+<meta name="color-scheme" content="dark light">
+<link rel="canonical" href="https://binders.io/hub-privacy.html">
+<meta property="og:title" content="Hub privacy · Binders">
+<meta property="og:description" content="What a Binders Hub keeps, where it goes, who can read it, and what deleting does.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://binders.io/hub-privacy.html">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<meta name="theme-color" content="#3a2bb8">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="brand" href="index.html" aria-label="Binders home">
+      <img src="assets/icon-128.png" width="40" height="40" alt="">
+      <span>Binders</span>
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="index.html">Home</a>
+      <a href="help.html">Help</a>
+      <a href="hub-privacy.html" aria-current="page">Hub privacy</a>
+      <a href="hub-terms.html">Hub terms</a>
+      <a href="licenses.html">Licences</a>
+    </nav>
+    <a class="button small" href="index.html#download">Download</a>
+  </div>
+</header>
+<main id="main">
+<section class="cover page-cover">
+  <div class="wrap">
+    <p class="kicker">Privacy · Hub</p>
+    <h1>What a Hub keeps</h1>
+    <p class="lede">Binders Hub is a server a team shares notes, a board and agents through, so unlike the Mac app it holds your work. This page says what it keeps, where that goes and who can read it. The Mac and iPhone apps have <a href="privacy.html">their own privacy page</a>. Last updated 1 November 2026.</p>
+  </div>
+</section>
+<article class="page">
+  <div class="wrap">
+
+    <h2>Who is responsible</h2>
+    <p>A Hub is run by whoever set it up: its operator. The operator decides who may sign in, who its admins are and how its server is kept, and can read what the Hub keeps there, as described below. For anything about the data on a particular Hub, ask its operator.</p>
+
+    <h2>What a Hub keeps</h2>
+    <ul>
+      <li><strong>Who you are.</strong> Your GitHub login, name and the address of your GitHub picture, from signing in with GitHub, and which binders you’re in.</li>
+      <li><strong>Live work, in Redis.</strong> A log of every change in each binder: notes and every edit to them, folders, cards, comments, questions and answers, what agents report as they work, change sets, debriefs, Challenges and chats with agents. Also the Hub’s list of agents, each binder’s members and the Hub’s options.</li>
+      <li><strong>Notes and pictures, on the server’s disk.</strong> Notes as Markdown files in a Git repo, committed in batches as you edit, a working copy of each note for editing together, and the pictures added to notes, up to 20 MB each.</li>
+      <li><strong>Keys.</strong> The keys of the Hub’s GitHub App and people’s GitHub tokens, sealed with AES-256 under the Hub’s secret. Sign-in, app and agent tokens are kept only as hashes.</li>
+    </ul>
+    <p>Only the keys and GitHub tokens are sealed. The Hub doesn’t encrypt notes, cards or the log, so anyone who can read its Redis or its disk can read them.</p>
+
+    <h2>Where it goes</h2>
+    <ul>
+      <li><strong>GitHub.</strong> Each binder’s cards are saved as GitHub Issues in the repo it’s linked to, change sets as tracking issues, and debriefs as comments on them. Its notes and their pictures are pushed to that repo too, on a branch of their own, unless the binder is set not to. A personal binder’s notes go to a private <code>binders-notes</code> repo on your own account, once you set that up. The repo’s own visibility decides who else can read these, and GitHub’s terms cover them.</li>
+      <li><strong>Back from GitHub.</strong> The Hub reads the issues, pull requests, checks, workflow runs and deployments of its repos, through webhooks or by asking.</li>
+      <li><strong>Agents and whoever runs their models.</strong> An agent in a binder can read that binder’s notes and cards over MCP. What it reads goes wherever that agent sends it, usually to the maker of its AI model, such as Anthropic for Claude Code or OpenAI for Codex, under that maker’s terms. The Hub itself calls no AI model: Distill, Challenge and debriefs are done by agents.</li>
+      <li><strong>Other tools.</strong> A Mac linked to a binder keeps a copy of it. See <a href="privacy.html#hub">what a linked Mac sends</a>, which can include meetings, transcripts, captures and dictations if the person chooses to send them.</li>
+    </ul>
+    <p>The Hub contacts no other outside service. If its operator puts it behind something, such as a Cloudflare tunnel, that service carries its traffic.</p>
+
+    <h2>Who can read it</h2>
+    <ul>
+      <li>A binder’s members can read its notes and board, and its owners and admins add and remove people. A Hub’s first binder is open to everyone the Hub lets in until it has a member.</li>
+      <li>A Hub’s admins can open every team binder.</li>
+      <li>A personal binder, at <code>/~login</code>, opens only for you, not for other people or the Hub’s admins. Its notes are not encrypted on the server, though, so whoever can read the server can read them.</li>
+      <li>An agent’s token belongs to the binder it was made in.</li>
+    </ul>
+
+    <h2>Agents and the runner</h2>
+    <ul>
+      <li>The runner runs on the machine of the person who set the agent up, not on the Hub. It starts Claude Code, Codex or your own command for each card, in a worktree and branch of that card’s own.</li>
+      <li>It reports what the agent does to the card as it goes: the files it read, the commands it ran and what came back. Those reports are kept in the Hub’s log, and anyone in the binder can read them.</li>
+      <li>An agent takes a card only in a repo its owner can push to, and each run gets a token for that one repo that lasts an hour. A Hub with no GitHub App can’t narrow a token, so there the agent uses the machine’s own GitHub login.</li>
+      <li>By default an agent runs with no prompts, so it can reach what its owner’s machine lets it reach. Its owner can change that on the Agents page.</li>
+      <li>A terminal its owner opens on an agent from the web app runs on the runner’s machine. What’s typed and shown in it passes through the Hub while it’s open, and the Hub keeps none of it.</li>
+      <li>An agent’s commits, when they’re made as its owner, carry the owner’s GitHub name and private GitHub email address.</li>
+    </ul>
+
+    <h2>Keeping and deleting</h2>
+    <p>A Hub has no retention period: it keeps what it holds until its operator removes it. Web sessions last 30 days, signing out ends yours, and a token stops working when it’s revoked.</p>
+    <p>Deleting a note or a card takes it off the board and out of the current notes. It doesn’t erase it: the text stays in the Hub’s log and in the Git history of the notes repo, and any copy already on GitHub stays there. To have something removed for good, ask the Hub’s operator, and remove it from GitHub yourself if it reached there.</p>
+    <p>Removing someone from a binder ends their access. What they wrote stays.</p>
+
+    <h2>Cookies, logs and the web app</h2>
+    <ul>
+      <li>The web app sets only the cookies signing in needs. It has no analytics and loads no scripts or fonts from other companies.</li>
+      <li>Your own browser loads your teammates’ pictures from GitHub. A picture from the web in a note loads straight from the site it’s on, so that site sees your IP address when you open the note.</li>
+      <li>The Hub’s logs record what goes wrong and, if the operator turns it on, each request’s method and path. Anything that looks like a credential is held back. Requests are limited per person or per IP address to slow down abuse.</li>
+    </ul>
+
+    <h2>Asking for access</h2>
+    <p>Access to a Hub is by allow list. Choose <strong>Request access</strong> anywhere on this site: it opens a message to <a href="mailto:hello@binders.io?subject=Binders%20Hub%20access%20request">hello@binders.io</a> with the subject “Binders Hub access request”. Say which GitHub account or organization you want in, and what your team builds. The message goes to the publisher’s inbox through Amazon SES, and the publisher, who runs the Hub, decides who it lets in.</p>
+    <p>Asking is the only thing the site sends. The pages set no cookie and load nothing from another company.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this page: <a href="mailto:hello@binders.io">hello@binders.io</a>. If you have found a security problem in the Hub, please write to <a href="mailto:security@binders.io">security@binders.io</a> before making it public, and give us a chance to fix it. Mail to those addresses is delivered through Amazon SES to the publisher’s inbox.</p>
+  </div>
+</article>
+</main>
+<footer class="foot">
+  <div class="wrap foot-row">
+    <a class="brand small" href="index.html"><img src="assets/icon-128.png" width="28" height="28" alt=""><span>Binders</span></a>
+    <p class="foot-links"><a href="mailto:hello@binders.io">hello@binders.io</a><a href="help.html">Help</a><a href="privacy.html">Mac and iPhone privacy</a><a href="terms.html">Mac and iPhone terms</a><a href="hub-privacy.html">Hub privacy</a><a href="hub-terms.html">Hub terms</a><a href="licenses.html">Licences</a></p>
+    <p class="foot-line">© 2026 Binders.</p>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

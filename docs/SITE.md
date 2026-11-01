@@ -1,7 +1,8 @@
 # The Binders website
 
-`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
-`landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
+`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `hub-privacy.html`, `hub-terms.html`,
+`licenses.html`, `404.html`, `hub.html`, `hub/`, `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no
+runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
 ## The design
@@ -18,7 +19,7 @@ six-step rail can be clicked to inspect any state, the replay button restarts it
 state instead of auto-playing.
 
 - Tokens are at the top of `landing.css`. The landing is dark by design; `styles.css` keeps the older light/dark treatment
-  for help, privacy, terms, licenses and 404.
+  for help, privacy, terms, the Hub's privacy and terms, licenses and 404.
 - `landing.js` handles the nav surface, reveals, interface tabs, mobile menu, the workflow's steps and approval, and the tour
   dialog. Without JavaScript the content and the details menu still work, and a note under the workflow explains that its
   demo needs scripting; reduced motion removes the app preview's float, the waveforms, the workflow transitions and the
@@ -26,6 +27,16 @@ state instead of auto-playing.
 - The interface showcase uses the light product pictures. The dark set remains in `assets/` for other surfaces.
 - The hero app preview is drawn in HTML and CSS, not a screenshot, so it stays crisp and can change with the product.
 - The page uses system fonts and makes no third-party requests.
+
+## The Hub page
+
+`site/hub.html` and `site/hub/hub.css` are the Binders Hub page: light and dark, no script, its own stylesheet. The
+colours at the top of `hub.css` are the proposed shared tokens, kept there until a shared stylesheet exists. The pictures
+are drawn in HTML and CSS with invented data, and the page says so; replace them when the Hub's screenshots exist.
+
+Every Hub claim on the page has to be true of the Hub's code, so check the code before changing a sentence. The page
+doesn't link to a Hub address or give install steps. `scripts/release.sh` keeps its download links current, as it does for
+`index.html`.
 
 ## Screenshots never contain real data
 
@@ -71,6 +82,13 @@ Live at https://binders.io and https://www.binders.io.
 - The bucket and the distribution are named in `site/.deploy.env`, which is not committed. `scripts/deploy-site.sh` uploads
   pages with a 5-minute cache, assets with a week, downloads as immutable, the update archive before the feed, then invalidates
   the pages.
+
+## Asking for access
+
+The Hub's access request is a mail link, not a form: `mailto:hello@binders.io?subject=Binders%20Hub%20access%20request`.
+The subject is how requests are counted, so every "Request access" link on the site uses it, and the Hub privacy page says
+where a request goes. The pages stay static and load nothing from another company; only the visitor's mail app sends
+anything.
 
 ## Contact addresses
 
