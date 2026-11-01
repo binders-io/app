@@ -29,13 +29,14 @@
       <span>Binders</span>
     </a>
     <nav class="nav-links" aria-label="Pages">
-      <a href="index.html">Home</a>
+      <a href="index.html">Hub</a>
+      <a href="mac.html">Mac</a>
       <a href="help.html">Help</a>
       <a href="privacy.html" aria-current="page">Privacy</a>
       <a href="terms.html">Terms</a>
       <a href="licenses.html">Licences</a>
     </nav>
-    <a class="button small" href="index.html#download">Download</a>
+    <a class="button small" href="mac.html#download">Download</a>
   </div>
 </header>
 <main id="main">
@@ -43,7 +44,7 @@
   <div class="wrap">
     <p class="kicker">Privacy</p>
     <h1>Where your data lives</h1>
-    <p class="lede">Binders is a local-first app for Mac and iPhone. It has no account system, no analytics and no server of its own. This page describes Binders for iPhone 2.2 and the Mac app as of version 0.14.0.</p>
+    <p class="lede">Binders is a local-first app for Mac and iPhone. It has no account system, no analytics and no server of its own. This page describes Binders for iPhone 2.2 and the Mac app as of version 0.14.0. Binders Hub, the team server, is software you run yourself; what it keeps is <a href="#hub">at the end</a>.</p>
   </div>
 </section>
 <article class="page">
@@ -62,6 +63,7 @@
       <li><strong>Team sharing.</strong> When you share a binder, its notes and meeting notes, with the files attached to those notes, are written to the folder you picked inside your own cloud drive. Your drive provider syncs them to your teammates. Captures, notes made from what you said to yourself, and the audio Binders records are never shared.</li>
       <li><strong>Model downloads.</strong> The speech models, and the built-in language and search models if you use them, are downloaded once, on first use, from Hugging Face or the mirror you set. A decision model you choose in Settings → AI is downloaded the same way when you click Download; Binders never downloads Tev1 0.8B.</li>
       <li><strong>Ollama, if you ask for it.</strong> When you click Install Ollama, Binders downloads it from ollama.com, checks that it was signed by its makers and notarized by Apple, and puts it in your Applications folder. Ollama is separate software with its own terms and its own updates. The language model you choose is then downloaded by Ollama from its library.</li>
+      <li><strong>A hub you link.</strong> When you link a binder to a Binders Hub, its notes, folders, pictures and cards go to that hub and come back from it. Meetings, captures, knowledge and dictations go only when you choose Send to Hub. The hub is the server your team runs, not ours.</li>
       <li><strong>Things you ask for.</strong> A voice command such as “search the web for…” opens your browser with that query.</li>
     </ul>
 
@@ -122,6 +124,15 @@
       <li><strong>Notifications</strong>, optional, to remind you when something you promised is due, to offer a card or an answer after a conversation, and to show an agent's question on a board, which you can answer in the notification.</li>
     </ul>
     <p>On the iPhone: <strong>Microphone</strong> and <strong>Speech Recognition</strong> to write down what you dictate and, when it is on, All-day capture; <strong>Local Network</strong> to reach your Mac; and <strong>Notifications</strong>, optional, for what your Mac offers after a conversation, for what it did with something you said to yourself, for an agent's question on a board (an answer you type in the notification goes to your Mac), to tell you when All-day capture was paused, and to tell you when captures are waiting to be written down.</p>
+
+    <h2 id="hub">Binders Hub</h2>
+    <p>Binders Hub is software you run on your own server. We publish it; we don’t run it for you, and we receive nothing from it: no account with us, no analytics, no copy of your data.</p>
+    <ul>
+      <li><strong>What it keeps, on your server.</strong> Its boards, notes, live work and agents, people’s sessions, and the keys of your GitHub App, sealed with a secret only your server holds. They live in your Redis and in the notes repo you choose.</li>
+      <li><strong>GitHub.</strong> The hub talks to GitHub on your behalf through the GitHub App you create for it: it saves cards as issues, commits notes, reads pull requests, checks and deployments, and merges what you approve. GitHub sends it webhooks. What GitHub keeps is covered by GitHub’s terms.</li>
+      <li><strong>Agents.</strong> Agents run on your machines, through the Binders runner, and reach the hub with a token you make. Your code stays on those machines. The agent tools themselves (Claude Code, Codex or your own) send what they work on to their model providers under those providers’ terms.</li>
+      <li><strong>Who sees what.</strong> Whoever runs the hub decides who can sign in. Each person’s own binder is theirs alone, the hub’s admins included.</li>
+    </ul>
 
     <h2>Contact</h2>
     <p>Questions about any of this: <a href="mailto:hello@binders.io">hello@binders.io</a>. If you have found a security problem, please write to <a href="mailto:security@binders.io">security@binders.io</a> before making it public, and give us a chance to fix it. Mail to those addresses is delivered through Amazon SES to the publisher’s inbox.</p>

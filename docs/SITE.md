@@ -1,10 +1,14 @@
 # The Binders website
 
-`site/` is a static site for binders.io: `index.html`, `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
+`site/` is a static site for binders.io: `index.html` (Binders Hub, the front page), `mac.html` (Binders for Mac), `privacy.html`, `terms.html`, `licenses.html`, `404.html`,
 `landing.css`, `landing.js`, `styles.css`, `main.js`, `assets/`. No build step and no runtime dependencies. Open
 `site/index.html` in a browser, or serve it with `python3 -m http.server --directory site`.
 
 ## The design
+
+The front page (`index.html`, `hub.css`) is Binders Hub's: the Hub's own monochrome, light and dark following the system, Nunito and Nunito Sans from `assets/fonts`, its film (`assets/hub-tour.mp4`, made with reelkit from the demo hub in binders-server) and its screenshots (`assets/hub-*`). An inline script sends the Mac page's old anchors (`/#download` and the rest) to `mac.html`. The download link, version and checksum are on `mac.html`, which `scripts/release.sh` updates and `scripts/deploy-site.sh` checks.
+
+The Mac page:
 
 The landing page is a dark, Mac-native editorial surface: an ivory-and-lavender palette, a CSS-built Mac app composition in
 the hero, a live spec-to-swarm workflow, a bento of the product's core surfaces, an interface showcase with the app's current

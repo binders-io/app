@@ -1,772 +1,288 @@
 <!doctype html>
-<html lang="en" class="no-js">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Binders — Remembers everything. Tells no one.</title>
-<meta name="description" content="Binders turns what you say, hear, and write into notes, to-dos, and answers—on your Mac, not in someone else's cloud. Dictation, meeting notes, writing capture, a knowledge base, and a board for you and your agents. Free and open source.">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#08080d">
+<title>Binders Hub — From a note to production</title>
+<meta name="description" content="Binders Hub is an open-source, self-hosted place to run coding agents as a team. Write a spec, Distill turns it into cards, your agents take them in their own worktrees, and you review each change as one set before it ships.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <link rel="canonical" href="https://binders.io/">
-<meta property="og:title" content="Binders for Mac — Remembers everything. Tells no one.">
-<meta property="og:description" content="A private memory for your work: dictation, meeting notes, writing capture, knowledge, and a board for you and your agents. On your Mac.">
-<meta property="og:image" content="https://binders.io/assets/og-card.jpg">
+<meta property="og:url" content="https://binders.io/">
+<meta property="og:title" content="Binders Hub — From a note to production">
+<meta property="og:description" content="Open source and self-hosted. Your agents do the work, your team makes the calls, and GitHub keeps the record.">
+<meta property="og:image" content="https://binders.io/assets/og-hub.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Binders for Mac: Remembers everything. Tells no one.">
+<meta property="og:image:alt" content="Binders Hub: from a note to production. Self-hosted, open source.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://binders.io/assets/og-card.jpg">
-<link rel="icon" type="image/png" href="assets/favicon-64.png">
-<link rel="stylesheet" href="landing.css">
+<meta name="twitter:image" content="https://binders.io/assets/og-hub.jpg">
+<link rel="icon" type="image/png" href="assets/hub-favicon-64.png">
+<link rel="stylesheet" href="hub.css">
+<script>
+  // The Mac app's page used to be the front page: its old links (#download, #features…) still land on it.
+  (function () {
+    var old = ["#download", "#features", "#workflow", "#inside", "#privacy", "#tour", "#top"];
+    if (old.indexOf(location.hash) >= 0) location.replace("mac.html" + location.hash);
+  })();
+</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<svg class="sprite" aria-hidden="true" focusable="false">
-  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 19h16"/></symbol>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13m0 0-5-5m5 5-5 5"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10m-4 4v2"/></symbol>
-  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm-7 9a7 7 0 0 0 14 0M12 19v2"/></symbol>
-  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19c.6-3 3-4.5 6-4.5s5.4 1.5 6 4.5M16 5.5a3 3 0 0 1 0 5.5m2 3.5c1.7.6 2.7 2 3 4"/></symbol>
-  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V10m0-5.5v-1a1.5 1.5 0 0 1 3 0V10m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3a1.5 1.5 0 0 1 3 0v5.5A6.5 6.5 0 0 1 13.5 21h-1.2a6 6 0 0 1-4.7-2.3l-3.2-4.1a1.6 1.6 0 0 1 2.4-2.1L8 13.8"/></symbol>
-  <symbol id="i-spark" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M10 3.5 11.8 9l5.2 1.8-5.2 1.8L10 18l-1.8-5.4L3 10.8 8.2 9 10 3.5Zm8 9 .9 2.6 2.6.9-2.6.9L18 19.5l-.9-2.6-2.6-.9 2.6-.9.9-2.6Z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
-  <symbol id="i-board" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 9h16M9 5v14M15 5v14"/></symbol>
-  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></symbol>
-  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/></symbol>
-  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4m8-8 4 4-4 4M13.5 5l-3 14"/></symbol>
-  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .7-7.9A6 6 0 0 0 6.3 9.2 4.5 4.5 0 0 0 7 18ZM4 4l16 16"/></symbol>
-  <symbol id="i-play" viewBox="0 0 24 24"><path d="M9 6.5v11l9-5.5-9-5.5Z" fill="currentColor" stroke="none"/></symbol>
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
-  <symbol id="i-note" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Zm-3 9 2.2 2.2L15.5 10"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
-  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
-  <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 3v3m8-3v3M4 9.5h16M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></symbol>
-  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
-  <symbol id="i-hook" viewBox="0 0 24 24"><path d="M4 12h4l2-5 4 10 2-5h4"/></symbol>
-  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
 </svg>
 
-<header class="site-header" id="top">
-  <div class="nav-shell">
-    <a class="wordmark" href="#top" aria-label="Binders, back to top">
-      <img class="wordmark-icon" src="assets/icon-128.png" width="30" height="30" alt="">
-      <span class="wordmark-text">Binders</span>
-      <span class="wordmark-mac">Mac</span>
-    </a>
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="./" aria-label="Binders Hub, home"><img src="assets/hub-icon-128.png" width="30" height="30" alt="">Binders <small>Hub</small></a>
     <nav class="nav-links" aria-label="Primary">
-      <a href="#features">Features</a>
-      <a href="#workflow">Workflow</a>
-      <a href="#inside">Inside</a>
-      <a href="#privacy">Privacy</a>
+      <a href="./" aria-current="page">Hub</a>
+      <a href="mac.html">Mac</a>
       <a href="help.html">Help</a>
+      <a href="https://github.com/binders-io/binders-hub" rel="noopener">GitHub</a>
     </nav>
-    <div class="nav-actions">
-      <a class="button button-paper button-small nav-download" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg" data-download>
-        <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
-        Download
-      </a>
-      <details class="mobile-menu">
-        <summary class="menu-button" aria-label="Menu">
-          <svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg>
-        </summary>
-        <div class="menu-panel">
-          <nav aria-label="Mobile">
-            <a href="#features">Features</a>
-            <a href="#workflow">Workflow</a>
-            <a href="#inside">Inside</a>
-            <a href="#privacy">Privacy</a>
-            <a href="help.html">Help</a>
-            <a href="privacy.html">Privacy notes</a>
-          </nav>
-          <a class="button button-paper menu-download" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg" data-download>
-            <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
-            Download for Mac
-          </a>
-          <p class="menu-fineprint">Free and open source · macOS 14.2 or later</p>
-        </div>
+    <div class="nav-end">
+      <a class="button primary small" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener">Run it on your server</a>
+      <details class="menu">
+        <summary aria-label="Menu"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></summary>
+        <nav aria-label="Mobile">
+          <a href="./" aria-current="page">Hub</a>
+          <a href="mac.html">Binders for Mac</a>
+          <a href="help.html">Help</a>
+          <a href="https://github.com/binders-io/binders-hub" rel="noopener">GitHub</a>
+          <a href="https://github.com/binders-io/binders-hub#self-host" rel="noopener">Run it on your server</a>
+        </nav>
       </details>
     </div>
   </div>
 </header>
 
 <main id="main">
-
-<section class="hero" aria-labelledby="hero-title">
-  <div class="hero-light" aria-hidden="true"></div>
-  <div class="hero-gridlines" aria-hidden="true"></div>
-  <div class="wrap hero-grid">
-    <div class="hero-copy reveal">
-      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>A private memory for your Mac</p>
-      <h1 id="hero-title">Remembers everything.<br><em>Tells no one.</em></h1>
-      <p class="lede">Binders turns what you say, hear, and write into notes, to-dos, and answers—then keeps the whole thing on the Mac you already trust. No account. No cloud of ours.</p>
-      <div class="hero-cta">
-        <a class="button button-paper button-large" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg" data-download>
-          <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
-          Download for Mac
-        </a>
-        <a class="button button-ghost button-large" href="#inside">
-          See how it works
-          <svg class="icon icon-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
-        </a>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <p class="eyebrow"><i></i>Binders Hub · Open source</p>
+      <h1 id="hero-title">From a note to production.</h1>
+      <p class="lede">Write the spec with your team. Binders turns it into cards, your agents take them on your own machines, and you review the whole change at once before it ships. Self-hosted and open source, built on GitHub.</p>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Run it on your server</a>
+        <a class="button quiet" href="mac.html">Binders for Mac<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
       </div>
-      <p class="fineprint hero-fineprint">Free and open source · macOS 14.2 or later · Signed and notarized by Apple</p>
-      <ul class="hero-proof" aria-label="What makes Binders different">
-        <li><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>On-device AI</li>
-        <li><svg class="icon" aria-hidden="true"><use href="#i-cloud-off"/></svg>No account</li>
-        <li><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg>Open source</li>
+      <p class="meta">Open source (AGPL) · Docker Compose · Works with Claude Code, Codex and your own agents</p>
+
+      <div class="film">
+        <video controls muted playsinline preload="none" poster="assets/hub-tour-poster.webp" aria-label="A 74-second tour of Binders Hub, from a note to production">
+          <source src="assets/hub-tour.mp4" type="video/mp4">
+        </video>
+      </div>
+      <p class="film-note">A 74-second tour, without sound. The company, people and data in it are made up.</p>
+    </div>
+  </section>
+
+  <section class="section" id="flow" aria-labelledby="flow-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">The flow</p>
+        <h2 id="flow-title">Your agents can write the code. Binders runs everything around it.</h2>
+        <p>Saying what to build, keeping track of five agents at once, and reviewing a dozen pull requests that belong to one feature. Seven steps, in one place.</p>
+      </div>
+
+      <ol class="flow" role="list">
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">01</span>
+            <h3>Start with a note.</h3>
+            <p>Write the spec together, live, in Markdown. Distill reads it and proposes the cards, with what “done” means for each. Nothing reaches the board until someone accepts it.</p>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-note-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-note-light.webp" width="1600" height="1000" loading="lazy" alt="A spec note called Annual plans, with Distill's proposed cards beside it, each with Accept and Dismiss.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">02</span>
+            <h3>Your agents, on your machines.</h3>
+            <p>The Binders runner starts Claude Code, Codex or a command of your own, where your code already is. Each card gets its own worktree and branch, so your checkout is never touched.</p>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-flow-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-flow-light.webp" width="1600" height="1000" loading="lazy" alt="The board: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">03</span>
+            <h3>Every agent knows the repo.</h3>
+            <p>Each repo has a brief: how it’s built, what it relies on, how to test it, where it breaks. Agents write it, keep it current, and add what they learn. It lives in your notes with the team’s other docs for the repo, and every agent working or reviewing there starts from it.</p>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-briefs-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-briefs-light.webp" width="1600" height="1000" loading="lazy" alt="Repo briefs in Settings: each repo's brief, who wrote it, and the lessons agents added since.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">04</span>
+            <h3>Watch the work as it happens.</h3>
+            <p>Each card shows the plan, every step the agent takes, and what it’s doing right now. When an agent is stuck it asks on the card, and your answer goes straight back to it.</p>
+            <span class="state"><i style="background:var(--working)"></i>Running the settings tests</span>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-card-steps-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-card-steps-light.webp" width="1600" height="1000" loading="lazy" alt="A card being worked: every file the agent read and edited, the commands it ran, and its live session.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">05</span>
+            <h3>Review the change as one.</h3>
+            <p>A change set holds the pull requests behind one piece of work, across repos. An agent writes the debrief: what it does, what changed, and each “done when” checked off. Approve once, and Binders merges them in order.</p>
+            <span class="state"><i style="background:var(--waiting)"></i>Waiting for you</span>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-change-set-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-change-set-light.webp" width="1600" height="1000" loading="lazy" alt="A change set of three pull requests with its debrief: what it does, what changed, and each point of the brief marked met or not.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">06</span>
+            <h3>A second agent tries to break it.</h3>
+            <p>Challenge gives the change to an agent that didn’t write it, without the author’s plan or log. It reports what goes wrong and how badly, and the author answers each finding: fixed, or why not.</p>
+            <span class="state"><i style="background:var(--found)"></i>2 high findings</span>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-challenge-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-challenge-light.webp" width="1600" height="1000" loading="lazy" alt="A Challenge of the change set: its blast radius, a verdict, and findings worst first, each with a fix.">
+          </picture>
+        </li>
+        <li class="step">
+          <div class="step-text">
+            <span class="step-num">07</span>
+            <h3>Ship it from the same place.</h3>
+            <p>Checks, CI runs and deploys show on every change, environment by environment, and an environment that needs approval waits for a person.</p>
+            <span class="state"><i style="background:var(--done)"></i>Staging healthy</span>
+          </div>
+          <picture class="shot">
+            <source srcset="assets/hub-delivery-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="assets/hub-delivery-light.webp" width="1600" height="1000" loading="lazy" alt="Delivery: staging and production with the change sets in each, a Promote button between them, and the CI and deploy runs.">
+          </picture>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="apart-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">What sets it apart</p>
+        <h2 id="apart-title">The parts of the job agents don’t do for you.</h2>
+      </div>
+      <div class="apart">
+        <div>
+          <span class="tag">change sets</span>
+          <h3>One review per change.</h3>
+          <p>The pull requests behind one feature, across repos, reviewed and approved together, with one debrief, and merged in order.</p>
+        </div>
+        <div>
+          <span class="tag">Challenge</span>
+          <h3>Adversarial review.</h3>
+          <p>A reviewer that only sees the code and the brief, findings ranked by severity, and the author’s answer to each.</p>
+        </div>
+        <div>
+          <span class="tag">repo briefs</span>
+          <h3>Agents with context.</h3>
+          <p>What an engineer who has worked in the repo for months would know, kept up to date by the agents themselves.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="trust" aria-labelledby="trust-title">
+    <div class="wrap trust">
+      <div class="section-head">
+        <p class="kicker">Trust and control</p>
+        <h2 id="trust-title">You decide what your agents can reach.</h2>
+        <p>For the person who has to approve it.</p>
+      </div>
+      <ul role="list">
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>It runs on your server.</b> Your code stays on your machines; the hub holds the board, notes and live work.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>An agent reaches no more of GitHub than its owner can,</b> with a token for one repo that lasts an hour.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Agents work in worktrees and branches,</b> never in your checkout.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>People accept the cards,</b> approve the change and approve production.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Cards are GitHub Issues and notes are Markdown in your repo,</b> so the work stays in GitHub even if you switch Binders off.</span></li>
       </ul>
     </div>
+  </section>
 
-    <div class="hero-visual reveal reveal-late">
-      <div class="hero-glow" aria-hidden="true"></div>
-      <div class="app-preview" role="img" aria-label="The Binders app: a board with cards in Ready, In progress, and Blocked, beside a card conversation where an agent reports progress and asks a question.">
-        <div class="preview-window" aria-hidden="true">
-          <div class="preview-titlebar">
-            <span class="traffic"><i></i><i></i><i></i></span>
-            <span class="preview-title">Harbor launch</span>
-            <span class="preview-tools">
-              <span class="preview-local"><svg class="icon"><use href="#i-lock"/></svg>On this Mac</span>
-              <span class="preview-tool-icon"><svg class="icon"><use href="#i-search"/></svg></span>
-              <span class="preview-tool-icon"><svg class="icon"><use href="#i-note"/></svg></span>
-            </span>
-          </div>
-          <div class="preview-body">
-            <aside class="preview-sidebar">
-              <div class="preview-brand">
-                <img src="assets/icon-128.png" width="16" height="16" alt="">
-                <span>Binders</span>
-              </div>
-              <div class="preview-nav">
-                <span class="preview-nav-item"><svg class="icon"><use href="#i-board"/></svg>Home</span>
-                <span class="preview-nav-item active"><svg class="icon"><use href="#i-calendar"/></svg>Today</span>
-                <span class="preview-nav-item"><svg class="icon"><use href="#i-board"/></svg>Work</span>
-                <span class="preview-nav-item"><svg class="icon"><use href="#i-spark"/></svg>Agents</span>
-              </div>
-              <div class="preview-label">Binders</div>
-              <div class="preview-binder"><i style="--binder:#7a6cff"></i>Harbor launch</div>
-              <div class="preview-binder"><i style="--binder:#4fbf9f"></i>Customer research</div>
-              <div class="preview-binder"><i style="--binder:#e6b27a"></i>Hiring</div>
-              <div class="preview-label">Dictation</div>
-              <div class="preview-nav-item"><svg class="icon"><use href="#i-note"/></svg>Dictionary</div>
-              <div class="preview-nav-item"><svg class="icon"><use href="#i-hook"/></svg>Snippets</div>
-            </aside>
-
-            <div class="preview-main">
-              <div class="preview-main-head">
-                <div>
-                  <h3>Harbor launch</h3>
-                  <p>Board · 6 columns</p>
-                </div>
-                <div class="preview-main-actions">
-                  <span class="preview-pill">Add To-dos</span>
-                  <span class="preview-pill ghost">Group by Note</span>
-                </div>
-              </div>
-              <div class="preview-board">
-                <div class="preview-col">
-                  <div class="preview-col-head">Ready <span>1</span></div>
-                  <div class="preview-card">
-                    <p>Fix the import timeout above 20,000 rows</p>
-                    <span class="preview-tag"><svg class="icon"><use href="#i-note"/></svg>Launch readiness review</span>
-                  </div>
-                  <div class="preview-card">
-                    <p>Write onboarding email 5</p>
-                    <span class="preview-tag"><svg class="icon"><use href="#i-note"/></svg>Launch readiness review</span>
-                  </div>
-                </div>
-                <div class="preview-col">
-                  <div class="preview-col-head">In progress <span>1</span></div>
-                  <div class="preview-card selected">
-                    <p>Draft the changelog post</p>
-                    <span class="preview-tag agent"><svg class="icon"><use href="#i-spark"/></svg>Claude Code · harbor-web · 23m</span>
-                  </div>
-                  <div class="preview-card">
-                    <p>Rebuild the pricing table</p>
-                    <span class="preview-tag agent"><svg class="icon"><use href="#i-spark"/></svg>Cursor · harbor-web</span>
-                  </div>
-                </div>
-                <div class="preview-col">
-                  <div class="preview-col-head">Blocked <span>1</span></div>
-                  <div class="preview-card warning">
-                    <p>Update the pricing comparison table</p>
-                    <span class="preview-tag amber"><svg class="icon"><use href="#i-hand"/></svg>Answer</span>
-                    <span class="preview-tag agent"><svg class="icon"><use href="#i-spark"/></svg>Cursor · harbor-web</span>
-                  </div>
-                  <div class="preview-card">
-                    <p>Loop in support on the last two emails</p>
-                    <span class="preview-tag amber"><svg class="icon"><use href="#i-hand"/></svg>Answer</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <aside class="preview-cardpanel">
-              <div class="preview-card-head">Update the pricing comparison table</div>
-              <div class="preview-chips">
-                <span class="preview-chip">Harbor launch</span>
-                <span class="preview-chip amber">Blocked</span>
-                <span class="preview-chip agent">Cursor · harbor-web</span>
-              </div>
-              <div class="preview-message">
-                <div class="preview-msg-head"><span class="preview-avatar"><svg class="icon"><use href="#i-spark"/></svg></span>Cursor<span>3:05 PM</span></div>
-                <p>Rebuilt the table with the three current plans.</p>
-              </div>
-              <div class="preview-message waiting">
-                <div class="preview-msg-head"><span class="preview-avatar"><svg class="icon"><use href="#i-spark"/></svg></span>Cursor<span>3:41 PM</span></div>
-                <p>Should annual plans show the 15% discount in the table, or only on the pricing page itself?</p>
-              </div>
-              <div class="preview-approval">
-                <div class="preview-approval-head"><svg class="icon"><use href="#i-shield"/></svg>Cursor asks</div>
-                <p>Send the updated pricing table to Priya?</p>
-                <div class="preview-approval-actions"><span class="preview-approve">Approve</span><span class="preview-decline">Decline</span></div>
-              </div>
-              <div class="preview-composer">Answer Cursor…</div>
-            </aside>
-          </div>
+  <section class="section" id="self-host" aria-labelledby="host-title">
+    <div class="wrap host">
+      <div>
+        <div class="section-head" style="margin-bottom:0">
+          <p class="kicker">Self-host</p>
+          <h2 id="host-title">Run it on your server.</h2>
+          <p>One settings file and Docker Compose. Then the hub walks you through connecting GitHub.</p>
+        </div>
+        <div class="needs">
+          <p><b>You need</b> a server with Docker and Compose v2, and a public HTTPS address, so GitHub can send the hub its webhooks.</p>
+          <p><b>Your agents</b> run where your code is: install the runner from the Agents page on each machine.</p>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>Read the setup guide</a>
         </div>
       </div>
-      <div class="promise-note" aria-hidden="true">
-        <span class="promise-icon"><svg class="icon"><use href="#i-check"/></svg></span>
+      <div class="terminal" role="figure" aria-label="The commands to self-host Binders Hub">
+        <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+<pre><code>git clone https://github.com/binders-io/binders-hub
+cd binders-hub
+sudo mkdir -p /etc/binders
+sudo cp deploy/hub.env.example /etc/binders/hub.env
+<span class="dim"># set PUBLIC_URL and HUB_SECRET in it</span>
+docker compose -f deploy/compose.yml up -d
+docker compose -f deploy/compose.yml logs hub
+<span class="dim"># open the one-time setup link it prints</span>
+<span class="then">Then, in the hub: Settings → GitHub creates your GitHub App and installs it on your repos, and Agents sets up a runner.</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="mac" aria-labelledby="mac-title">
+    <div class="wrap">
+      <div class="mac">
+        <img src="assets/icon-128.png" width="88" height="88" alt="">
         <div>
-          <strong>Promise noted</strong>
-          <p>Send Jonas the final launch checklist <span>Friday</span></p>
+          <h2 id="mac-title">The private half: Binders for Mac.</h2>
+          <p>Dictation, meeting notes and a memory of your work, kept on your Mac. Link a binder to your hub and its notes and cards go both ways. Your Mac keeps what you heard, and the Hub gets only what you choose to share.</p>
+          <p class="fine">Free and open source · macOS 14.2 or later</p>
         </div>
-      </div>
-      <div class="dictation-pill" aria-hidden="true">
-        <span class="dictation-mic"><svg class="icon"><use href="#i-mic"/></svg></span>
-        <span class="dictation-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-        <span class="dictation-text">Hold <kbd>fn</kbd> to dictate</span>
+        <a class="button quiet" href="mac.html">See Binders for Mac<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
       </div>
     </div>
-  </div>
-</section>
-
-<section class="manifesto" aria-labelledby="manifesto-title">
-  <div class="wrap">
-    <div class="section-heading reveal">
-      <p class="eyebrow">Why Binders</p>
-      <h2 id="manifesto-title">Most tools remember a fragment.<br><em>Binders remembers the work.</em></h2>
-    </div>
-    <div class="manifesto-grid">
-      <p class="lede reveal">Your work is already spread across calls, notes, chats, and the files on your Mac. Binders gives it one private shape: what you said, heard, wrote, promised, and finished. Ask it a question, hand a piece of work to an agent, or open the board and see what’s next.</p>
-      <div class="principles">
-        <div class="principle reveal">
-          <span class="principle-num">01</span>
-          <h3>Capture in the moment</h3>
-          <p>Dictation, meeting notes, writing capture, and all-day capture collect the work as it happens, without asking you to switch apps.</p>
-        </div>
-        <div class="principle reveal">
-          <span class="principle-num">02</span>
-          <h3>Keep the connections</h3>
-          <p>People, projects, decisions, and sources stay linked, so a question can travel from a name to everything they were part of.</p>
-        </div>
-        <div class="principle reveal">
-          <span class="principle-num">03</span>
-          <h3>Put it to work</h3>
-          <p>Promises become to-dos, notes become cards, and a board lets you and your agents move the work forward together.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="workflow" id="workflow" aria-labelledby="workflow-title">
-  <div class="wrap">
-    <div class="section-heading reveal">
-      <p class="eyebrow">The workflow</p>
-      <h2 id="workflow-title">From a sentence<br><em>to a shipped product.</em></h2>
-      <p class="lede">You talk through an idea. Binders turns it into a spec, distills the work, and hands the cards to agents that pick them up, report back, and ask when they’re stuck. You keep the decisions.</p>
-    </div>
-
-    <div class="workflow-shell reveal">
-      <div class="workflow-topbar">
-        <div class="workflow-live">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span data-workflow-live>Live workflow</span>
-          <span class="workflow-counter" data-workflow-counter>3 agents · 1 approval</span>
-        </div>
-        <button class="workflow-replay" type="button" data-workflow-replay aria-label="Replay the workflow animation">
-          <svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>
-          Replay
-        </button>
-      </div>
-
-      <ol class="workflow-steps" aria-label="Workflow steps">
-        <li><button type="button" class="workflow-step" data-workflow-step="speak" aria-controls="workflow-stage" aria-current="step"><span class="step-num">01</span><span class="step-label">Speak</span><span class="step-sub">Dictate</span></button></li>
-        <li><button type="button" class="workflow-step" data-workflow-step="note" aria-controls="workflow-stage"><span class="step-num">02</span><span class="step-label">Note</span><span class="step-sub">Spec</span></button></li>
-        <li><button type="button" class="workflow-step" data-workflow-step="distill" aria-controls="workflow-stage"><span class="step-num">03</span><span class="step-label">Distill</span><span class="step-sub">Cards</span></button></li>
-        <li><button type="button" class="workflow-step" data-workflow-step="understand" aria-controls="workflow-stage"><span class="step-num">04</span><span class="step-label">Understand</span><span class="step-sub">Dependencies</span></button></li>
-        <li><button type="button" class="workflow-step" data-workflow-step="assign" aria-controls="workflow-stage"><span class="step-num">05</span><span class="step-label">Assign</span><span class="step-sub">Agents</span></button></li>
-        <li><button type="button" class="workflow-step" data-workflow-step="wake" aria-controls="workflow-stage"><span class="step-num">06</span><span class="step-label">Wake</span><span class="step-sub">Ship</span></button></li>
-      </ol>
-
-      <div class="workflow-stage" id="workflow-stage" data-workflow-stage data-step="speak" data-approval="question" role="group" aria-label="Live workflow demo">
-        <div class="workflow-canvas">
-          <div class="workflow-left">
-            <div class="voice-panel" data-workflow-panel="voice">
-              <div class="voice-head">
-                <span class="voice-live"><span class="live-dot" aria-hidden="true"></span>Listening</span>
-                <span class="voice-time">0:04</span>
-              </div>
-              <div class="voice-wave" aria-hidden="true">
-                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-              </div>
-              <p class="voice-transcript">Let’s make the pricing page show annual plans with a 15% discount, and add a comparison table. We should be ready by Friday.</p>
-              <div class="voice-meta"><kbd>fn</kbd>Hold to dictate · cleaned up</div>
-            </div>
-
-            <div class="spec-panel" data-workflow-panel="spec">
-              <div class="spec-head">
-                <span class="spec-icon">MD</span>
-                <div><strong>Pricing page spec</strong><span>Note · just now</span></div>
-                <span class="spec-tag">SPEC.md</span>
-              </div>
-              <div class="spec-body">
-                <div class="spec-line" data-spec-line="0"><span class="md">#</span> Goal: launch annual plans with a 15% discount.</div>
-                <div class="spec-line" data-spec-line="1"><span class="md">-</span> Add a comparison table for the three plans.</div>
-                <div class="spec-line" data-spec-line="2"><span class="md">-</span> Wire the annual/monthly toggle.</div>
-                <div class="spec-line" data-spec-line="3"><span class="md">-</span> QA the upgrade flow.</div>
-                <div class="spec-line" data-spec-line="4"><span class="md">-</span> Ship by Friday.</div>
-              </div>
-              <div class="spec-meta"><span>Status · <span data-workflow-spec-status>Draft</span></span><span>Owner · You</span><span>Source · Dictation 0:04</span></div>
-              <p class="spec-hint">Distill reads the spec and proposes cards. Nothing is created until you say so.</p>
-              <div class="spec-foot">
-                <span class="spec-count" data-workflow-spec-count>3 work items · 1 dependency</span>
-                <button class="spec-distill" type="button" data-workflow-distill>Distill <svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
-              </div>
-            </div>
-          </div>
-
-          <div class="workflow-link" aria-hidden="true">
-            <span class="link-line"></span>
-            <span class="link-label" data-workflow-link>Distill</span>
-          </div>
-
-          <div class="workflow-right">
-            <div class="swarm-board">
-              <div class="board-head">
-                <div><span class="board-title">Harbor launch · Board</span><span class="board-sub" data-workflow-board-sub>Pricing page · 5 cards</span></div>
-                <span class="board-live"><span class="live-dot" aria-hidden="true"></span><span data-workflow-board-live>Agents active</span></span>
-              </div>
-
-              <div class="board-columns">
-                <div class="board-col" data-board-col="ready">
-                  <div class="col-head">Ready <span>2</span></div>
-                  <div class="work-card" data-card="qa">
-                    <div class="card-top"><span class="card-title">QA the upgrade flow</span><span class="card-chip wait">waits for billing</span></div>
-                    <div class="card-meta"><svg class="icon" aria-hidden="true"><use href="#i-note"/></svg>From: pricing spec</div>
-                    <div class="card-owner"><span class="owner-empty">No owner yet</span></div>
-                  </div>
-                  <div class="work-card" data-card="ship">
-                    <div class="card-top"><span class="card-title">Ship the pricing page</span><span class="card-chip wait">waits for QA</span></div>
-                    <div class="card-meta"><svg class="icon" aria-hidden="true"><use href="#i-note"/></svg>From: pricing spec</div>
-                    <div class="card-owner"><span class="owner-empty">No owner yet</span></div>
-                  </div>
-                </div>
-
-                <div class="board-col" data-board-col="working">
-                  <div class="col-head">Working <span>3</span></div>
-                  <div class="work-card" data-card="table">
-                    <div class="card-top"><span class="card-title">Comparison table</span><span class="card-chip agent cursor">Cursor</span></div>
-                    <div class="card-meta"><svg class="icon" aria-hidden="true"><use href="#i-note"/></svg>From: pricing spec</div>
-                    <div class="card-progress"><span style="--progress:68%"></span><em>68%</em></div>
-                  </div>
-                  <div class="work-card" data-card="copy">
-                    <div class="card-top"><span class="card-title">Annual-plan copy</span><span class="card-chip agent claude">Claude Code</span></div>
-                    <div class="card-meta"><svg class="icon" aria-hidden="true"><use href="#i-note"/></svg>From: pricing spec</div>
-                    <div class="card-progress"><span style="--progress:52%"></span><em>52%</em></div>
-                  </div>
-                  <div class="work-card" data-card="toggle">
-                    <div class="card-top"><span class="card-title">Billing toggle</span><span class="card-chip agent codex">Codex</span></div>
-                    <div class="card-meta"><svg class="icon" aria-hidden="true"><use href="#i-note"/></svg>From: pricing spec</div>
-                    <div class="card-progress"><span style="--progress:81%"></span><em>81%</em></div>
-                  </div>
-                </div>
-
-                <div class="board-col" data-board-col="review">
-                  <div class="col-head">Review <span>1</span></div>
-                  <div class="work-card review-card" data-card="review">
-                    <div class="card-top"><span class="card-title">Comparison table</span><span class="card-chip approved">Approved</span></div>
-                    <div class="card-meta">Approved by you · 2:14 PM</div>
-                    <div class="card-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Ready to ship</div>
-                  </div>
-                </div>
-
-                <div class="board-col" data-board-col="done">
-                  <div class="col-head">Done <span>1</span></div>
-                  <div class="work-card done-card" data-card="done">
-                    <div class="card-top"><span class="card-title">Pricing page</span><span class="card-chip live">Live</span></div>
-                    <div class="card-meta">Annual plans · 15% discount</div>
-                    <div class="mini-pricing"><span>Monthly</span><span>Annual</span><span class="mini-price">15% off</span></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="swarm-agents">
-                <div class="agent-chip"><span class="agent-avatar claude">✦</span><span class="agent-name">Claude Code</span><span class="agent-status" data-agent-status="claude">writing</span><span class="agent-bar"><i></i></span></div>
-                <div class="agent-chip"><span class="agent-avatar cursor">✦</span><span class="agent-name">Cursor</span><span class="agent-status" data-agent-status="cursor">reviewing</span><span class="agent-bar"><i></i></span></div>
-                <div class="agent-chip"><span class="agent-avatar codex">✦</span><span class="agent-name">Codex</span><span class="agent-status" data-agent-status="codex">QA</span><span class="agent-bar"><i></i></span></div>
-              </div>
-
-              <div class="swarm-activity">
-                <div class="activity-bubble question" data-activity="question">
-                  <div class="activity-head"><span class="agent-avatar cursor">✦</span><strong>Cursor asks</strong><span>2:12 PM</span></div>
-                  <p>Should annual plans show the 15% discount in the table, or only on the pricing page itself?</p>
-                  <div class="activity-actions">
-                    <button type="button" class="approve" data-workflow-approve>Approve</button>
-                    <button type="button" class="decline" data-workflow-decline>Decline</button>
-                  </div>
-                </div>
-                <div class="activity-bubble approved" data-activity="approved">
-                  <div class="activity-head"><span class="activity-check">✓</span><strong>Approved by you</strong><span>2:14 PM</span></div>
-                  <p>Cursor is finishing the table. The page is ready to ship.</p>
-                </div>
-                <div class="activity-bubble shipped" data-activity="shipped">
-                  <div class="activity-head"><span class="activity-check">✓</span><strong>Shipped to production</strong><span>2:14 PM</span></div>
-                  <p>Pricing page · annual plans live with the 15% discount.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="workflow-status">
-          <p class="workflow-caption" data-workflow-caption aria-live="polite">Speak · A product idea, said out loud.</p>
-          <div class="workflow-progress" aria-hidden="true"><span data-workflow-progress></span></div>
-        </div>
-      </div>
-
-      <noscript><p class="workflow-noscript">The live workflow demo needs JavaScript. The six steps above are the workflow: Speak, Note, Distill, Understand, Assign, Wake.</p></noscript>
-      <p class="workflow-note">A fictional demo. The note, cards, agents and product use the same demo data as the screenshots.</p>
-    </div>
-  </div>
-</section>
-
-<section class="features" id="features" aria-labelledby="features-title">
-  <div class="wrap">
-    <div class="section-heading reveal">
-      <p class="eyebrow">What it does</p>
-      <h2 id="features-title">One memory.<br><em>Every part of the work.</em></h2>
-      <p class="lede">A small set of tools that share the same context, so a promise in a message can become a card on a board, and a meeting can answer a question weeks later.</p>
-    </div>
-
-    <div class="bento">
-      <article class="bento-card bento-board reveal">
-        <div class="bento-visual mini-board-wrap" aria-hidden="true">
-          <div class="mini-board">
-            <div class="mini-col">
-              <div class="mini-col-head">Ready <span>1</span></div>
-              <div class="mini-card">
-                <p>Fix the import timeout above 20,000 rows</p>
-                <span class="mini-tag"><svg class="icon"><use href="#i-note"/></svg>Launch readiness review</span>
-              </div>
-              <div class="mini-card">
-                <p>Write onboarding email 5</p>
-                <span class="mini-tag"><svg class="icon"><use href="#i-note"/></svg>Launch readiness review</span>
-              </div>
-            </div>
-            <div class="mini-col">
-              <div class="mini-col-head">In progress <span>1</span></div>
-              <div class="mini-card active">
-                <p>Draft the changelog post</p>
-                <span class="mini-tag agent"><svg class="icon"><use href="#i-spark"/></svg>Claude Code</span>
-              </div>
-              <div class="mini-card">
-                <p>Rebuild the pricing table</p>
-                <span class="mini-tag agent"><svg class="icon"><use href="#i-spark"/></svg>Cursor</span>
-              </div>
-            </div>
-            <div class="mini-col">
-              <div class="mini-col-head">Blocked <span>1</span></div>
-              <div class="mini-card warning">
-                <p>Update the pricing comparison table</p>
-                <span class="mini-tag amber"><svg class="icon"><use href="#i-hand"/></svg>Answer</span>
-              </div>
-              <div class="mini-card">
-                <p>Loop in support on the last two emails</p>
-                <span class="mini-tag amber"><svg class="icon"><use href="#i-hand"/></svg>Answer</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Board · Agents</span>
-          <h3>A board for you and your agents.</h3>
-          <p>Cards move from Backlog to Done. An agent can claim one, report progress, ask you when it’s stuck, and hand it back for review. Distill turns a spec into work that waits for itself.</p>
-        </div>
-      </article>
-
-      <article class="bento-card bento-privacy reveal">
-        <div class="bento-visual mini-privacy" aria-hidden="true">
-          <div class="privacy-seal"><svg class="icon"><use href="#i-lock"/></svg></div>
-          <p class="mini-privacy-title">On this Mac</p>
-          <div class="mini-privacy-chips"><span>Audio</span><span>Notes</span><span>AI</span></div>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Privacy</span>
-          <h3>Private by construction.</h3>
-          <p>Speech and AI run on your Mac. No account, no analytics, no cloud of ours. Your files are yours, in a folder you can open.</p>
-        </div>
-      </article>
-
-      <article class="bento-card bento-dictation reveal">
-        <div class="bento-visual mini-dictation" aria-hidden="true">
-          <div class="mini-flow">
-            <span class="mini-wave"><i></i><i></i><i></i><i></i><i></i></span>
-            <span class="mini-key">fn</span>
-          </div>
-          <p class="mini-dictation-text">Let’s move the review to Thursday so support can join.</p>
-          <span class="mini-dictation-meta">Dictated · cleaned up · inserted</span>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Dictation</span>
-          <h3>Dictation that lands clean.</h3>
-          <p>Hold fn, talk, let go. Clean text arrives in any app, and Command Mode can rewrite, answer, or add a to-do.</p>
-        </div>
-      </article>
-
-      <article class="bento-card bento-meetings reveal">
-        <div class="bento-visual mini-note" aria-hidden="true">
-          <div class="mini-note-head">Launch readiness review</div>
-          <ul>
-            <li><span class="mini-dot decision"></span>Decision: annual plans launch with a 15% discount</li>
-            <li><span class="mini-dot action"></span>Action: Tomás merges the batching fix</li>
-            <li><span class="mini-dot action"></span>Action: You send the checklist by Friday</li>
-          </ul>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Meetings</span>
-          <h3>Meetings become decisions.</h3>
-          <p>Both sides of the call, a summary, decisions, and action items with owners. The transcript stays searchable.</p>
-        </div>
-      </article>
-
-      <article class="bento-card bento-promises reveal">
-        <div class="bento-visual mini-message" aria-hidden="true">
-          <p>I’ll send you the final launch checklist <mark>by Friday</mark>.</p>
-          <div class="mini-todo"><svg class="icon"><use href="#i-check"/></svg><span>To-do · Send Jonas the final launch checklist</span><em>Friday</em></div>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Writing capture</span>
-          <h3>Promises become to-dos.</h3>
-          <p>Writing capture turns the commitments you send into tasks with deadlines—without recording keystrokes.</p>
-        </div>
-      </article>
-
-      <article class="bento-card bento-ask reveal">
-        <div class="bento-visual mini-ask" aria-hidden="true">
-          <div class="mini-search"><svg class="icon"><use href="#i-search"/></svg><span>What did I promise Jonas this week?</span><span class="mini-ask-button">Ask</span></div>
-          <div class="mini-answer">
-            <p>The final launch checklist by Friday.</p>
-            <div class="mini-sources"><span>Teams · Sep 25</span><span>Launch review · 00:04</span><span>Summary</span></div>
-          </div>
-        </div>
-        <div class="bento-copy">
-          <span class="bento-kicker">Knowledge</span>
-          <h3>Ask your work anything.</h3>
-          <p>Search by meaning across meetings, notes, and messages. Answers come with their sources, and a graph links the people and projects behind them.</p>
-        </div>
-      </article>
-    </div>
-
-    <div class="more-strip reveal" role="list" aria-label="More of what Binders does">
-      <div class="more-item" role="listitem">
-        <svg class="icon" aria-hidden="true"><use href="#i-mic"/></svg>
-        <h3>All-day capture</h3>
-        <p>Turn the day into captures, promises, and cards. Audio stays on the device that heard it.</p>
-      </div>
-      <div class="more-item" role="listitem">
-        <svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>
-        <h3>Teams</h3>
-        <p>Share a binder through a folder you already sync.</p>
-      </div>
-      <div class="more-item" role="listitem">
-        <svg class="icon" aria-hidden="true"><use href="#i-spark"/></svg>
-        <h3>MCP</h3>
-        <p>Let your AI tools search, ask, and work from your boards.</p>
-      </div>
-      <div class="more-item" role="listitem">
-        <svg class="icon" aria-hidden="true"><use href="#i-bolt"/></svg>
-        <h3>Automations</h3>
-        <p>Run a Shortcut, open a URL, or call a web hook.</p>
-      </div>
-      <div class="more-item" role="listitem">
-        <svg class="icon" aria-hidden="true"><use href="#i-code"/></svg>
-        <h3>Open source</h3>
-        <p>GPLv3, on GitHub, with the code behind every claim.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="inside" id="inside" aria-labelledby="inside-title">
-  <div class="wrap">
-    <div class="section-heading reveal">
-      <p class="eyebrow">Inside Binders</p>
-      <h2 id="inside-title">One place for the work<br><em>and the memory behind it.</em></h2>
-      <p class="lede">The app is the product. Here is what it looks like when the day is moving: the work that needs you, the card where it gets done, and the notes that remember how you got there.</p>
-    </div>
-
-    <div class="showcase reveal">
-      <div class="showcase-tabs" role="tablist" aria-label="Inside Binders">
-        <button class="showcase-tab" id="tab-day" role="tab" aria-selected="true" aria-controls="panel-day" tabindex="0">
-          <span class="tab-num">01</span>
-          <span class="tab-title">Your day</span>
-          <span class="tab-sub">What needs you</span>
-        </button>
-        <button class="showcase-tab" id="tab-work" role="tab" aria-selected="false" aria-controls="panel-work" tabindex="-1">
-          <span class="tab-num">02</span>
-          <span class="tab-title">The work</span>
-          <span class="tab-sub">A card with an agent</span>
-        </button>
-        <button class="showcase-tab" id="tab-notes" role="tab" aria-selected="false" aria-controls="panel-notes" tabindex="-1">
-          <span class="tab-num">03</span>
-          <span class="tab-title">The notes</span>
-          <span class="tab-sub">Meetings and memory</span>
-        </button>
-      </div>
-
-      <div class="showcase-panels">
-        <div class="showcase-panel" id="panel-day" role="tabpanel" aria-labelledby="tab-day" tabindex="0">
-          <figure class="shot-frame">
-            <img src="assets/shot-home.webp" width="2204" height="1520" loading="lazy" alt="The Binders home screen: what needs you, your binders, open to-dos with owners and due dates, and two weeks of dictation activity.">
-          </figure>
-          <p class="showcase-caption">Home gathers what needs you: questions from agents, cards ready to check, open to-dos, and the day’s meetings.</p>
-        </div>
-        <div class="showcase-panel" id="panel-work" role="tabpanel" aria-labelledby="tab-work" tabindex="0" hidden>
-          <figure class="shot-frame">
-            <img src="assets/shot-card.webp" width="2200" height="1520" loading="lazy" alt="A card in Binders: a conversation with an agent, an approval request, the description, and the board it belongs to.">
-          </figure>
-          <p class="showcase-caption">A card is a conversation with whoever does the work. An agent reports, asks, and hands it over; you approve or send it back.</p>
-        </div>
-        <div class="showcase-panel" id="panel-notes" role="tabpanel" aria-labelledby="tab-notes" tabindex="0" hidden>
-          <figure class="shot-frame shot-frame-tall">
-            <img src="assets/shot-meeting.webp" width="1208" height="1190" loading="lazy" alt="Meeting notes with a summary, decisions, and action items by owner.">
-          </figure>
-          <p class="showcase-caption">Meeting notes arrive with a summary, decisions, and action items by owner, plus a transcript you can ask.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="inside-foot reveal">
-      <p class="fineprint">Every person and project in these pictures is fictional.</p>
-      <a class="tour-link" href="assets/tour.mp4" data-tour>
-        <span class="tour-play"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg></span>
-        Watch the 54-second tour
-        <span class="tour-duration">No sound</span>
-      </a>
-    </div>
-  </div>
-</section>
-
-<section class="privacy" id="privacy" aria-labelledby="privacy-title">
-  <div class="wrap">
-    <div class="privacy-panel reveal">
-      <div class="privacy-copy">
-        <p class="eyebrow">Privacy</p>
-        <h2 id="privacy-title">Private by construction,<br><em>not by policy.</em></h2>
-        <p class="lede">Binders has no account, no analytics, and no cloud of ours. The speech models and the language model run on your Mac; the files sit in a folder you can open. Here is exactly what stays, and what leaves only when you point it somewhere.</p>
-        <div class="privacy-links">
-          <a class="button button-ghost button-small" href="privacy.html">Read the privacy notes</a>
-          <a class="text-link" href="https://github.com/binders-io/app" rel="noopener">Read the code <svg class="icon icon-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></a>
-        </div>
-        <p class="privacy-badge"><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg>Open source · GPLv3</p>
-      </div>
-      <div class="ledger">
-        <div class="ledger-col">
-          <h3><span class="ledger-dot on" aria-hidden="true"></span>Stays on this Mac</h3>
-          <ul>
-            <li>Audio, transcripts, notes, meetings, and captured writing, in one folder you can open.</li>
-            <li>Speech recognition with Parakeet or Whisper on the Neural Engine.</li>
-            <li>The search index and the knowledge graph.</li>
-            <li>Your dictionary, snippets, and settings.</li>
-          </ul>
-        </div>
-        <div class="ledger-col">
-          <h3><span class="ledger-dot choice" aria-hidden="true"></span>Leaves only where you point it</h3>
-          <ul>
-            <li>Text sent to your language model: on your Mac by default, or a server you choose.</li>
-            <li>Binders you share with your team, through your own cloud folder.</li>
-            <li>A web hook you set up, to the address you give it.</li>
-            <li>AI tools and agents you connect: what you let them read, or the card you hand them.</li>
-            <li>A one-time download of the speech models, and of the built-in model if you use it.</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="download" id="download" aria-labelledby="download-title">
-  <div class="wrap">
-    <div class="download-panel reveal">
-      <img class="download-icon" src="assets/icon-512.png" width="88" height="88" alt="">
-      <p class="eyebrow">Free, open source, on your Mac</p>
-      <h2 id="download-title">Bring your work <em>home.</em></h2>
-      <p class="lede">No account, no subscription, no trial clock. Binders runs on your Mac, so there is no server for anyone to pay for.</p>
-      <a class="button button-paper button-large download-button" href="https://github.com/binders-io/app/releases/download/v0.14.0/Binders-0.14.0.dmg" data-download>
-        <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
-        Download Binders 0.14.0 for Mac
-      </a>
-      <p class="fineprint">Version 0.14.0 · macOS 14.2 or later · Apple silicon recommended · Signed and notarized by Apple</p>
-      <p class="fineprint download-links"><a href="https://github.com/binders-io/app/releases/latest" rel="noopener">Release notes</a> · <a href="help.html">Help with setup</a> · <a href="https://github.com/binders-io/app" rel="noopener">Read the code</a></p>
-      <p class="fineprint download-checksum">SHA-256 <code>d107620ee6a27e3dec2f8b34bf5d7328855528d26883f862958eee8cbd5c9128</code></p>
-    </div>
-  </div>
-</section>
-
+  </section>
 </main>
 
-<footer class="site-footer">
-  <div class="wrap footer-grid">
-    <div class="footer-brand">
-      <a class="wordmark" href="#top" aria-label="Binders, back to top">
-        <img class="wordmark-icon" src="assets/icon-128.png" width="30" height="30" alt="">
-        <span class="wordmark-text">Binders</span>
-        <span class="wordmark-mac">Mac</span>
-      </a>
-      <p>A private memory for your work. Dictation, meetings, notes, knowledge, and a board for you and your agents.</p>
-      <p class="footer-contact"><a href="mailto:hello@binders.io">hello@binders.io</a></p>
-    </div>
-    <div class="footer-col">
-      <h3>Product</h3>
-      <a href="#features">Features</a>
-      <a href="#workflow">Workflow</a>
-      <a href="#inside">Inside</a>
-      <a href="#privacy">Privacy</a>
-      <a href="#download">Download</a>
-    </div>
-    <div class="footer-col">
-      <h3>Resources</h3>
+<footer class="foot">
+  <div class="wrap foot-row">
+    <a class="brand" href="./"><img src="assets/hub-icon-128.png" width="30" height="30" alt="">Binders</a>
+    <p class="foot-links">
+      <a href="mac.html">Binders for Mac</a>
       <a href="help.html">Help</a>
-      <a href="https://github.com/binders-io/app/releases/latest" rel="noopener">Release notes</a>
-      <a href="https://github.com/binders-io/app" rel="noopener">GitHub</a>
-      <a href="licenses.html">Licences</a>
-    </div>
-    <div class="footer-col">
-      <h3>More</h3>
-      <a href="privacy.html">Privacy notes</a>
+      <a href="privacy.html">Privacy</a>
       <a href="terms.html">Terms</a>
-      <a href="mailto:hello@binders.io">Contact</a>
-      <a href="#top">Back to top</a>
-    </div>
-  </div>
-  <div class="wrap footer-bottom">
-    <p>© 2026 Binders. Free, private, on your Mac. Open source under the GPL, version 3.</p>
-    <p>Mac, macOS, and Apple silicon are trademarks of Apple Inc. Other product names are trademarks of their owners. The people and projects in the pictures are fictional.</p>
+      <a href="licenses.html">Licences</a>
+      <a href="https://github.com/binders-io/binders-hub" rel="noopener">Hub on GitHub</a>
+      <a href="mailto:hello@binders.io">hello@binders.io</a>
+    </p>
+    <p class="foot-line">© 2026 Binders. Binders Hub is open source under the AGPL, version 3; Binders for Mac under the GPL, version 3. Claude Code and Codex are their makers’ products; Binders is not affiliated with Anthropic or OpenAI.</p>
   </div>
 </footer>
-
-<dialog class="tour-dialog" id="tour" aria-label="The Binders tour, 54 seconds, no sound">
-  <form method="dialog"><button class="tour-close" type="submit" aria-label="Close the tour"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></form>
-  <video id="tour-video" controls muted playsinline preload="none" poster="assets/tour-poster.webp" width="1920" height="1080">
-    <source src="assets/tour.mp4" type="video/mp4">
-  </video>
-</dialog>
-
-<script src="landing.js" defer></script>
 </body>
 </html>

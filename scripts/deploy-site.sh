@@ -23,10 +23,10 @@ RELEASE="https://github.com/binders-io/app/releases/download/v$VERSION"
 SITE_ONLY=""
 [[ "${1:-}" == "--site-only" || "${1:-}" == "--no-dmg" ]] && SITE_ONLY=1
 
-grep -q "$RELEASE/Binders-$VERSION.dmg" site/index.html || { echo "✗ site/index.html does not link to $RELEASE/Binders-$VERSION.dmg. scripts/release.sh updates it."; exit 1; }
+grep -q "$RELEASE/Binders-$VERSION.dmg" site/mac.html || { echo "✗ site/mac.html does not link to $RELEASE/Binders-$VERSION.dmg. scripts/release.sh updates it."; exit 1; }
 if [[ -f "dist/Binders-$VERSION.dmg" ]]; then
   SUM=$(shasum -a 256 "dist/Binders-$VERSION.dmg" | cut -d' ' -f1)
-  grep -q "$SUM" site/index.html || { echo "✗ The checksum on the page is not the checksum of dist/Binders-$VERSION.dmg ($SUM)."; exit 1; }
+  grep -q "$SUM" site/mac.html || { echo "✗ The checksum on the page is not the checksum of dist/Binders-$VERSION.dmg ($SUM)."; exit 1; }
 fi
 
 echo "→ Pages (short cache)"
@@ -48,6 +48,6 @@ fi
 
 echo "→ Refreshing the CDN"
 # Pages, the stylesheet and script, and the pictures (which keep their names when they are re-rendered).
-aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
+aws cloudfront create-invalidation --distribution-id "$BINDERS_SITE_DISTRIBUTION" --paths "/" "/index.html" "/mac.html" "/hub.css" "/help.html" "/privacy.html" "/licenses.html" "/terms.html" "/404.html" "/styles.css" "/main.js" "/landing.css" "/landing.js" "/assets/*" "/appcast.xml" \
   --query "Invalidation.Id" --output text
 echo "✓ Published"
