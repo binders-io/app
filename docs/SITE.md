@@ -57,6 +57,22 @@ these runs on the site: they show the path the app is running from on the Mac th
 
 The demo content lives in `Binders/App/DemoData.swift`. With `--ask` the run also puts the questions in `DemoData.questions` to the real knowledge pipeline (index, search, local model) and prints the answers and their sources. The answers in the site's Ask section are copied from that output, so re-run it and update `site/main.js` if the demo data changes. `scripts/make-site-shots.py` needs Pillow.
 
+## The Hub tour
+
+`site/assets/hub-tour.mp4` plays on `/hub` with its poster and captions, from the site's own files. It has no sound, like the Mac's tour. Nothing is filmed: `scripts/hub-tour/capture.ts` clicks through a demo hub (`demo/` in binders-server) holding only invented data and takes a picture of each state, refusing any page with something real on it or asking for anything elsewhere. Remotion then moves a camera and a cursor over those pictures.
+
+```
+cd scripts/hub-tour && npm install
+node capture.ts <binders-server folder>      # build its web/ first; see demo/README.md there
+npx remotion render src/index.ts HubTour out/raw.mp4
+ffmpeg -i out/raw.mp4 -c copy -an -movflags +faststart ../../site/assets/hub-tour.mp4
+npx remotion still src/index.ts HubTour out/poster.png --frame=270
+node make-poster.mjs out/poster.png ../../site/assets/hub-tour-poster.webp
+node make-captions.mjs ../../site/assets/hub-tour.vtt
+```
+
+`shots.json` holds each shot's words and the feature it comes from, so the lines on screen and the captions can't differ. Say only what's on the rebrand note's "Built, safe to say" list. It leaves out self-hosting, the Hub's address and a call to action until those are decided. The framing of the worktree shot keeps the demo agent's "Full access" setting out of view on purpose: it isn't what that line is about.
+
 ## Publishing
 
 `scripts/deploy-site.sh` syncs `site/` to the S3 bucket behind CloudFront, publishes the update feed, and refreshes the CDN.

@@ -34,6 +34,8 @@ aws s3 sync site/ "s3://$BINDERS_SITE_BUCKET/" --delete --exclude ".deploy.env" 
   --cache-control "public, max-age=300" --only-show-errors
 echo "→ Assets (long cache)"
 aws s3 sync site/assets/ "s3://$BINDERS_SITE_BUCKET/assets/" --delete --exclude ".DS_Store" --cache-control "public, max-age=604800" --only-show-errors
+# The captions' type, said outright: the sync above goes by the file name and may not know .vtt.
+aws s3 cp site/assets/hub-tour.vtt "s3://$BINDERS_SITE_BUCKET/assets/hub-tour.vtt" --content-type "text/vtt" --cache-control "public, max-age=604800" --only-show-errors
 
 if [[ -z "$SITE_ONLY" ]]; then
   [[ -f dist/updates/appcast.xml ]] || { echo "✗ dist/updates/appcast.xml not found. Run scripts/release.sh first."; exit 1; }

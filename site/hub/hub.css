@@ -105,6 +105,7 @@ h3 { font-size: 1.15rem; line-height: 1.3; font-weight: 800; }
 .split-flip > :first-child { order: 2; }
 .section { padding-block: clamp(48px, 7vw, 88px); }
 .section-band { background: var(--band); }
+.tour { display: block; width: 100%; height: auto; margin-block: 8px 12px; border-radius: var(--radius); background: #2a1aa6; box-shadow: var(--shadow); }
 .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(28px, 5vw, 64px); }
 .columns ul { margin: 12px 0 0; padding-left: 20px; }
 .columns li { margin-bottom: 8px; }
