@@ -1,47 +1,30 @@
-/* Binders Hub, the front page. The Hub's own look: black on white or white on black, following the system, with colour
+/* Binders Hub, the front page. The Hub's own look: white on black, whatever the visitor's system prefers, with colour
    only for state (amber waiting, green done, red found, blue working). Tokens first; components only use tokens.
    Fonts are served from the site: Nunito for display, Nunito Sans for text. */
 @font-face { font-family: "Nunito"; font-style: normal; font-weight: 200 1000; font-display: swap; src: url("assets/fonts/nunito-latin.woff2") format("woff2"); }
 @font-face { font-family: "Nunito Sans"; font-style: normal; font-weight: 200 1000; font-display: swap; src: url("assets/fonts/nunito-sans-latin.woff2") format("woff2"); }
 
 :root {
-  color-scheme: light dark;
-  --bg: #ffffff;
-  --bg-2: #f6f6f7;
-  --ink: #0a0a0b;
-  --ink-2: #3f3f46;
-  --ink-3: #62626b;
-  --line: #e4e4e7;
-  --line-2: #d4d4d8;
-  --code-bg: #0a0a0b;
+  color-scheme: dark;
+  --bg: #000000;
+  --bg-2: #0b0b0c;
+  --ink: #fafafa;
+  --ink-2: #d4d4d8;
+  --ink-3: #a1a1aa;
+  --line: #232326;
+  --line-2: #34343a;
+  --code-bg: #0e0e10;
   --code-ink: #e4e4e7;
   --code-dim: #8b8b94;
-  --shadow: 0 30px 60px -30px rgba(10, 10, 11, 0.28), 0 0 0 1px rgba(10, 10, 11, 0.08);
-  --waiting: #a15c07;
-  --done: #15803d;
-  --found: #b91c1c;
-  --working: #1d4ed8;
+  --shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.09);
+  --waiting: #f5b041;
+  --done: #4ade80;
+  --found: #f87171;
+  --working: #7aa7ff;
   --display: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --text: "Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --wrap: 1180px;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --bg-2: #0b0b0c;
-    --ink: #fafafa;
-    --ink-2: #d4d4d8;
-    --ink-3: #a1a1aa;
-    --line: #232326;
-    --line-2: #34343a;
-    --code-bg: #0e0e10;
-    --shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.09);
-    --waiting: #f5b041;
-    --done: #4ade80;
-    --found: #f87171;
-    --working: #7aa7ff;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -177,6 +160,8 @@ svg.icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: ro
 .apart { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; }
 .apart > div { padding: 32px 30px 34px; }
 .apart > div + div { border-left: 1px solid var(--line-2); }
+.apart > div:nth-child(3n + 1) { border-left: 0; }
+.apart > div:nth-child(n + 4) { border-top: 1px solid var(--line-2); }
 .apart h3 { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
 .apart p { margin-top: 10px; color: var(--ink-2); font-size: 16px; }
 .apart .tag { display: inline-block; margin-bottom: 18px; font: 700 12px/1 var(--mono); padding: 6px 9px; border-radius: 6px; background: var(--bg-2); color: var(--ink-2); }
@@ -238,6 +223,7 @@ svg.icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: ro
   .step:nth-child(even) .step-text { order: 0; }
   .apart { grid-template-columns: 1fr; }
   .apart > div + div { border-left: 0; border-top: 1px solid var(--line-2); }
+  .apart > div:nth-child(3n + 1) { border-left: 0; }
   .mac { grid-template-columns: 1fr; padding: 28px; }
 }
 @media (max-width: 520px) {

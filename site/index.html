@@ -3,22 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Binders Hub — From a note to production</title>
+<title>Binders Hub — The Agentic Development Platform</title>
 <meta name="description" content="Binders Hub is an open-source, self-hosted place to run coding agents as a team. Write a spec, Distill turns it into cards, your agents take them in their own worktrees, and you review each change as one set before it ships.">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://binders.io/">
 <meta property="og:url" content="https://binders.io/">
-<meta property="og:title" content="Binders Hub — From a note to production">
+<meta property="og:title" content="Binders Hub — The Agentic Development Platform">
 <meta property="og:description" content="Open source and self-hosted. Your agents do the work, your team makes the calls, and GitHub keeps the record.">
-<meta property="og:image" content="https://binders.io/assets/og-hub.jpg">
+<meta property="og:image" content="https://binders.io/assets/og-platform.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Binders Hub: from a note to production. Self-hosted, open source.">
+<meta property="og:image:alt" content="Binders Hub: the agentic development platform. Self-hosted, open source.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://binders.io/assets/og-hub.jpg">
+<meta name="twitter:image" content="https://binders.io/assets/og-platform.jpg">
 <link rel="icon" type="image/png" href="assets/hub-favicon-64.png">
 <link rel="stylesheet" href="hub.css">
 <script>
@@ -70,14 +69,14 @@
     <div class="wrap hero-grid">
       <div class="hero-text">
         <p class="eyebrow"><i></i>Binders Hub · Open source</p>
-        <h1 id="hero-title">From a note to production.</h1>
-        <p class="lede">Write the spec with your team. Binders turns it into cards, your agents take them on your own machines, and you review the whole change at once before it ships.</p>
+        <h1 id="hero-title">The Agentic Development Platform</h1>
+        <p class="lede">Write the spec with your team. Binders turns it into cards, your agents take them on your own machines, and you review the whole change at once before it ships. It runs on your server, and it keeps the work in GitHub and Jira.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Run it on your server</a>
           <a class="button quiet" href="mac.html">Binders for Mac<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
         </div>
         <ul class="meta" role="list">
-          <li>Self-hosted</li><li>AGPL</li><li>Claude Code, Codex or your own agents</li>
+          <li>Self-hosted</li><li>AGPL</li><li>Claude Code, Codex, DeepSeek Harness or your own agents</li>
         </ul>
       </div>
 
@@ -85,8 +84,7 @@
         <figure class="window">
           <div class="window-bar"><span class="lights"><i></i><i></i><i></i></span><span class="url">hub.harbor.example/work</span></div>
           <picture>
-            <source srcset="assets/hub-flow-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-flow-light.webp" width="1600" height="1000" fetchpriority="high" alt="The board of a demo company: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
+            <img src="assets/hub-flow-dark.webp" width="1600" height="1000" fetchpriority="high" alt="The board of a demo company: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
           </picture>
         </figure>
 
@@ -124,12 +122,12 @@
   <section class="section film-band" aria-labelledby="film-title">
     <div class="wrap">
       <div class="film-head">
-        <h2 id="film-title">See the whole flow in 74 seconds.</h2>
-        <p>A talk on the way in becomes a spec, the spec becomes cards, and the change ships after a second agent tries to break it. No sound needed; the company and people in it are made up.</p>
+        <h2 id="film-title">See the whole flow in 61 seconds.</h2>
+        <p>An idea becomes a spec, the spec becomes cards, a swarm of agents builds them, and you review it all as one change after a second agent tries to break it. No sound needed; the company and people in it are made up.</p>
       </div>
       <div class="film">
-        <video controls muted playsinline preload="none" poster="assets/hub-tour-poster.webp" aria-label="A 74-second tour of Binders Hub, from a note to production">
-          <source src="assets/hub-tour.mp4" type="video/mp4">
+        <video controls muted playsinline preload="none" poster="assets/hub-film-poster.jpg" aria-label="A 61-second film of Binders Hub, from an idea to a shipped change">
+          <source src="assets/hub-film.mp4" type="video/mp4">
         </video>
       </div>
     </div>
@@ -151,19 +149,17 @@
             <p>Write the spec together, live, in Markdown. Distill reads it and proposes the cards, with what “done” means for each. Nothing reaches the board until someone accepts it.</p>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-note-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-note-light.webp" width="1600" height="1000" loading="lazy" alt="A spec note called Annual plans, with Distill's proposed cards beside it, each with Accept and Dismiss.">
+            <img src="assets/hub-note-dark.webp" width="1600" height="1000" loading="lazy" alt="A spec note called Annual plans, with Distill's proposed cards beside it, each with Accept and Dismiss.">
           </picture>
         </li>
         <li class="step" id="step-2">
           <div class="step-text">
             <span class="step-num">02</span>
             <h3>Your agents, on your machines.</h3>
-            <p>The Binders runner starts Claude Code, Codex or a command of your own, where your code already is. Each card gets its own worktree and branch, so your checkout is never touched.</p>
+            <p>The Binders runner starts Claude Code, Codex, DeepSeek Harness or a command of your own, where your code already is. Each card gets its own worktree and branch, so your checkout is never touched. It installs as a service on a Mac, a Linux box or a Windows machine, and keeps itself current.</p>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-flow-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-flow-light.webp" width="1600" height="1000" loading="lazy" alt="The board: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
+            <img src="assets/hub-flow-dark.webp" width="1600" height="1000" loading="lazy" alt="The board: cards proposed, ready, being worked by agents, blocked on a question, in review and done.">
           </picture>
         </li>
         <li class="step" id="step-3">
@@ -173,32 +169,29 @@
             <p>Each repo has a brief: how it’s built, what it relies on, how to test it, where it breaks. Agents write it, keep it current, and add what they learn. It lives in your notes with the team’s other docs for the repo, and every agent working or reviewing there starts from it.</p>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-briefs-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-briefs-light.webp" width="1600" height="1000" loading="lazy" alt="Repo briefs in Settings: each repo's brief, who wrote it, and the lessons agents added since.">
+            <img src="assets/hub-briefs-dark.webp" width="1600" height="1000" loading="lazy" alt="Repo briefs in Settings: each repo's brief, who wrote it, and the lessons agents added since.">
           </picture>
         </li>
         <li class="step" id="step-4">
           <div class="step-text">
             <span class="step-num">04</span>
             <h3>Watch the work as it happens.</h3>
-            <p>Each card shows the plan, every step the agent takes, and what it’s doing right now. When an agent is stuck it asks on the card, and your answer goes straight back to it.</p>
+            <p>Each card shows the plan, every step the agent takes, and what it’s doing right now. When an agent is stuck it asks on the card, and your answer goes straight back to it. Agents open terminals of their own, so you can watch a run or take it over, from your desk or your phone.</p>
             <span class="state"><i style="background:var(--working)"></i>Running the settings tests</span>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-card-steps-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-card-steps-light.webp" width="1600" height="1000" loading="lazy" alt="A card being worked: every file the agent read and edited, the commands it ran, and its live session.">
+            <img src="assets/hub-card-steps-dark.webp" width="1600" height="1000" loading="lazy" alt="A card being worked: every file the agent read and edited, the commands it ran, and its live session.">
           </picture>
         </li>
         <li class="step" id="step-5">
           <div class="step-text">
             <span class="step-num">05</span>
             <h3>Review the change as one.</h3>
-            <p>A change set holds the pull requests behind one piece of work, across repos. An agent writes the debrief: what it does, what changed, and each “done when” checked off. Approve once, and Binders merges them in order.</p>
+            <p>A change set holds the pull requests behind one piece of work, across repos. An agent writes the debrief: what it does, what changed, and each “done when” checked off. It comes with the tests that prove it, and people record how each one went. Approve once, and Binders merges them in order.</p>
             <span class="state"><i style="background:var(--waiting)"></i>Waiting for you</span>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-change-set-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-change-set-light.webp" width="1600" height="1000" loading="lazy" alt="A change set of three pull requests with its debrief: what it does, what changed, and each point of the brief marked met or not.">
+            <img src="assets/hub-change-set-dark.webp" width="1600" height="1000" loading="lazy" alt="A change set of three pull requests with its debrief: what it does, what changed, and each point of the brief marked met or not.">
           </picture>
         </li>
         <li class="step" id="step-6">
@@ -209,20 +202,18 @@
             <span class="state"><i style="background:var(--found)"></i>2 high findings</span>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-challenge-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-challenge-light.webp" width="1600" height="1000" loading="lazy" alt="A Challenge of the change set: its blast radius, a verdict, and findings worst first, each with a fix.">
+            <img src="assets/hub-challenge-dark.webp" width="1600" height="1000" loading="lazy" alt="A Challenge of the change set: its blast radius, a verdict, and findings worst first, each with a fix.">
           </picture>
         </li>
         <li class="step" id="step-7">
           <div class="step-text">
             <span class="step-num">07</span>
             <h3>Ship it from the same place.</h3>
-            <p>Checks, CI runs and deploys show on every change, environment by environment, and an environment that needs approval waits for a person.</p>
+            <p>Checks, CI runs and deploys show on every change, environment by environment, and an environment that needs approval waits for a person. A binder can mirror its cards into a Jira Cloud project, so the people who work there see the same board.</p>
             <span class="state"><i style="background:var(--done)"></i>Staging healthy</span>
           </div>
           <picture class="shot">
-            <source srcset="assets/hub-delivery-dark.webp" media="(prefers-color-scheme: dark)">
-            <img src="assets/hub-delivery-light.webp" width="1600" height="1000" loading="lazy" alt="Delivery: staging and production with the change sets in each, a Promote button between them, and the CI and deploy runs.">
+            <img src="assets/hub-delivery-dark.webp" width="1600" height="1000" loading="lazy" alt="Delivery: staging and production with the change sets in each, a Promote button between them, and the CI and deploy runs.">
           </picture>
         </li>
       </ol>
@@ -251,6 +242,48 @@
           <h3>Agents with context.</h3>
           <p>What an engineer who has worked in the repo for months would know, kept up to date by the agents themselves.</p>
         </div>
+        <div>
+          <span class="tag">test plans</span>
+          <h3>Proof, not a promise.</h3>
+          <p>Every debrief comes with the tests that prove it, and people record how each one went before it ships.</p>
+        </div>
+        <div>
+          <span class="tag">terminals</span>
+          <h3>Take the wheel.</h3>
+          <p>Agents open terminals of their own. Watch a run, type into it, or open it on your phone. Your own terminal connects over MCP, as you.</p>
+        </div>
+        <div>
+          <span class="tag">Jira</span>
+          <h3>Where your team already works.</h3>
+          <p>A binder mirrors its cards into a Jira Cloud project: stages, points and comments both ways, and a note becomes an Epic with its cards under it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="alone-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Work that runs on its own</p>
+        <h2 id="alone-title">The board keeps moving when nobody’s watching.</h2>
+        <p>Agents that hand work to each other, jobs that write the notes, and rules that keep the board honest. You come back to a board that has moved, not a queue that waited.</p>
+      </div>
+      <div class="apart">
+        <div>
+          <span class="tag">agents to agents</span>
+          <h3>They hand work on.</h3>
+          <p>An agent gives a card to another agent, and messages reach them while they work, so a swarm splits the job without you in the middle.</p>
+        </div>
+        <div>
+          <span class="tag">scheduled jobs</span>
+          <h3>Notes that write themselves.</h3>
+          <p>A job runs on a schedule and writes a note: the week’s changes, a repo’s health, whatever you ask for.</p>
+        </div>
+        <div>
+          <span class="tag">folder rules</span>
+          <h3>Distill, then accept.</h3>
+          <p>A rule on a folder distills what lands in it and accepts the cards, so a note becomes work without a person starting it.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -266,8 +299,10 @@
         <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>It runs on your server.</b> Your code stays on your machines; the hub holds the board, notes and live work.</span></li>
         <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>An agent reaches no more of GitHub than its owner can,</b> with a token for one repo that lasts an hour.</span></li>
         <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Agents work in worktrees and branches,</b> never in your checkout.</span></li>
-        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>People accept the cards,</b> approve the change and approve production.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>People accept the cards,</b> approve the change and approve production. What an agent suggests on work nobody has read stays a suggestion.</span></li>
         <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Cards are GitHub Issues and notes are Markdown in your repo,</b> so the work stays in GitHub even if you switch Binders off.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Your own terminal connects as you,</b> over OAuth, kept to the one binder you allowed and revocable from your account.</span></li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span><b>Admins decide who agents commit as,</b> and where an organization manages Claude Code’s servers, the runner works within it.</span></li>
       </ul>
     </div>
   </section>
@@ -282,7 +317,8 @@
         </div>
         <div class="needs">
           <p><b>You need</b> a server with Docker and Compose v2, and a public HTTPS address, so GitHub can send the hub its webhooks.</p>
-          <p><b>Your agents</b> run where your code is: install the runner from the Agents page on each machine.</p>
+          <p><b>Or run it your way:</b> plain Docker, Kubernetes with the Helm chart, AWS ECS on Fargate, or Node with systemd. The image is on GHCR.</p>
+          <p><b>Your agents</b> run where your code is: install the runner from the Agents page on each machine, on a Mac, Linux or Windows.</p>
         </div>
         <div class="actions">
           <a class="button primary" href="https://github.com/binders-io/binders-hub#self-host" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>Read the setup guide</a>
