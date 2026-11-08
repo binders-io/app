@@ -60,6 +60,8 @@ enum LinkTimeouts {
     /// errands.
     static func request(_ method: String, _ params: [String: Any]) -> TimeInterval {
         if method == "tools/call", let name = params["name"] as? String { return tool(name) }
+        // Talk's turn waits as Ask does: the hub's model may still be loading on one of your machines.
+        if method == "binders/talk" { return ask }
         return [CaptureOutcome.listMethod, ConversationSuggestion.listMethod, LinkFeatures.sessionListMethod].contains(method) ? read : errand
     }
 }
@@ -82,6 +84,23 @@ final class MacConnection {
         didSet { if (oldValue == .connected) != (state == .connected) { noteSeen() } }
     }
     private(set) var mac: PairedMac?
+    /// What this iPhone's brain is: its Mac (paired, over the link), or its hub (signed in to, over the hub's link). The
+    /// screens send the same calls to either. Pairing a Mac makes the Mac it, signing in to a hub makes the hub it, and
+    /// Your Brain switches between them.
+    enum Brain: String { case mac, hub }
+    private(set) var brain: Brain = MacConnection.storedBrain()
+    /// The hub, once signed in to.
+    private(set) var hub: HubPlace? = HubBrain.load()
+    /// A sign-in to a hub under way: its state, which the hub's hand-back must carry, and the address it's for.
+    @ObservationIgnored private var hubSignIn: (state: String, address: URL)?
+    /// There's a brain to talk to: the Mac paired, or the hub signed in to, whichever is chosen.
+    var hasBrain: Bool { brain == .hub ? hub != nil : mac != nil }
+    /// The brain by name: the Mac's, or the hub's. Nil without one.
+    var brainName: String? { brain == .hub ? hub?.title : mac?.name }
+    /// The brain in a sentence: "it goes to your hub when it's back", "… to Studio Mac …".
+    var brainPhrase: String { brain == .hub ? "your hub" : (mac?.name ?? "your Mac") }
+    /// What tells this brain from another, for what's kept per brain (questions rung, the Manager's feed).
+    var brainKey: String? { brain == .hub ? hub.map { "hub-\($0.address.absoluteString)" } : mac?.device.uuidString }
     /// The address in use now (a LinkCandidate id), and what Bonjour reached when that's Bonjour. Nil while not connected.
     private(set) var inUse: String?
     private(set) var reachedHost: String?
@@ -104,6 +123,22 @@ final class MacConnection {
     }
     /// The Mac has said it takes the conversations All-day capture hears.
     var takesConversations: Bool { macFeatures.contains(ConversationPayload.feature) }
+    /// Which brain something made now is for: "mac", or "hub:" and the hub's address. From the defaults, so from anywhere.
+    nonisolated static var brainStamp: String {
+        guard onHub else { return "mac" }
+        return "hub:" + (HubBrain.load()?.address.absoluteString ?? "")
+    }
+    /// What waits in the outbox for another brain than this one (made while it was the brain), and that brain in words.
+    var waitingElsewhere: (count: Int, brain: String)? {
+        let now = Self.brainStamp
+        let others = outbox.filter { !$0.isFor(now) }
+        guard !others.isEmpty else { return nil }
+        return (others.count, others.allSatisfy { $0.isFor("mac") } ? "your Mac" : "your hub")
+    }
+    /// Said under Your Brain after the brain changed on its own: the hub signed this iPhone out, say.
+    private(set) var brainNotice: String?
+    /// The hub writes down conversations' audio with its own model, and this iPhone sends it (HubAudio).
+    var hubWritesDown: Bool { brain == .hub && macFeatures.contains(HubAudio.feature) && HubAudio.sends }
     /// The Mac offers cards and answers once it has written a conversation up.
     var hasSuggestions: Bool { macFeatures.contains(ConversationSuggestion.feature) }
     /// The Mac says what became of each capture.
@@ -146,8 +181,12 @@ final class MacConnection {
     /// runs. Watched: one isn't shown as waiting for the Mac while it's tried (givingLater).
     private var givingNow: Set<UUID> = []
 
-    @ObservationIgnored private var client: LinkClient?
+    @ObservationIgnored private var client: (any BrainLink)?
     @ObservationIgnored private var connecting = false
+    /// Bumped whenever what the link should be changes (the brain switched, a Mac paired or unpaired, a hub signed in to or
+    /// out of): a connect started before finds it moved on when it comes back, closes what it opened, and leaves the state
+    /// and the next dial to whoever moved it on.
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var checking = false
     @ObservationIgnored private var lastProbe = Date.distantPast
     @ObservationIgnored private var lastWarm = Date.distantPast
@@ -181,12 +220,12 @@ final class MacConnection {
     /// The network changed while a dial ran: one more, straight after.
     @ObservationIgnored private var dialAgain = false
     /// The Mac's new addresses, heard on a link still saying hello: taken if that link wins.
-    @ObservationIgnored private var heardDuringHandshake: (link: LinkClient, list: [LinkAddress])?
+    @ObservationIgnored private var heardDuringHandshake: (link: any BrainLink, list: [LinkAddress])?
     @ObservationIgnored private var network: NetworkWatch?
 
     init() {
         mac = Self.loadMac()
-        state = mac == nil ? .unpaired : .offline(Self.notConnectedYet)
+        state = hasBrain ? .offline(Self.notConnectedYet) : .unpaired
         let network = NetworkWatch()
         network.onChange = { [weak self] now, was in self?.networkChanged(now, was: was) }
         self.network = network
@@ -219,15 +258,15 @@ final class MacConnection {
     /// Why the Mac is out of reach, when it's something to act on (a missing key, a Mac that turned this iPhone away)
     /// rather than only not being there.
     var offlineReason: String? {
-        guard case .offline(let reason) = state, let mac else { return nil }
-        let plain = [Self.notConnectedYet, Self.pausedInBackground, "Can't reach \(mac.name)", "Lost the connection to \(mac.name)"]
+        guard case .offline(let reason) = state, let name = brainName else { return nil }
+        let plain = [Self.notConnectedYet, Self.pausedInBackground, "Can't reach \(name)", "Lost the connection to \(name)"]
         return plain.contains(reason) ? nil : reason
     }
 
     /// Retry, from the status pill: a try now, with the waits between tries starting over. A try already on its way
     /// carries on, and the pill says it's connecting.
     func retryNow() {
-        guard mac != nil, client == nil else { return }
+        guard hasBrain, client == nil else { return }
         failures = 0
         guard !connecting else { return }
         retry?.cancel()
@@ -260,7 +299,7 @@ final class MacConnection {
         }
         pairingError = nil
         lastAttempts = []
-        disconnect()
+        supersede()
         state = .connecting
         do {
             let result = try await LinkClient.pair(pairing, deviceName: UIDevice.current.name)
@@ -272,24 +311,223 @@ final class MacConnection {
             if let old = mac, old.name == pairing.name { paired.carryOver(from: old) }
             Self.saveMac(paired)
             mac = paired
+            // A Mac paired is the brain from now on, and a link that came up while pairing (the hub's, say) isn't its.
+            setBrain(.mac)
+            supersede()
+            brainNotice = nil
             Cache.clear()
             forgetSeen()
             await connect()
         } catch {
             pairingError = error.localizedDescription
-            state = mac == nil ? .unpaired : .offline(error.localizedDescription)
+            state = hasBrain ? .offline(error.localizedDescription) : .unpaired
+            // The brain there was before pairing (the hub, say) lost its link when pairing began: it dials again.
+            if hasBrain, mayDial { dialAfterThis() }
         }
     }
 
     func unpair() {
-        disconnect()
+        if brain == .mac { supersede() }
         if let mac { Keychain.delete(account: mac.device.uuidString) }
         Self.saveMac(nil)
         mac = nil
         lastAttempts = []
-        state = .unpaired
         Cache.clear()
         forgetSeen()
+        // A hub signed in to is the brain now; else there's none.
+        if brain == .mac, hub != nil {
+            useBrain(.hub)
+        } else if brain == .mac {
+            state = .unpaired
+        }
+    }
+
+    // MARK: The brain: Mac or hub
+
+    private static let brainKey = "brain"
+
+    /// The brain chosen before, or, before any choice, the hub when only a hub is signed in to.
+    private static func storedBrain() -> Brain {
+        if let raw = UserDefaults.standard.string(forKey: brainKey), let kept = Brain(rawValue: raw) { return kept }
+        return HubBrain.load() != nil && loadMac() == nil ? .hub : .mac
+    }
+
+    private func setBrain(_ next: Brain) {
+        UserDefaults.standard.set(next.rawValue, forKey: Self.brainKey)
+        guard next != brain else { return }
+        brain = next
+        // What the other brain said it takes, and what it answered, aren't this one's.
+        macFeatures = []
+        UserDefaults.standard.removeObject(forKey: "macFeatures")
+        Cache.clear()
+    }
+
+    /// Switches the brain, from Your Brain: the link to the other one goes, every screen reads again from this one, and
+    /// what's waiting in the outbox goes to it.
+    func useBrain(_ next: Brain) {
+        guard next != brain else { return }
+        supersede()
+        setBrain(next)
+        brainNotice = nil
+        failures = 0
+        lastAttempts = []
+        state = hasBrain ? .offline(Self.notConnectedYet) : .unpaired
+        changed(["all"])
+        if hasBrain { Task { await connect() } }
+    }
+
+    /// The page that signs in to the hub at `typed`, or why it isn't a hub's address.
+    func hubSignInURL(for typed: String) -> Result<URL, LinkClient.Failure> {
+        guard let address = HubSignIn.address(typed) else { return .failure(.rejected(HubSignIn.addressProblem(typed) ?? "That isn't a hub's address.")) }
+        let state = HubSignIn.newState()
+        guard let url = HubSignIn.signInURL(hub: address, state: state, app: "Binders for iPhone on \(UIDevice.current.name)") else {
+            return .failure(.rejected("That isn't a hub's address."))
+        }
+        UserDefaults.standard.set(typed, forKey: HubBrain.typedKey)
+        hubSignIn = (state, address)
+        return .success(url)
+    }
+
+    /// The hub's hand-back: its token, taken if it carries the state this sign-in asked with. The hub is the brain then.
+    /// Nil when it's in, else why not.
+    func finishHubSignIn(_ callback: URL) async -> String? {
+        guard let pending = hubSignIn else { return "This iPhone didn't ask to sign in." }
+        switch HubSignIn.outcome(of: callback, expecting: pending.state) {
+        case .signedIn(let token):
+            hubSignIn = nil
+            await signedInToHub(address: pending.address, token: token)
+            return nil
+        case .notAsked: return "That sign-in wasn't this iPhone's. Try again."
+        case .unreadable: return "The hub's answer couldn't be read. Try again."
+        }
+    }
+
+    /// Keeps the token and the hub, says who signed in, and makes the hub the brain.
+    func signedInToHub(address: URL, token: String) async {
+        // The token this replaces is stopped on its hub, so it doesn't stay live there.
+        if let old = HubKeychain.load(), old != token, let oldHub = hub { await HubBrain.revoke(address: oldHub.address, token: old) }
+        let anotherHub = hub.map { $0.address != address } ?? false
+        HubKeychain.save(token)
+        brainNotice = nil
+        var place = HubPlace(address: address, name: hub?.address == address ? hub?.name : nil, person: nil)
+        place.person = await HubBrain.person(address: address, token: token)
+        hub = place
+        HubBrain.save(place)
+        if brain == .hub {
+            // Signed in again to the hub already chosen: a fresh link with the new token. Another hub's answers, and what
+            // it said it takes, aren't this one's.
+            supersede()
+            if anotherHub {
+                macFeatures = []
+                UserDefaults.standard.removeObject(forKey: "macFeatures")
+                Cache.clear()
+            }
+            failures = 0
+            state = .offline(Self.notConnectedYet)
+            changed(["all"])
+            Task { await connect() }
+        } else {
+            useBrain(.hub)
+        }
+    }
+
+    /// Sign Out, from Your Brain: the hub stops the token, and this iPhone forgets it. The address stays, for signing in
+    /// again, and so does what waits in the outbox.
+    func signOutOfHub() async {
+        if let hub, let token = HubKeychain.load() { await HubBrain.revoke(address: hub.address, token: token) }
+        forgetHub()
+    }
+
+    /// The hub turned this iPhone's token away (stopped on the web, or it ran out): signed out, saying so, under Your Brain
+    /// when a Mac paired takes over.
+    private func hubStopped() {
+        forgetHub()
+        brainNotice = HubBrain.stoppedWords
+        if brain == .hub { state = .offline(HubBrain.stoppedWords) }
+    }
+
+    /// Signed out of the hub: with a Mac paired, the Mac is the brain again; else there's none, and pairing shows.
+    private func forgetHub() {
+        if brain == .hub { supersede() }
+        HubKeychain.delete()
+        hub = nil
+        HubBrain.save(nil)
+        guard brain == .hub else { return }
+        if mac != nil {
+            useBrain(.mac)
+        } else {
+            state = .unpaired
+            changed(["all"])
+        }
+    }
+
+    /// The hub chosen, with its address kept and no token for it (signed out elsewhere, or a restored iPhone, whose
+    /// Keychain doesn't come back): it needs signing in again.
+    var hubNeedsSignIn: Bool { brain == .hub && hub != nil && HubKeychain.load() == nil }
+
+    /// The hub as the brain: its link over a WebSocket, hello and subscribe as with the Mac (no pairing, no challenge:
+    /// the token says who this is), then everything as with the Mac.
+    private func connectHub() async {
+        guard let hub, client == nil, !connecting else { return }
+        guard let token = HubKeychain.load(), let url = HubBrain.linkURL(for: hub.address) else {
+            state = .offline("Sign in to your hub again.")
+            return
+        }
+        connecting = true
+        let mine = generation
+        lastAttempt = Date()
+        defer { if mine == generation { connecting = false } }
+        retry?.cancel()
+        state = .connecting
+        let link = HubLinkClient(url: url, token: token)
+        do {
+            try await link.connect(timeout: LinkTimeouts.connect + LinkTimeouts.handshake)
+            guard mine == generation else { return link.close() }
+            listen(to: link)
+            let hello = try await link.request("binders/hello", ["name": UIDevice.current.name, "protocol": Link.protocolVersion,
+                                                                  "features": LinkFeatures.thisPhone, "device": HubBrain.device.uuidString],
+                                               timeout: LinkTimeouts.handshake) as? [String: Any] ?? [:]
+            _ = try await link.request("binders/subscribe", timeout: LinkTimeouts.handshake)
+            // Switched, signed out or signed in again meanwhile: this link was for what was before.
+            guard mine == generation, brain == .hub, self.hub?.address == hub.address else { return link.close() }
+            let featuresBefore = macFeatures
+            macFeatures = Set(hello["features"] as? [String] ?? [])
+            UserDefaults.standard.set(Array(macFeatures), forKey: "macFeatures")
+            MomentCenter.shared.macFeaturesChanged(from: featuresBefore, to: macFeatures)
+            if let name = hello["name"] as? String, !name.isEmpty, name != self.hub?.name {
+                self.hub?.name = name
+                HubBrain.save(self.hub)
+            }
+            client = link
+            failures = 0
+            lastAttempts = []
+            inUse = nil
+            reachedHost = link.remoteHost
+            state = .connected
+            if link.isClosed { return closed(link) }
+            link.onTimeout { [weak self] in
+                Task { @MainActor in await self?.check(link) }
+            }
+            beat(link)
+            changed(["all"])
+            await sendOutbox()
+            await MomentCenter.shared.sendKeptActions()
+            // Conversations' audio that waited for the hub (HubAudio): after the outbox, so each one's transcript is there first.
+            HubAudio.shared.sendWaiting()
+        } catch {
+            link.close()
+            // Superseded: a token turned away was the old one, and the state is the new connect's to say.
+            guard mine == generation, brain == .hub else { return }
+            if link.stoppedByHub { return hubStopped() }
+            inUse = nil
+            reachedHost = nil
+            if case LinkClient.Failure.rejected(let message) = error {
+                state = .offline(message)
+            } else {
+                state = .offline("Can't reach \(self.hub?.title ?? "your hub")")
+            }
+            scheduleRetry()
+        }
     }
 
     // MARK: Staying connected
@@ -298,6 +536,7 @@ final class MacConnection {
     /// rest a quarter second apart; the first that answers says hello, and the rest are closed. Offline, it says what
     /// was tried.
     func connect() async {
+        if brain == .hub { return await connectHub() }
         guard let mac, client == nil, !connecting else { return }
         guard let keyData = Keychain.load(account: mac.device.uuidString) else {
             lastAttempts = []
@@ -307,10 +546,11 @@ final class MacConnection {
             return
         }
         connecting = true
+        let mine = generation
         lastAttempt = Date()
         dialAgain = false
         heardDuringHandshake = nil
-        defer { connecting = false }
+        defer { if mine == generation { connecting = false } }
         retry?.cancel()
         state = .connecting
         let key = SymmetricKey(data: keyData), device = mac.device, phoneName = UIDevice.current.name
@@ -328,10 +568,12 @@ final class MacConnection {
         }
         // Unpaired, or paired again, meanwhile: this dial was for the Mac before. One for the Mac paired now starts from a
         // task, which runs once this has returned.
-        guard let now = self.mac, now.device == device else {
+        guard mine == generation, brain == .mac, let now = self.mac, now.device == device else {
             result.client?.close()
+            // Superseded: whoever moved it on dials what's wanted now.
+            guard mine == generation else { return }
             heardDuringHandshake = nil
-            if self.mac != nil, mayDial { dialAfterThis() }
+            if self.mac != nil, brain == .mac, mayDial { dialAfterThis() }
             return
         }
         guard let link = result.client, let winner = result.winner else {
@@ -386,7 +628,7 @@ final class MacConnection {
 
     /// The Mac's notifications on a link, and its closing, each taken on the main actor. Set while it says hello, so a
     /// notice the Mac sends before its subscribe reply isn't missed.
-    nonisolated private func listen(to link: LinkClient) {
+    nonisolated private func listen(to link: any BrainLink) {
         link.onNotification { [weak self] message in
             let method = message["method"] as? String
             let params = message["params"] as? [String: Any] ?? [:]
@@ -420,7 +662,7 @@ final class MacConnection {
     }
 
     /// The Mac's addresses changed: taken from the link in use, or kept while a link says hello, for if it wins.
-    private func addressesHeard(_ list: [LinkAddress], on link: LinkClient) {
+    private func addressesHeard(_ list: [LinkAddress], on link: any BrainLink) {
         if link === client {
             learn(list)
         } else if connecting {
@@ -470,7 +712,7 @@ final class MacConnection {
     /// Opens one address and asks for a challenge: the TLS key proves it's this Mac, the answer that Binders is there. No
     /// hello, so the Mac doesn't count it as a connection. One that answers while offline is tried first, now.
     func test(_ id: String) async -> LinkDial.Outcome {
-        guard let mac, let keyData = Keychain.load(account: mac.device.uuidString) else { return .failed }
+        guard brain == .mac, let mac, let keyData = Keychain.load(account: mac.device.uuidString) else { return .failed }
         let bonjour = browser.endpoint(named: mac.name)
         guard var candidate = mac.candidates(bonjour: bonjour != nil, limit: nil).first(where: { $0.id == id }) else { return .notFound }
         candidate.atOnce = true
@@ -528,7 +770,7 @@ final class MacConnection {
     /// only as some change, even one LinkNetwork doesn't keep: a dial now, at most one every 3 s, the waits between tries
     /// left as they were. Connected, a new route has the link checked, or dropped and dialled again when its own path went.
     private func networkChanged(_ now: LinkNetwork, was: LinkNetwork) {
-        guard mac != nil, inFront, now.reachable else { return }
+        guard hasBrain, inFront, now.reachable else { return }
         if let client {
             guard now.gainsRoute(over: was) else { return }
             // The link's own path went with the old network: dial now, rather than a check that takes 7 s to time out.
@@ -568,12 +810,19 @@ final class MacConnection {
         reachedHost = nil
     }
 
+    /// What the link should be just changed: the connect under way (if any) is for what was, so the next one may start now.
+    private func supersede() {
+        generation += 1
+        connecting = false
+        disconnect()
+    }
+
     /// While nothing else is said, a word now and then shows the Mac still hears this iPhone: a Mac that went to sleep
     /// doesn't say goodbye, and TCP alone takes about ten minutes to notice. After 10 s of quiet in front; after a minute in
     /// the background, where capture or the keyboard holds the link and speech brings a quicker word; never while
     /// lingering, which lets go soon anyway. A request still waiting has its own timeout. Nothing cancels the loop: it ends
     /// once its link isn't the one in use.
-    private func beat(_ link: LinkClient) {
+    private func beat(_ link: any BrainLink) {
         Task { [weak self] in
             while true {
                 try? await Task.sleep(for: .seconds(10))
@@ -590,7 +839,7 @@ final class MacConnection {
     /// (only a Mac that takes it). With the link down while capture holds it, it tries again now rather than waiting.
     func warm(now: Date = Date()) {
         guard let client else {
-            if isHeld, mac != nil, !connecting, now.timeIntervalSince(lastAttempt) > 10 { Task { await connect() } }
+            if isHeld, hasBrain, !connecting, now.timeIntervalSince(lastAttempt) > 10 { Task { await connect() } }
             return
         }
         guard now.timeIntervalSince(lastProbe) > 30 else { return }
@@ -635,7 +884,7 @@ final class MacConnection {
         if !isHeld, UIApplication.shared.applicationState == .background {
             isActive = false
             disconnect()
-            if mac != nil { state = .offline(Self.pausedInBackground) }
+            if hasBrain { state = .offline(Self.pausedInBackground) }
         }
         endLingerTask()
     }
@@ -646,7 +895,7 @@ final class MacConnection {
     private func held(_ now: Bool, was before: Bool) {
         guard now != before else { return }
         if now {
-            guard mac != nil else { return }
+            guard hasBrain else { return }
             stopLingering()
             isActive = true
             if client == nil { Task { await connect() } }
@@ -674,7 +923,7 @@ final class MacConnection {
 
     /// Back in front with the link still up: a quick word shows whether the Mac still hears it, as a Mac that went to
     /// sleep doesn't say goodbye. A busy Mac gets a second, longer try; without an answer, it connects again.
-    private func check(_ link: LinkClient) async {
+    private func check(_ link: any BrainLink) async {
         guard !checking else { return }
         checking = true
         checkingLink = true
@@ -702,23 +951,25 @@ final class MacConnection {
         link.close()
         // On the way out (lingering in the background), let go rather than connect again from there.
         guard isActive || isHeld else {
-            state = .offline("Lost the connection to \(mac?.name ?? "the Mac")")
+            state = .offline("Lost the connection to \(brainName ?? "the Mac")")
             return letGo()
         }
         await connect()
     }
 
-    private func closed(_ link: LinkClient) {
+    private func closed(_ link: any BrainLink) {
         guard link === client else { return }
         client = nil
         inUse = nil
         reachedHost = nil
-        state = .offline("Lost the connection to \(mac?.name ?? "the Mac")")
+        // The hub stopped this iPhone's token: signed out of it, with its address kept for signing in again.
+        if let hubLink = link as? HubLinkClient, hubLink.stoppedByHub { return hubStopped() }
+        state = .offline("Lost the connection to \(brainName ?? "the Mac")")
         scheduleRetry()
     }
 
     private func scheduleRetry() {
-        guard isActive, mac != nil else { return }
+        guard isActive, hasBrain else { return }
         let delays: [Double] = [1, 2, 5, 10, 30]
         let delay = delays[min(failures, delays.count - 1)]
         failures += 1
@@ -747,7 +998,7 @@ final class MacConnection {
             errands -= 1
             errandDone()
         }
-        if client == nil, mac != nil { Task { await connect() } }
+        if client == nil, hasBrain { Task { await connect() } }
         guard await ready(), let client else { return nil }
         return try await client.request(method, params, timeout: LinkTimeouts.request(method, params))
     }
@@ -763,6 +1014,7 @@ final class MacConnection {
         guard left > 0,
               let result = try? await client.request("binders/format", ["text": text], timeout: left) as? [String: Any],
               let cleaned = result["text"] as? String else { return nil }
+        if brain == .hub, (result["used_model"] as? Bool) != true { return nil }
         return (cleaned, result["model"] as? String ?? "")
     }
 
@@ -832,6 +1084,12 @@ final class MacConnection {
 
     /// The app's one connection, for what runs without a window: Siri, the Action Button.
     static weak var current: MacConnection?
+
+    /// "your hub" or "your Mac", as the brain chosen now (kept in the defaults, so read from anywhere): for words any
+    /// screen shows, whichever brain it is.
+    nonisolated static var onHub: Bool { UserDefaults.standard.string(forKey: "brain") == Brain.hub.rawValue }
+    nonisolated static var brainWords: String { onHub ? "your hub" : "your Mac" }
+    nonisolated static var BrainWords: String { onHub ? "Your hub" : "Your Mac" }
 
     /// For Siri: a moment now, and what the Mac made of it; nil when the Mac can't be reached in time, and then it's kept
     /// in the outbox like any moment (sent again, the Mac knows it by its id).
@@ -907,7 +1165,7 @@ final class MacConnection {
         if let agent { params["agent"] = agent }
         do {
             guard let reply = try await request(CaptureOutcome.actMethod, params) as? [String: Any] else {
-                return (false, "\(mac?.name ?? "Your Mac") is out of reach. Try again in a moment.")
+                return (false, "\(brainName ?? "Your Mac") is out of reach. Try again in a moment.")
             }
             return (true, reply["message"] as? String ?? "")
         } catch LinkClient.Failure.rejected(let message) {
@@ -927,7 +1185,7 @@ final class MacConnection {
             errands -= 1
             errandDone()
         }
-        if client == nil, mac != nil { Task { await connect() } }
+        if client == nil, hasBrain { Task { await connect() } }
         guard await ready(within: 4), let client else { return .kept }
         do {
             var params: [String: Any] = ["id": id.uuidString, "action": action]
@@ -986,7 +1244,7 @@ final class MacConnection {
             time.end()
         }
         // Written down before it's tried, when it's kept at all; outbox runs pass it over while it's tried (givingNow).
-        let kept = keeps && mac != nil
+        let kept = keeps && hasBrain
         let before = outbox.count
         outbox = OutboxRules.beforeTrying(item, in: outbox, keeps: kept) {
             $0.tool == PendingSave.handOff && $0.moment == item.moment && $0.card == item.card
@@ -1002,19 +1260,19 @@ final class MacConnection {
             }
             switch result {
             case .sent: return .sent(handOffReplies.removeValue(forKey: item.id) ?? "")
-            case .dropped: return .refused(handOffReplies.removeValue(forKey: item.id) ?? "\(mac?.name ?? "Your Mac") couldn't do that.")
+            case .dropped: return .refused(handOffReplies.removeValue(forKey: item.id) ?? "\(brainName ?? "Your Mac") couldn't do that.")
             case .kept: break
             }
         }
         handOffReplies[item.id] = nil
-        guard kept else { return .refused("\(mac?.name ?? "Your Mac") is out of reach. Try again when it's back.") }
+        guard kept else { return .refused("\(brainName ?? "Your Mac") is out of reach. Try again when it's back.") }
         return .kept
     }
 
     /// A Give to, to the Mac. On something you said, its Assign. On a card, who it's for first (a Mac too old to know it
     /// says no, rather than the card moving unassigned), then into Ready if it's still in Backlog: it may have moved
     /// meanwhile. With its id as request_id, for a Mac that saves a repeat once.
-    private func sendHandOff(_ item: PendingSave, _ client: LinkClient) async throws {
+    private func sendHandOff(_ item: PendingSave, _ client: any BrainLink) async throws {
         if let moment = item.moment {
             var params: [String: Any] = ["id": moment.uuidString, "action": "assign"]
             if let agent = item.agent { params["agent"] = agent }
@@ -1052,7 +1310,7 @@ final class MacConnection {
         Outbox.save(outbox)
         // From a notification the app is usually asleep: try every address it knows now, together. Connecting sends
         // what's waiting, this answer first.
-        if client == nil, mac != nil { await connect() }
+        if client == nil, hasBrain { await connect() }
         if outbox.contains(where: { $0.id == item.id }), await ready() { await sendOutbox() }
         if refusedAnswers.remove(item.id) != nil { return .refused }
         return outbox.contains { $0.id == item.id } ? .kept : .sent
@@ -1066,7 +1324,7 @@ final class MacConnection {
 
     /// From the background: connects for as long as it takes to send what's waiting, then lets go again.
     func flushOutbox() async {
-        guard !outbox.isEmpty, mac != nil else { return }
+        guard !outbox.isEmpty, hasBrain else { return }
         errands += 1
         defer {
             errands -= 1
@@ -1208,13 +1466,13 @@ final class MacConnection {
     /// there's none and none has been tried for a while, it tries once more, briefly, as something is waiting on it.
     private func ready(within longest: TimeInterval = 8) async -> Bool {
         var wait = longest
-        if client == nil, mac != nil, !connecting, state != .connecting, isActive || isHeld, Date().timeIntervalSince(lastAttempt) > 20 {
+        if client == nil, hasBrain, !connecting, state != .connecting, isActive || isHeld, Date().timeIntervalSince(lastAttempt) > 20 {
             state = .connecting
             wait = min(3, longest)
             Task { await connect() }
         }
         let deadline = Date().addingTimeInterval(wait)
-        while client == nil, mac != nil, isActive || isHeld, connecting || state == .connecting || state == .offline(Self.notConnectedYet),
+        while client == nil, hasBrain, isActive || isHeld, connecting || state == .connecting || state == .offline(Self.notConnectedYet),
               Date() < deadline {
             // A cancelled sleep returns at once: stop waiting rather than spin.
             if (try? await Task.sleep(for: .milliseconds(150))) == nil { break }
@@ -1237,6 +1495,8 @@ final class MacConnection {
         sendingOutbox = true
         defer { sendingOutbox = false }
         var tried: Set<UUID> = []
+        // Only what was made for this brain goes to it; the rest waits for its own. A switch meanwhile ends the run.
+        let brainNow = Self.brainStamp
         repeat {
             outboxAgain = false
             // A file of the outbox set aside because it couldn't be opened (the iPhone locked) goes too, once it opens.
@@ -1245,7 +1505,8 @@ final class MacConnection {
             // Conversations wait for a Mac that takes them; everything else still goes. One taken out while the others
             // went (a capture deleted on this iPhone) doesn't go, and a Give to being tried at once waits for its try.
             while let item = OutboxRules.next(in: outbox, tried: tried, trying: givingNow,
-                                              sends: { $0.tool != PendingSave.conversation || takesConversations }) {
+                                              sends: { $0.isFor(brainNow) && ($0.tool != PendingSave.conversation || takesConversations) }) {
+                guard Self.brainStamp == brainNow else { return }
                 tried.insert(item.id)
                 let result = await send(item)
                 // Without the link, the rest waits too; one that only didn't get through in time waits for the next run
@@ -1474,6 +1735,12 @@ struct PendingSave: Codable, Identifiable, Equatable {
     /// A note's folder's id, from a binder's folder on a Mac that has folders. Nil from builds before folders, and for
     /// everything else.
     var folder: String? = nil
+    /// The brain it was made for ("mac", or "hub:" and its address; nil from builds before the brain switch, for the Mac):
+    /// it goes only to that one, so a note meant for your Mac never lands in a hub's binder of the same name, nor an
+    /// answer to one of its cards on a hub that has no such card, and the other way round.
+    var brainFor: String? = MacConnection.brainStamp
+
+    func isFor(_ brain: String) -> Bool { (brainFor ?? "mac") == brain }
 
     static let dictation = "dictation"
     static let conversation = "conversation"

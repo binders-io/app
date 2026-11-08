@@ -31,6 +31,7 @@ extension Outbox {
         put(try? encoder.encode([note, todo, dictated]), in: outbox)
         check(load() == [note, todo, dictated].map(\.current), "an outbox from iPhone 2.0 (6) reads")
         check(load().allSatisfy { $0.folder == nil }, "and its notes have no folder: they go to their binder's top")
+        check(load().allSatisfy { $0.brainFor == nil && $0.isFor("mac") }, "and, from before the brain switch, they're for the Mac")
         clear()
 
         // As 2.0 (10) wrote it (07fe0ab), the first with All-day capture: a keyboard dictation and a conversation in two parts.
@@ -122,8 +123,9 @@ extension Outbox {
         var app: String? = nil
         var model: String? = nil
 
+        /// As this build reads it: with no brain stamped, which means the Mac.
         var current: PendingSave {
-            PendingSave(id: id, tool: tool, text: text, binder: binder, created: created, raw: raw, app: app, model: model)
+            PendingSave(id: id, tool: tool, text: text, binder: binder, created: created, raw: raw, app: app, model: model, brainFor: nil)
         }
     }
 
@@ -142,7 +144,7 @@ extension Outbox {
 
         var current: PendingSave {
             PendingSave(id: id, tool: tool, text: text, binder: binder, created: created, raw: raw, app: app, model: model,
-                        conversation: conversation, payload: payload)
+                        conversation: conversation, payload: payload, brainFor: nil)
         }
     }
 }

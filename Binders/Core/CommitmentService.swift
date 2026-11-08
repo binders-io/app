@@ -5,8 +5,9 @@ import SwiftData
 import UserNotifications
 import BindersKit
 
-/// Turns the promises in captured writing ("I'll send you the deck by Friday") into to-dos, and reminds you on the day
-/// they're due. Each captured message is checked once, with the model, only when it reads like a promise or a request.
+/// Turns the promises in captured writing ("I'll send you the deck by Friday") into cards on the board, and reminds you on
+/// the day they're due. Each is kept as a commitment underneath, for where it came from and its reminder; the board makes
+/// its card (`onMade`), as it does for every to-do said, typed or sent, since to-dos are cards now. Each captured message is checked once, with the model, only when it reads like a promise or a request.
 @MainActor
 @Observable
 final class CommitmentService {
@@ -14,6 +15,8 @@ final class CommitmentService {
     private(set) var lastIssue: String?
 
     private let flowBar: FlowBarController
+    /// Told of each new one, for the board to make its card.
+    @ObservationIgnored var onMade: ((CommitmentRecord) -> Void)?
     private var settings: AppSettings { AppSettings.shared }
     private var pending = false
     private var runTask: Task<Void, Never>?
@@ -47,7 +50,7 @@ final class CommitmentService {
             pending = false
             guard settings.captureCommitments else { return }
             guard let client = settings.makeLLMClient(lane: .later) else {
-                lastIssue = "Choose a language model in Settings to turn promises into to-dos"
+                lastIssue = "Choose a language model in Settings to turn promises into cards"
                 return
             }
             analyzing = true
@@ -101,12 +104,13 @@ final class CommitmentService {
             Store.shared.insert(commitment)
             scheduleReminder(commitment)
             noted.append(commitment)
+            onMade?(commitment)
             AutomationService.shared.fire(.promiseNoted, payload: Self.payload(for: commitment))
         }
         guard let first = noted.first else { return }
         let due = first.dueAt.map { " · \(Self.dueLabel($0))" } ?? ""
         let headline = noted.count == 1 ? "\(first.isPromise ? "Promise" : "Ask") noted: \(first.task)\(due)"
-                                        : "\(noted.count) to-dos noted: \(first.task)…"
+                                        : "\(noted.count) promises noted: \(first.task)…"
         flowBar.toast(headline, symbol: "hand.raised", duration: 5)
         Log.app.notice("Commitments: \(noted.count) from \(record.appName ?? "app", privacy: .public)")
     }
@@ -132,9 +136,10 @@ final class CommitmentService {
         Store.shared.insert(commitment)
         scheduleReminder(commitment)
         Store.shared.save()
+        onMade?(commitment)
         AutomationService.shared.fire(.todoAdded, payload: Self.payload(for: commitment), origin: origin)
         let due = commitment.dueAt.map { " · \(Self.dueLabel($0))" } ?? ""
-        let line = "To-do added: \(task)\(due)"
+        let line = "On the board: \(task)\(due)"
         // An agent's to-do says whose it is here too.
         if origin == .agent {
             flowBar.toast("\(commitment.sourceTitle): \(task)\(due)", symbol: "sparkles", duration: 4)
@@ -165,6 +170,7 @@ final class CommitmentService {
         Store.shared.insert(commitment)
         scheduleReminder(commitment)
         Store.shared.save()
+        onMade?(commitment)
         if fireAutomation { AutomationService.shared.fire(.todoAdded, payload: Self.payload(for: commitment), origin: origin) }
         return commitment
     }

@@ -182,7 +182,7 @@ extension SelfTest {
             let handOff = try await send("remind me to give the booth plan to Pennant", wake: true)
             let handOffTodo = handOff.outcome?.todo ?? ""
             check(handOff.outcome?.state == "acted" && handOff.outcome?.agent == "Pennant" && handOff.outcome?.actions == ["undo", "assign"]
-                  && controller.board.card(forTodo: handOffTodo) == nil,
+                  && !controller.board.handedOver(handOffTodo),
                   "a to-do naming an agent offers Assign to it, and no card is made until you tap: \(handOff.outcome?.line ?? "")")
             let handOffShown = handOff.outcome.flatMap { LockScreenText.moment($0, showsWords: false) }
             check(handOffShown?.body.hasPrefix("To-do added in ") == true && handOffShown?.body.contains("booth") == false,
@@ -230,7 +230,7 @@ extension SelfTest {
             let doctorAgain = try await send("remind me to book a doctor's appointment", wake: true)
             let routing = standIn.calls.last
             check(doctorAgain.outcome?.agent == "Pennant" && doctorAgain.outcome?.actions == ["undo", "assign"]
-                  && controller.board.card(forTodo: doctorAgain.outcome?.todo ?? "") == nil,
+                  && !controller.board.handedOver(doctorAgain.outcome?.todo ?? ""),
                   "with two agents and none named, a to-do offers Give to the one it fits, and gives it to no one by itself: \(doctorAgain.outcome?.agent ?? "none")")
             check(routing?.system.contains("- Pennant: Personal errands: appointments, email, bookings\n- Coder: code in the Binders app\n") == true
                   && routing?.system.contains("FITS:") == true, "the one routing call sees what each agent is for")
@@ -276,7 +276,7 @@ extension SelfTest {
             let why = await act(statement.id, "assign")
             check(statement.outcome?.agent == nil && statement.outcome?.actions == ["undo"] && statement.outcome?.binder == "General"
                   && statement.outcome?.line.hasSuffix("Coder doesn't take General's cards: change that in Settings → Agents.") == true
-                  && !why.ok && controller.board.card(forTodo: statement.outcome?.todo ?? "") == nil,
+                  && !why.ok && !controller.board.handedOver(statement.outcome?.todo ?? ""),
                   "an agent you named that doesn't take that binder's cards is named with why, with no Give to, and no card: \(statement.outcome?.line ?? "")")
             controller.moments.model = { AppSettings.shared.makeLLMClient() }
             AgentRegistry.shared.remove(coder.id)
@@ -553,7 +553,7 @@ extension SelfTest {
             for (mode, text) in [(MomentMode.suggest, "I need to fix the board's import for Binders"), (.add, "I need to fix the board's print view for Binders")] {
                 decider.set(text, agent: ["Tinker": 0.9])
                 let sent = try await sendMode(text, mode: mode, adds: mode == .suggest ? nil : MomentModes.everyKind, agreed: tinkerYes)
-                check(sent.outcome?.handedOver == nil && controller.board.card(forTodo: sent.id.uuidString) == nil
+                check(sent.outcome?.handedOver == nil && !controller.board.handedOver(sent.id.uuidString)
                       && sent.outcome?.state == (mode == .suggest ? "offered" : "acted"),
                       "mode \(mode.rawValue): the same, for the same agent, isn't handed over (\(sent.outcome?.state ?? "none"))")
             }
@@ -563,7 +563,7 @@ extension SelfTest {
                 let sent = try await sendMode(text, mode: .auto, alone: alone, agreed: hold == nil ? tinkerYes : nil, hold: hold)
                 // Said in a conversation, from this iPhone, which vouches for captures (lane Y2): it waits for its capture.
                 let why = alone == nil ? ". " + AutoText.joinsCapture : ". Not handed over: "
-                check(sent.outcome?.state == "acted" && sent.outcome?.handedOver == nil && controller.board.card(forTodo: sent.id.uuidString) == nil
+                check(sent.outcome?.state == "acted" && sent.outcome?.handedOver == nil && !controller.board.handedOver(sent.id.uuidString)
                       && sent.outcome?.line.contains(why) == true,
                       "mode auto, \(label): added at once, not handed over: \(sent.outcome?.line ?? "")")
             }

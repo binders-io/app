@@ -738,15 +738,25 @@ final class ConversationProcessor {
             }
             // "Binders, …" you said in it that wasn't heard as you said it: a moment now.
             if !keptForMoment { soloMoments += MomentCenter.shared.transcribed(current) }
-            activity = "Sending to your Mac…"
+            activity = "Sending…"
             current.state = .queued
             current.note(CaptureStep.queued)
             store.save(current)
             // Into the outbox, and on to the next: sending (and its wait for a Mac that may be asleep) happens beside this.
             connection?.queueConversation(payload, solo: reads ? SoloSend(verdict: verdict, mode: current.mode, moments: soloMoments,
                                                                          keptForMoment: keptForMoment) : nil)
-            // The text is safe in the outbox now: the audio can go.
-            if keepsAudio {
+            // The text is safe in the outbox now: the audio can go. With a hub that writes down audio, it goes to the hub
+            // first, with the voices told apart here and where each stretch of the file was heard; HubAudio lets it go once
+            // the hub has it. Never for one kept only for a moment's vouch: none of its words go anywhere.
+            if !keptForMoment, connection?.hubWritesDown == true {
+                let started = current.started
+                HubAudio.shared.queue(HubAudio.Pending(
+                    id: id, started: started, ended: current.ended, device: UIDevice.current.model,
+                    turns: segments.map { HubAudio.Turn(start: $0.start, end: $0.end, speaker: $0.speaker) }, speakers: speakers,
+                    clock: current.spans.spans.map { HubAudio.Clock(file: $0.fileStart, wall: $0.wallStart.timeIntervalSince(started)) },
+                    keepAudio: keepsAudio))
+                if keepsAudio { store.update(id) { $0.keepAudioUntil = Date().addingTimeInterval(86_400) } }
+            } else if keepsAudio {
                 store.update(id) { $0.keepAudioUntil = Date().addingTimeInterval(86_400) }
             } else {
                 store.deleteAudio(id)

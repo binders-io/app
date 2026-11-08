@@ -361,15 +361,16 @@ struct BinderOverview: View {
                                                    }))
     }
 
+    @Query private var cards: [TaskCard]
+    private var openCards: Int { cards.filter { $0.binderID == binder.id && $0.column != .done }.count }
+
     var body: some View {
-        let tasks = data.tasks
-        let open = data.openCount
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 12) {
                     StatCard(title: "Meetings", value: "\(data.meetingCount)", symbol: "person.2.wave.2")
                     StatCard(title: "Notes", value: "\(data.noteCount)", symbol: "note.text")
-                    StatCard(title: "Open to-dos", value: "\(open)", symbol: "checklist")
+                    StatCard(title: "Open cards", value: "\(openCards)", symbol: "rectangle.stack")
                     StatCard(title: "People & topics", value: "\(people.count)", symbol: "point.3.connected.trianglepath.dotted")
                 }
 
@@ -383,11 +384,11 @@ struct BinderOverview: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("To-dos").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
+                        Text("Open cards").font(BindersTheme.columnTitle).foregroundStyle(.sectionInk)
                         Spacer()
-                        Text(open == 0 ? "nothing open" : "\(open) open").font(.callout).monospacedDigit().foregroundStyle(.secondary)
                     }
-                    TaskBoard(tasks: tasks)
+                    // To-dos are cards now: this binder's open ones.
+                    OpenCardsList(binderID: binder.id, limit: 12)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .paperCard(padding: 16)

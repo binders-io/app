@@ -105,10 +105,10 @@ final class SuggestionCenter {
     /// Yes or no, from the notification or the conversation's page. Returns what the Mac said, or why it couldn't.
     @discardableResult
     func act(_ id: String, accept: Bool) async -> String {
-        guard let connection, connection.mac != nil else { return "Pair with your Mac to put it on a board." }
+        guard let connection, connection.hasBrain else { return "Pair with your Mac, or sign in to your hub, to put it on a board." }
         do {
             guard let reply = try await connection.request(ConversationSuggestion.actMethod, ["id": id, "action": accept ? "accept" : "dismiss"])
-                    as? [String: Any] else { return "\(connection.mac?.name ?? "Your Mac") is out of reach. Try again from the capture." }
+                    as? [String: Any] else { return "\(connection.brainName ?? "\(MacConnection.BrainWords)") is out of reach. Try again from the capture." }
             if let index = suggestions.firstIndex(where: { $0.id == id }) {
                 suggestions[index].status = accept ? .accepted : .dismissed
                 save()
@@ -125,13 +125,13 @@ final class SuggestionCenter {
     /// meant for the agent and in Ready, and hands it over. Only a Mac that lists Give to: an older one would read it as
     /// Not Now. Returns what the Mac said, or why it couldn't.
     func give(_ id: String, to agent: String) async -> String {
-        guard let connection, connection.mac != nil else { return "Pair with your Mac to give it to an agent." }
+        guard let connection, connection.hasBrain else { return "Pair with your Mac, or sign in to your hub, to give it to an agent." }
         guard givesTo(connection) else {
-            return "\(connection.mac?.name ?? "Your Mac") needs a newer Binders for that. Add it to the board, then use Give to on the card."
+            return connection.brain == .hub ? "Your hub doesn't hand cards to agents from here yet. Add it to the board, then give it to an agent there." : "\(connection.brainName ?? "Your Mac") needs a newer Binders for that. Add it to the board, then use Give to on the card."
         }
         do {
             guard let reply = try await connection.request(ConversationSuggestion.actMethod, ["id": id, "action": "give", "agent": agent])
-                    as? [String: Any] else { return "\(connection.mac?.name ?? "Your Mac") is out of reach. Try again from the capture." }
+                    as? [String: Any] else { return "\(connection.brainName ?? "\(MacConnection.BrainWords)") is out of reach. Try again from the capture." }
             if let index = suggestions.firstIndex(where: { $0.id == id }) {
                 suggestions[index].status = .accepted
                 save()

@@ -36,7 +36,7 @@ struct DictationSheet: View {
                     ScrollView {
                         Text(session.text).font(Typeface.quote()).frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(Palette.muted)
                     }
-                    ProgressView(connection.isConnected ? "Cleaning up on your Mac…" : "Cleaning up…").tint(Palette.muted).foregroundStyle(Palette.muted)
+                    ProgressView(connection.isConnected ? "Cleaning up on \(MacConnection.brainWords)…" : "Cleaning up…").tint(Palette.muted).foregroundStyle(Palette.muted)
                     Spacer()
                 case .done:
                     result
@@ -163,8 +163,9 @@ struct DictationSheet: View {
                 } label: { Label("Insert", systemImage: "text.insert").frame(maxWidth: .infinity) }
                     .primaryButton()
                     .controlSize(.large)
-            } else if connection.mac == nil {
-                // Without a Mac there's nowhere on this iPhone to keep a note or a to-do yet: copy it, or share it.
+            } else if !connection.hasBrain {
+                // Without a brain (a Mac, or a hub) there's nowhere on this iPhone to keep a note or a card yet: copy it,
+                // or share it.
                 Button {
                     UIPasteboard.general.string = session.text
                     show("Copied")
@@ -174,7 +175,7 @@ struct DictationSheet: View {
                 ShareLink(item: session.text) { Label("Share…", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                Text("Pair with your Mac to keep notes and to-dos in your binders.")
+                Text("Pair with your Mac, or sign in to your hub, to keep notes and cards in your binders.")
                     .font(.footnote)
                     .foregroundStyle(Palette.muted)
             } else {
@@ -187,7 +188,7 @@ struct DictationSheet: View {
                 if let todo = spokenTodo {
                     Button { keep("add_todo", todo) } label: {
                         VStack(spacing: 2) {
-                            Label("Add To-do", systemImage: "checklist")
+                            Label("Add Card", systemImage: "rectangle.stack.badge.plus")
                             Text(todo).font(.caption).lineLimit(1).opacity(0.85)
                         }
                         .frame(maxWidth: .infinity)
@@ -201,13 +202,13 @@ struct DictationSheet: View {
                     Button { keep("add_note", session.text) } label: { Label("Save as Note", systemImage: "note.text").frame(maxWidth: .infinity) }
                         .primaryButton()
                         .controlSize(.large)
-                    Button { keep("add_todo", session.text) } label: { Label("Add as To-do", systemImage: "checklist").frame(maxWidth: .infinity) }
+                    Button { keep("add_todo", session.text) } label: { Label("Add as Card", systemImage: "rectangle.stack.badge.plus").frame(maxWidth: .infinity) }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
                 }
             }
             HStack {
-                if connection.mac != nil || onInsert != nil {
+                if connection.hasBrain || onInsert != nil {
                     Button("Copy") {
                         UIPasteboard.general.string = session.text
                         show("Copied")
@@ -230,9 +231,9 @@ struct DictationSheet: View {
             let sent = await connection.save(tool, text: text, binder: binder, folder: inFolder?.id)
             // In its binder: filed, by touch. Kept here for later, only a tap.
             if sent { Haptics.shared.success() } else { Haptics.shared.tap() }
-            let what = tool == "add_todo" ? "To-do" : "Note"
-            let kept = connection.mac == nil ? "\(what) kept on this iPhone until you pair a Mac"
-                                             : "\(what) kept on this iPhone; it goes to your Mac when it's back"
+            let what = tool == "add_todo" ? "Card" : "Note"
+            let kept = !connection.hasBrain ? "\(what) kept on this iPhone until you pair a Mac or sign in to a hub"
+                                            : "\(what) kept on this iPhone; it goes to \(connection.brainPhrase) when it's back"
             // What was done, in the past tense: "Added to Personal: Book a doctor's appointment".
             let place: String? = inFolder?.name ?? binder
             let done: String = tool == "add_todo" ? binder.map { "Added to \($0): \(text)" } ?? "To-do added: \(text)"

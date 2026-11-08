@@ -111,7 +111,7 @@ struct CapturedMoment: Codable, Identifiable, Equatable {
     /// never a bare "Working on it".
     var line: String {
         if let wait = MomentWait.line(state: state, outcome: outcomeState) { return wait }
-        if outcomeState == nil, state == "refused" { return "Your Mac couldn't read it." }
+        if outcomeState == nil, state == "refused" { return "\(MacConnection.BrainWords) couldn't read it." }
         return shownOutcome
     }
 
@@ -179,7 +179,7 @@ final class MomentCenter {
     /// A kind now added at once with Undo, or offered again: opens the capture screen, where it can be switched back.
     static let kindsCategory = "moment-kinds"
     /// What a Give to says when your Mac is out of reach.
-    static let keptForMac = "Kept. It goes to your Mac when it's back."
+    static var keptForMac: String { "Kept. It goes to \(MacConnection.brainWords) when it's back." }
 
     /// A moment whose "Give to an Agent" was tapped in its notification before you'd said yes to that agent: its row
     /// asks, once the capture screen opens.
@@ -714,7 +714,7 @@ final class MomentCenter {
     /// Now and Undo count towards its kind's graduation.
     @discardableResult
     func act(_ id: UUID, _ action: String) async -> (ok: Bool, message: String) {
-        guard let connection else { return (false, "Pair with your Mac first.") }
+        guard let connection else { return (false, "Pair with your Mac, or sign in to your hub, first.") }
         let before = moments.first { $0.id == id }
         let agent = before?.agent
         if action == "assign" {
@@ -785,7 +785,7 @@ final class MomentCenter {
         }
         let done = handed ? AutoText.notMeLine(raised: raised) : "Not you: taken back, and kept against your voice print."
         guard !action.isEmpty else { return (true, "Not you: kept against your voice print.") }
-        guard let connection else { return (false, "Pair with your Mac first.") }
+        guard let connection else { return (false, "Pair with your Mac, or sign in to your hub, first.") }
         if autoMac {
             switch await connection.outcomeAction(id, action: action) {
             case .sent:
@@ -873,7 +873,7 @@ final class MomentCenter {
     /// Stop All on a capture: what Binders handed over from it stops, its cards back in Backlog; kept for the Mac when it's
     /// away.
     func stopAll(_ capture: UUID) async -> (ok: Bool, message: String) {
-        guard let connection else { return (false, "Pair with your Mac first.") }
+        guard let connection else { return (false, "Pair with your Mac, or sign in to your hub, first.") }
         switch await connection.outcomeAction(capture, action: "stop-all") {
         case .sent(let message):
             await OutcomeCenter.shared.refresh()
@@ -899,7 +899,7 @@ final class MomentCenter {
         } else {
             saveAutoWatch()
         }
-        guard let connection else { return (false, "Pair with your Mac first.") }
+        guard let connection else { return (false, "Pair with your Mac, or sign in to your hub, first.") }
         switch await connection.outcomeAction(capture, action: "not-only-me") {
         case .sent(let message):
             await OutcomeCenter.shared.refresh()
@@ -978,7 +978,7 @@ final class MomentCenter {
         Task {
             let content = UNMutableNotificationContent()
             content.title = result.ok ? (agent ?? "Said to yourself") : "Couldn't do that"
-            content.body = await LockScreen.showsWords() ? message : "Your Mac said what it did: open it to see."
+            content.body = await LockScreen.showsWords() ? message : "\(MacConnection.BrainWords) said what it did: open it to see."
             content.categoryIdentifier = Self.noteCategory
             content.interruptionLevel = .passive
             content.userInfo = ["moment": id.uuidString]
@@ -1063,7 +1063,7 @@ final class MomentCenter {
             return
         }
         let who = item.agent.flatMap { $0.isEmpty ? nil : $0 }
-        let reason = (message ?? "").isEmpty ? "Your Mac couldn't do it." : message ?? ""
+        let reason = (message ?? "").isEmpty ? "\(MacConnection.BrainWords) couldn't do it." : message ?? ""
         if let id = item.moment {
             return Self.note(id, title: "Couldn't give it to \(who ?? "the agent")", body: reason)
         }

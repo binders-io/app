@@ -196,7 +196,7 @@ targets:
         # The App Store Connect record "Binders" (6751210657), taken over from the old events app at 2.0.
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app
         MARKETING_VERSION: "2.4"
-        CURRENT_PROJECT_VERSION: "45"
+        CURRENT_PROJECT_VERSION: "48"
         PRODUCT_NAME: Binders
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
@@ -249,7 +249,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app.widgets
         # Same as the app's: an extension's versions must match the app it's in.
         MARKETING_VERSION: "2.4"
-        CURRENT_PROJECT_VERSION: "45"
+        CURRENT_PROJECT_VERSION: "48"
         PRODUCT_NAME: BindersWidgets
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
@@ -293,7 +293,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.binders.app.keyboard
         # Same as the app's: an extension's versions must match the app it's in.
         MARKETING_VERSION: "2.4"
-        CURRENT_PROJECT_VERSION: "45"
+        CURRENT_PROJECT_VERSION: "48"
         PRODUCT_NAME: BindersKeyboard
         SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"

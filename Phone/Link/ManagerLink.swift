@@ -71,7 +71,7 @@ enum ManagerLink {
     /// Where the last feed is kept, to show at once next time: one for each Mac you pair.
     @MainActor
     static func cacheKey(_ connection: MacConnection) -> String? {
-        connection.mac.map { "manager-feed-\($0.device.uuidString)" }
+        connection.brainKey.map { "manager-feed-\($0)" }
     }
 
     @MainActor

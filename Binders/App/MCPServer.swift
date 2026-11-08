@@ -214,7 +214,7 @@ enum MCPServer {
         MCPTool(name: "recent_dictations", readOnly: true, description: "What the user dictated recently, newest first.", parameters: [
             MCPToolParameter(name: "limit", type: "integer", description: "How many, up to 50. Default 20."),
         ]),
-        MCPTool(name: "add_todo", description: "Add a to-do to the user's board. A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. The to-do says you added it, and the user's automations leave it be unless they allowed to-dos from agents. Returns its id. Opens the Binders app if it isn't running.", parameters: [
+        MCPTool(name: "add_todo", description: "Add something to do to the user's board: it becomes a card in the binder's Backlog, as to-dos are cards now (create_task makes one in Ready for an agent). A time at the end (\"tomorrow at 3 pm\", \"by Friday\") becomes its due date. The to-do says you added it, and the user's automations leave it be unless they allowed to-dos from agents. Returns its id. Opens the Binders app if it isn't running.", parameters: [
             MCPToolParameter(name: "text", description: "The to-do, as a person would say it.", required: true),
             MCPToolParameter(name: "binder", description: "The binder it belongs to; see list_binders. Default: the user's current binder."),
         ]),

@@ -42,6 +42,8 @@ public enum LinkFeatures {
     public static let dedupe = "dedupe"
     /// A Mac that streams Ask: keyword hits first, then the answer as it's written, in `binders/ask-progress`.
     public static let askProgress = "askProgress"
+    /// The Mac makes a card of every to-do on its own boards: the iPhone shows to-dos only where one has no card.
+    public static let todosAreCards = "todosAreCards"
     public static let askProgressMethod = "binders/ask-progress"
     /// A Mac that gives a capture's card or idea to the agent you pick: `binders/suggestion` with action "give" and the
     /// agent's name. One without it takes any action but "accept" as Not Now, so a phone sends "give" only to a Mac that

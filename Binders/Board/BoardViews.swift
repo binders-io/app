@@ -1193,13 +1193,13 @@ struct AddTodosButton: View {
     var body: some View {
         let waiting = waiting
         Button { picking = true } label: {
-            Label(waiting.isEmpty ? "Add To-dos" : "Add To-dos (\(waiting.count))", systemImage: "rectangle.stack.badge.plus")
+            Label(waiting.isEmpty ? "Add Action Items" : "Add Action Items (\(waiting.count))", systemImage: "rectangle.stack.badge.plus")
                 .font(.system(size: 12, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
         .disabled(waiting.isEmpty)
-        .help(waiting.isEmpty ? "Every open to-do in this binder is on the board." : "Turn to-dos from this binder's meetings, notes and promises into cards")
+        .help(waiting.isEmpty ? "Every action item in this binder is on the board." : "Turn the action items in this binder's meetings and notes into cards")
         .sheet(isPresented: $picking) {
             TodoPickerSheet(binder: binder, todos: waiting).environment(controller)
         }

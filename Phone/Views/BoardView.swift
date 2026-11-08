@@ -172,7 +172,7 @@ struct TodoBoard: View {
                 Haptics.shared.success()
                 await load()
             } else {
-                problem = "Kept on this iPhone; it goes to your Mac when it's back."
+                problem = "Kept on this iPhone; it goes to \(MacConnection.brainWords) when it's back."
             }
         }
     }

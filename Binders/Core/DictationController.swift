@@ -67,6 +67,8 @@ final class DictationController {
     @ObservationIgnored private(set) lazy var board: BoardService = {
         let board = BoardService()
         board.commitments = commitments
+        // To-dos are cards: each new one gets its card, unless what made it gives it one at once.
+        commitments.onMade = { [weak board] commitment in board?.todoMade(commitment) }
         board.dispatcher = agents
         board.hub = HubBoard.shared
         HubBoard.shared.board = board

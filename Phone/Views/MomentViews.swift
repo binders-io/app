@@ -93,7 +93,7 @@ struct MomentDetailView: View {
                 Section {
                     made(moment)
                 } header: {
-                    Text(moment.title ?? "Your Mac")
+                    Text(moment.title ?? "\(MacConnection.BrainWords)")
                 }
                 .surfaceRows()
                 next(moment)
@@ -168,7 +168,7 @@ struct MomentDetailView: View {
     private func made(_ moment: CapturedMoment) -> some View {
         switch moment.outcomeState {
         case nil where moment.state == "refused":
-            ProblemLabel("Your Mac couldn't read it.")
+            ProblemLabel("\(MacConnection.BrainWords) couldn't read it.")
         case nil, "working"?:
             // Waiting, with why and what happens next.
             Label(moment.line, systemImage: "clock").foregroundStyle(Palette.muted)
@@ -189,7 +189,7 @@ struct MomentDetailView: View {
                 .font(.footnote).foregroundStyle(Palette.muted)
         }
         if let giving = connection.givingLater(moment: moment.id) {
-            Label("Kept. It goes to \(giving.agent ?? "the agent") when your Mac is back.", systemImage: "clock")
+            Label("Kept. It goes to \(giving.agent ?? "the agent") when \(MacConnection.brainWords) is back.", systemImage: "clock")
                 .font(.footnote).foregroundStyle(Palette.muted)
         } else if let message, !message.isEmpty {
             Text(message).font(.footnote).foregroundStyle(Palette.muted)
@@ -205,7 +205,12 @@ struct MomentDetailView: View {
             if made, let card = moment.card, !card.isEmpty {
                 NavigationLink { CardDetailView(id: card) } label: { Label("Open Card", systemImage: "rectangle.split.3x1") }
             } else if made, moment.todo?.isEmpty == false, let binder = moment.binder, !binder.isEmpty {
-                NavigationLink { BinderTodos(binder: binder) } label: { Label("Open To-dos in \(binder)", systemImage: "checklist") }
+                // A to-do with no card: on a Mac from before to-dos were cards, in its binder's to-dos; else its card is on the board.
+                if MacConnection.current?.macFeatures.contains(LinkFeatures.todosAreCards) == true {
+                    NavigationLink { CardBoardView(binder: binder) } label: { Label("Open the Board in \(binder)", systemImage: "rectangle.split.3x1") }
+                } else {
+                    NavigationLink { BinderTodos(binder: binder) } label: { Label("Open To-dos in \(binder)", systemImage: "checklist") }
+                }
             }
             if moment.kind == MomentKind.status.rawValue || moment.title == "Your work streams" {
                 NavigationLink { WorkStreamsPage() } label: { Label("What's Happening", systemImage: "waveform.path.ecg") }
@@ -422,7 +427,7 @@ struct OfferedMomentsView: View {
                         }
                     }
                 } footer: {
-                    Text("Add files it where your Mac suggests. Not Now lets it go.")
+                    Text("Add files it where \(MacConnection.brainWords) suggests. Not Now lets it go.")
                 }
                 .surfaceRows()
             }
@@ -445,7 +450,7 @@ struct MomentKindsRows: View {
             let summary = MomentGraduation.summary(progress)
             if progress.adding {
                 Toggle(isOn: Binding(get: { true }, set: { on in if !on { center.suggestAgain(kind) } })) {
-                    let detail = center.macAdds ? summary : "Added with Undo once Binders on your Mac is updated"
+                    let detail = center.macAdds ? summary : "Added with Undo once \(MacConnection.onHub ? "your hub" : "Binders on \(MacConnection.brainWords)") is updated"
                     Text(MomentGraduation.plural(kind))
                     Text(detail).rollingCount(detail)
                 }

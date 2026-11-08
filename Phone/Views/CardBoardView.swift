@@ -192,7 +192,7 @@ struct CardBoardView: View {
             case .fine: break
             }
         }
-        guard connection.isConnected else { return problem = "\(connection.mac?.name ?? "Your Mac") is out of reach. Try again when it's back." }
+        guard connection.isConnected else { return problem = "\(connection.brainName ?? "\(MacConnection.BrainWords)") is out of reach. Try again when it's back." }
         // Approved, from Review to Done: success by touch. Any other move, a tap.
         if tool == "update_task", column == .done, card.board == .review { Haptics.shared.success() } else { Haptics.shared.tap() }
         let before = (cards: cards, done: done)
@@ -698,7 +698,7 @@ struct CardDetailView: View {
             case .fine: break
             }
         }
-        guard connection.isConnected else { return problem = "\(connection.mac?.name ?? "Your Mac") is out of reach. Try again when it's back." }
+        guard connection.isConnected else { return problem = "\(connection.brainName ?? "\(MacConnection.BrainWords)") is out of reach. Try again when it's back." }
         // Approved, from Review to Done: success by touch. Any other move, a tap.
         if tool == "update_task", column == .done, card?.board == .review { Haptics.shared.success() } else { Haptics.shared.tap() }
         let before = card
@@ -836,7 +836,7 @@ struct CardDetailView: View {
                 await load()
             case .kept:
                 reply = ""
-                problem = "Your answer waits on this iPhone. It goes to \(connection.mac?.name ?? "your Mac") the next time Binders reaches it."
+                problem = "Your answer waits on this iPhone. It goes to \(connection.brainName ?? "\(MacConnection.brainWords)") the next time Binders reaches it."
             case .refused:
                 problem = "Its question isn't waiting any more, so your answer didn't go. It's still in the box."
             }

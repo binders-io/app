@@ -44,6 +44,11 @@ struct BindersPhoneApp: App {
                     }
                     // A card's link back to its note opens inside the card (CardDetailView); from anywhere else, just the app.
                     if url.scheme == "binders", url.host == "note" { return }
+                    // A hub's sign-in handing its token back, when it came to the app rather than to the sign-in sheet.
+                    if url.scheme == "binders", url.host == "auth" {
+                        Task { _ = await connection.finishHubSignIn(url) }
+                        return
+                    }
                     if url == KeyboardBridge.listenURL {
                         // Opened cold by the keyboard, this can come before .task.
                         KeyboardListener.shared.connection = connection
@@ -59,6 +64,14 @@ struct BindersPhoneApp: App {
                     #if DEBUG
                     // For development: `-unpair YES` forgets the Mac on launch, to see the iPhone on its own.
                     if UserDefaults.standard.bool(forKey: "unpair") { connection.unpair() }
+                    #endif
+                    #if DEBUG
+                    // For development: `-hubURL <address> -hubToken <bnp_…>` signs in to a hub without the browser, and
+                    // makes it the brain, as the Simulator's sign-in can't be driven from a script.
+                    if let typed = UserDefaults.standard.string(forKey: "hubURL"), let token = UserDefaults.standard.string(forKey: "hubToken"),
+                       let address = HubSignIn.address(typed) ?? URL(string: typed) {
+                        await connection.signedInToHub(address: address, token: token)
+                    }
                     #endif
                     // For development: `-pairURL <link>` pairs on launch, as the Simulator has no camera.
                     if let link = UserDefaults.standard.string(forKey: "pairURL"), let url = URL(string: link) {
@@ -91,8 +104,9 @@ struct RootView: View {
             if let sample = autoSheetSample {
                 // For the screenshots: the Auto sheet with a stand-in Mac's agents, paired or not.
                 sampleHost(sample)
-            } else if connection.mac == nil || showsPairingForDevelopment {
-                // Without a Mac, what works on this iPhone alone: dictation, the keyboard and All-day capture.
+            } else if !connection.hasBrain || showsPairingForDevelopment {
+                // Without a brain (a Mac paired, or a hub signed in to), what works on this iPhone alone: dictation, the
+                // keyboard and All-day capture, and the two ways to get one.
                 PairingView()
             } else {
                 // The Mac's status, once, over every tab and every screen pushed on them.
@@ -173,13 +187,13 @@ enum CaptureWiring {
         connection.onConversationSent = { id in
             CaptureStore.shared.update(id) {
                 $0.state = .sent
-                $0.note(CaptureStep.sent, connection.mac?.name)
+                $0.note(CaptureStep.sent, connection.brainName)
             }
         }
         connection.onConversationRefused = { id in
             CaptureStore.shared.update(id) {
                 $0.state = .failed
-                $0.error = "Your Mac couldn't read this capture."
+                $0.error = "\(MacConnection.BrainWords) couldn't read this capture."
             }
         }
         CaptureSession.shared.onConversationClosed = { processor.conversationClosed($0) }
@@ -359,7 +373,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                     let result = await MomentCenter.shared.act(moment, "assign")
                     // The Mac out of reach: kept, and a word says so, as the notification it came from is gone.
                     if result.ok, result.message == MomentCenter.keptForMac {
-                        await MainActor.run { MomentCenter.note(moment, title: "Waiting for your Mac", body: result.message) }
+                        await MainActor.run { MomentCenter.note(moment, title: "Waiting for \(MacConnection.current?.brainPhrase ?? "\(MacConnection.brainWords)")", body: result.message) }
                     } else {
                         await told(result)
                     }
@@ -461,3 +475,4 @@ private struct ProblemToast: ViewModifier {
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : .default, value: problem)
     }
 }
+

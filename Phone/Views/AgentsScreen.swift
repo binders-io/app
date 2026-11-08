@@ -58,7 +58,7 @@ struct AgentsList: View {
                 .surfaceRows()
             } else if agents != nil {
                 Section {
-                    Text("No agents yet. Set one up on your Mac, in Settings → Agents: Claude Code or a coding tool in a repository, a script, a web hook, or one that checks the board itself.")
+                    Text(MacConnection.onHub ? "No agents on your hub yet. Set one up on the hub's Agents page: it takes cards from the board, on a runner of its own." : "No agents yet. Set one up on your Mac, in Settings → Agents: Claude Code or a coding tool in a repository, a script, a web hook, or one that checks the board itself.")
                         .font(.callout).foregroundStyle(Palette.muted)
                 }
                 .surfaceRows()

@@ -140,7 +140,7 @@ struct KeyboardSetupView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Dictate into Messages, Mail or anything else with the Binders keyboard. Your words are transcribed on this iPhone and cleaned up by your Mac, with your dictionary and snippets, when it's in reach.")
+                    Text("Dictate into Messages, Mail or anything else with the Binders keyboard. Your words are transcribed on this iPhone and cleaned up by \(MacConnection.brainWords), with your dictionary and snippets, when it's in reach.")
                         .foregroundStyle(Palette.muted)
                 }
                 .surfaceRows()

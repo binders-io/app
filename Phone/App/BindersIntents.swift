@@ -70,7 +70,7 @@ enum BindersSiri {
     static func said(_ words: String, asking: Bool) async -> Reply {
         let text = words.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return Reply(asking ? "Ask me something about your binders." : "Tell me what to keep.") }
-        guard let connection = MacConnection.current, connection.mac != nil else { return Reply("Pair Binders with your Mac first.") }
+        guard let connection = MacConnection.current, connection.hasBrain else { return Reply("Pair Binders with your Mac, or sign in to your hub, first.") }
         guard connection.takesMoments else {
             // A Mac before moments: the question to Ask, the rest kept as a dictation.
             if asking, let reply = try? await connection.request("tools/call", ["name": "ask_knowledge", "arguments": ["question": text]]) as? [String: Any],
@@ -78,16 +78,16 @@ enum BindersSiri {
                let answer = (try? JSONSerialization.jsonObject(with: Data(content.utf8)) as? [String: Any])?["answer"] as? String {
                 return Reply(spoken: CaptureOutcome.speakable(answer), full: answer)
             }
-            return Reply(await connection.keepDictation(text, heard: text, app: "Siri") ? "Kept on your Mac." : "Kept for your Mac.")
+            return Reply(await connection.keepDictation(text, heard: text, app: "Siri") ? "Kept on \(connection.brainPhrase)." : "Kept for \(connection.brainPhrase).")
         }
         let payload = MomentPayload(heard: Date(), text: text, device: UIDevice.current.model, engine: "siri", wake: true,
                                     kind: asking ? MomentKind.question.rawValue : nil)
         guard let outcome = await connection.momentNow(payload, said: text) else {
             MomentCenter.shared.keptForLater(payload)
-            return Reply("Your Mac is out of reach. I kept it, and it goes when your Mac is back.")
+            return Reply("\(connection.brainName ?? "\(MacConnection.BrainWords)") is out of reach. I kept it, and it goes when \(connection.brainPhrase) is back.")
         }
         MomentCenter.shared.record(payload, outcome: outcome)
-        if outcome.state == "working" { return Reply("Your Mac is still working on it. It'll be in Binders shortly.") }
+        if outcome.state == "working" { return Reply("\(MacConnection.BrainWords) is still working on it. It'll be in Binders shortly.") }
         // Told, not asked: only what it kept is said back, the same whatever your binders hold, as Tell is heard with the
         // iPhone locked too. Answers are Ask's.
         if !asking {

@@ -188,7 +188,7 @@ struct NoteDetailView: View {
                     }
                     // An agent's words in it: whose, until it's made yours on the Mac. Lavender, with the sparkle.
                     if let line = note.agentMark.noteLine {
-                        Label("\(line) Answers and corrections leave it out until you make it yours in Binders on your Mac.", systemImage: "sparkles")
+                        Label("\(line) Answers and corrections leave it out until you make it yours in \(MacConnection.onHub ? "your hub" : "Binders on your Mac").", systemImage: "sparkles")
                             .font(.footnote)
                             .foregroundStyle(Palette.agent)
                     }
@@ -261,7 +261,7 @@ struct NoteDetailView: View {
                         .accessibilityIdentifier("noteBoardOpen")
                     }
                 case .waitingForMac:
-                    Label("Not on the board yet: your Mac is out of reach. It's added when your Mac is back, while this note is open.",
+                    Label("Not on the board yet: \(MacConnection.brainWords) is out of reach. It's added when \(MacConnection.brainWords) is back, while this note is open.",
                           systemImage: "laptopcomputer").foregroundStyle(Palette.ink).lineLimit(3)
                     Spacer(minLength: 4)
                     Button("Try Again") { connection.retryNow() }
@@ -428,7 +428,7 @@ struct MeetingsList: View {
         .listGround()
         .overlay {
             if loaded && meetings.isEmpty {
-                EmptyState("No meetings yet", symbol: "person.2.wave.2", description: "Meetings your Mac takes notes on show up here.")
+                EmptyState("No meetings yet", symbol: "person.2.wave.2", description: MacConnection.onHub ? "Meetings sent to your hub show up here." : "Meetings your Mac takes notes on show up here.")
             } else if unreached {
                 WaitingForMac(what: "Your meetings show here") { await load() }
             }
@@ -531,6 +531,8 @@ struct AskView: View {
     /// Saying the question instead of typing it: the words fill the field as they're heard, and Done asks.
     @State private var voice = DictationSession()
     @State private var hearing = false
+    /// Talk, opened from here: a conversation out loud that carries on from this question and its answer.
+    @State private var talking: TalkSession?
 
     var body: some View {
         NavigationStack {
@@ -557,7 +559,7 @@ struct AskView: View {
                     .surfaceCard(padding: 12)
 
                     if !connection.isConnected {
-                        Label("Asking needs your Mac, which is out of reach right now. Ask again once it's back.", systemImage: "wifi.slash")
+                        Label("Asking needs \(MacConnection.brainWords), which is out of reach right now. Ask again once it's back.", systemImage: "wifi.slash")
                             .font(.footnote).foregroundStyle(Palette.muted)
                     }
                     if let problem, shown.text.isEmpty {
@@ -565,6 +567,8 @@ struct AskView: View {
                     }
                     if let answer {
                         MarkdownText(markdown: answer.answer).surfaceCard()
+                        // Read out by the hub's own voice, when it has one.
+                        if connection.brain == .hub, connection.macFeatures.contains(HubVoice.feature) { HubListenButton(text: answer.answer) }
                         sources(answer.sources)
                     } else if asking, connection.streamsAsk {
                         // What the Mac found shows at once, then its answer as it's written.
@@ -586,8 +590,17 @@ struct AskView: View {
                         if let problem { ProblemLabel(problem) }
                         sources(shown.sources)
                     } else if !asking {
-                        Text("Ask about anything in your meetings, notes, dictations and messages. Your Mac answers with its own model, and shows where the answer came from.")
+                        Text(MacConnection.onHub ? "Ask about anything in your binders on the hub: notes, cards and what you captured. Your hub answers with its model, and shows where the answer came from." : "Ask about anything in your meetings, notes, dictations and messages. Your Mac answers with its own model, and shows where the answer came from.")
                             .font(.footnote).foregroundStyle(Palette.muted)
+                    }
+                    if connection.talks, !asking {
+                        // Out loud instead, from here on.
+                        Button { talking = TalkSession(seed: answer.map { [TalkTurn(who: .you, text: question), TalkTurn(who: .hub, text: HubVoice.spoken($0.answer))] } ?? []) } label: {
+                            Label(answer == nil ? "Talk with your hub" : "Talk it through", systemImage: "waveform")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("askTalk")
                     }
                 }
                 .padding()
@@ -597,6 +610,7 @@ struct AskView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .fullScreenCover(item: $talking) { TalkView(talk: $0) }
             .task {
                 if !question.isEmpty, answer == nil {
                     for _ in 0..<50 where !connection.isConnected { try? await Task.sleep(for: .milliseconds(200)) }
@@ -720,7 +734,7 @@ struct MarkdownText: View {
                 // Pictures and videos stay on the Mac for now: say what's there.
                 let video = MarkdownMedia.kind(of: embed.source) == .video
                 let name = embed.caption.isEmpty ? (embed.source as NSString).lastPathComponent : embed.caption
-                views.append(AnyView(Label("\(name) · \(video ? "video" : "picture") on your Mac", systemImage: video ? "film" : "photo")
+                views.append(AnyView(Label("\(name) · \(video ? "video" : "picture") on \(MacConnection.brainWords)", systemImage: video ? "film" : "photo")
                     .font(.footnote).foregroundStyle(.secondary)
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Palette.line))))

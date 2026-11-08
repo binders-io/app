@@ -243,6 +243,7 @@ struct TodayHome: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var path = NavigationPath()
     @State private var cards: [Card] = []
+    @State private var talking: TalkSession? = UserDefaults.standard.string(forKey: "open") == "talk" ? TalkSession() : nil
     @State private var store = CaptureStore.shared
     @State private var suggestions = SuggestionCenter.shared
     @State private var moments = MomentCenter.shared
@@ -272,7 +273,6 @@ struct TodayHome: View {
                     if let headline { Text(headline).font(.subheadline).foregroundStyle(Palette.ink) }
                     NavigationLink(value: Place.happening) { Label("What's happening", systemImage: "waveform.path.ecg") }
                     NavigationLink(value: Place.board) { Label("Board", systemImage: "rectangle.split.3x1") }
-                    NavigationLink(value: Place.todos) { Label("To-dos", systemImage: "checklist") }
                 }
                 .surfaceRows()
             }
@@ -281,7 +281,11 @@ struct TodayHome: View {
             .animation(Motion.filing(reduceMotion: reduceMotion), value: filing)
             .onAppear { if opened == nil { opened = .now } }
             .navigationTitle("Today")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { MacButton() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { TalkButton(talk: $talking) }
+                ToolbarItem(placement: .topBarTrailing) { MacButton() }
+            }
+            .fullScreenCover(item: $talking) { TalkView(talk: $0) }
             .navigationDestination(for: Place.self) { place in
                 switch place {
                 case .board: CardBoardView(binder: nil).navigationTitle("Board")
@@ -379,8 +383,8 @@ struct TodayHome: View {
         case .recording: "Recording"
         case .recorded: "Waiting to be written down"
         case .transcribing, .labelling: "Being written down"
-        case .queued: "Written down, waiting for your Mac"
-        case .sent: "Sent to your Mac"
+        case .queued: "Written down, waiting for \(MacConnection.brainWords)"
+        case .sent: "Sent to \(MacConnection.brainWords)"
         case .failed: capture.hasTranscript ? "Not sent" : "Not written down"
         }
     }

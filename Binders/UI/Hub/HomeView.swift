@@ -197,12 +197,12 @@ struct HomeView: View {
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text("Open to-dos").font(BindersTheme.columnTitle)
+                            Text("On your boards").font(BindersTheme.columnTitle)
                             Spacer()
-                            Text(openCount == 0 ? "nothing open" : "\(openCount) across your binders").font(.callout).monospacedDigit().foregroundStyle(.secondary)
-                                .rollingCount(openCount)
                         }
-                        TaskBoard(tasks: data.tasks, limit: 8, binderName: { id in binders.first { $0.id == id }?.name })
+                        // To-dos are cards now: what's open on the boards, newest first; then any to-do that got no card.
+                        OpenCardsList(limit: 8)
+                        UnboardedTodos(tasks: data.tasks, binderName: { id in binders.first { $0.id == id }?.name })
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .paperCard(padding: 16)

@@ -144,6 +144,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         UpdateService.shared.start()
         controller.commitments.refreshReminders()
         controller.commitments.analyzePending()
+        // To-dos are cards now: the ones still open from before become cards in Backlog, once.
+        controller.board.makeCardsForOpenTodos()
     }
 
     private func updateIcon() {

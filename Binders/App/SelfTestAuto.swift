@@ -221,7 +221,7 @@ extension SelfTest {
             let repeated = try await send(signup, agreed: everyYes)
             check(repeated.outcome?.state == "acted" && repeated.outcome?.handedOver == nil && card(repeated.outcome) == nil
                   && repeated.outcome?.line == "Added to Website: Fix the signup typo on the pricing page. Not handed over: you said this 1 minute ago, and Scribe has it."
-                  && woke(handedCard) == 1 && board.card(forTodo: repeated.id.uuidString) == nil,
+                  && woke(handedCard) == 1 && !board.handedOver(repeated.id.uuidString),
                   "Auto: the same words with a new id, a minute later, are added, not handed over again: \(repeated.outcome?.line ?? "")")
 
             // MARK: (e) Stop, then Undo; a claim alone doesn't count, a report does
@@ -317,7 +317,7 @@ extension SelfTest {
             says(addText, agent: ["Scribe": 0.9])
             let added = try await send(addText, mode: MomentMode.add.rawValue, agreed: everyYes)
             check(added.outcome?.state == "acted" && added.outcome?.actions == ["undo", "assign"] && added.outcome?.agent == "Scribe"
-                  && added.outcome?.handedOver == nil && todo(added.id) != nil && board.card(forTodo: added.id.uuidString) == nil,
+                  && added.outcome?.handedOver == nil && todo(added.id) != nil && !board.handedOver(added.id.uuidString),
                   "Auto: in Add at Once, it's added at once with Undo and Give to Scribe, and nothing is handed over: \(added.outcome?.line ?? "")")
 
             // MARK: (i) None of these hand over in Auto
@@ -333,7 +333,7 @@ extension SelfTest {
                                           agreed: agreed, hold: hold, from: client)
                 let line = sent.outcome?.line ?? ""
                 let endsRight = clause.map { line.hasSuffix(". " + AutoText.notHandedOverStart + $0) } ?? !line.contains(AutoText.notHandedOverStart)
-                check(sent.outcome?.state == "acted" && sent.outcome?.handedOver == nil && todo(sent.id) != nil && board.card(forTodo: sent.id.uuidString) == nil
+                check(sent.outcome?.state == "acted" && sent.outcome?.handedOver == nil && todo(sent.id) != nil && !board.handedOver(sent.id.uuidString)
                       && endsRight && !line.contains("..") && (giveTo == nil || (sent.outcome?.agent == giveTo && sent.outcome?.actions?.contains("assign") == true)),
                       "Auto: \(label): added at once, not handed over: \(line)")
                 return sent.outcome
@@ -394,7 +394,7 @@ extension SelfTest {
                                                   clause: "agents are paused. Resume them in Settings → Agents on your Mac.", agreed: everyYes)
             registry.setPaused(false)
             try? await Task.sleep(for: .milliseconds(500))
-            check(pausedOutcome.flatMap { $0.todo }.flatMap { board.card(forTodo: $0) } == nil, "Auto: and once resumed, nothing added meanwhile is handed over")
+            check(pausedOutcome.flatMap { $0.todo }.map { board.handedOver($0) } != true, "Auto: and once resumed, nothing added meanwhile is handed over")
             try await refused("I need to fix the RSS reader's page on the website", "heard 13 hours ago",
                               clause: "it reached your Mac more than 12 hours after you said it.", heard: Date().addingTimeInterval(-13 * 3_600), agreed: everyYes,
                               giveTo: "Scribe")
@@ -434,7 +434,7 @@ extension SelfTest {
             let notTakerText = "I need to give the pricing fix to Pennant on the website"
             says(notTakerText, agent: ["Scribe": 0.9])
             let notTaker = try await send(notTakerText, agreed: everyYes)
-            check(notTaker.outcome?.state == "acted" && notTaker.outcome?.handedOver == nil && board.card(forTodo: notTaker.id.uuidString) == nil
+            check(notTaker.outcome?.state == "acted" && notTaker.outcome?.handedOver == nil && !board.handedOver(notTaker.id.uuidString)
                   && notTaker.outcome?.agent == nil
                   && notTaker.outcome?.line == "Added to Website: Give the pricing fix to Pennant. Pennant doesn't take Website's cards: change that in Settings → Agents.",
                   "Auto: you named Pennant, who doesn't take Website's cards, the model's top Scribe at 0.90: handed to no one: \(notTaker.outcome?.line ?? "")")
@@ -530,7 +530,7 @@ extension SelfTest {
             says(olderText, agent: ["Scribe": 0.9])
             let older = try await send(olderText, mode: nil, conversation: nil, alone: nil, agreed: everyYes, adds: ["todo"])
             check(older.outcome?.state == "acted" && older.outcome?.handedOver == nil && older.outcome?.actions?.contains("stop") == false
-                  && board.card(forTodo: older.id.uuidString) == nil,
+                  && !board.handedOver(older.id.uuidString),
                   "Auto: an older iPhone's moment heard on its own, its kind graduated, the yes set by hand: added at once, never handed over")
             let olderAsked = "Binders, fix the team page's photo captions on the website"
             says(olderAsked, agent: ["Scribe": 0.98])
@@ -546,7 +546,7 @@ extension SelfTest {
             let beforeText = "I need to fix the careers page's form on the website"
             says(beforeText, agent: ["Scribe": 0.9])
             let before = try await send(beforeText, mode: nil, alone: nil, agreed: nil)
-            check(before.outcome?.state == "acted" && before.outcome?.handedOver == nil && board.card(forTodo: before.id.uuidString) == nil,
+            check(before.outcome?.state == "acted" && before.outcome?.handedOver == nil && !board.handedOver(before.id.uuidString),
                   "Auto: what the iPhone sends a Mac before Auto mode is added at once, and nothing is handed over")
             let beforeAsked = "Binders, fix the careers page's links on the website"
             says(beforeAsked, agent: ["Scribe": 0.98])

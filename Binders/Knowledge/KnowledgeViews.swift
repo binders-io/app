@@ -102,6 +102,9 @@ struct KnowledgeView: View {
     @State private var searching = false
     /// The question asked, answered as it goes.
     @State private var run: AskRun?
+    /// In a binder linked to a hub: Ask goes to the hub's brain, which answers from the team's notes and cards there.
+    @State private var askHub = true
+    @State private var hubAnswer: HubAskState?
     @State private var asking: Task<Void, Never>?
     @State private var entities: [KnowledgeEntity] = []
     @State private var selectedEntityID: Int64?
@@ -141,6 +144,7 @@ struct KnowledgeView: View {
             await runSearch()
         }
         .onAppear {
+            askHub = binderID.map(Self.asksHub) ?? true
             consumePendingQuery()
             consumePendingEntity()
         }
@@ -294,6 +298,14 @@ struct KnowledgeView: View {
                     .labelsHidden()
                     .frame(width: 150)
                 }
+                if hubPlace != nil {
+                    Toggle("Ask the hub", isOn: Binding(get: { askHub }, set: { on in
+                        askHub = on
+                        if let binderID { Self.setAsksHub(on, binderID) }
+                    }))
+                        .toggleStyle(.checkbox)
+                        .help("Answer from the notes and cards your team keeps on the hub, rather than from this Mac. Search stays on this Mac.")
+                }
                 // Inside a folder: it and the folders in it, or the whole binder.
                 if let folderID, let folder = Store.shared.folder(folderID) {
                     Toggle("Only in \(folder.name)", isOn: $onlyInFolder)
@@ -324,6 +336,9 @@ struct KnowledgeView: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
+                    if let hubAnswer {
+                        HubAnswerView(state: hubAnswer)
+                    }
                     if let run {
                         AskRunView(run: run)
                     }
@@ -394,10 +409,52 @@ struct KnowledgeView: View {
         searching = false
     }
 
+    private static let asksHereKey = "knowledgeAsksHere"
+
+    /// Whether a linked binder's Ask goes to the hub: yes, unless it was turned off for that binder.
+    static func asksHub(_ binderID: UUID) -> Bool { !(AppDefaults.store.stringArray(forKey: asksHereKey) ?? []).contains(binderID.uuidString) }
+
+    static func setAsksHub(_ on: Bool, _ binderID: UUID) {
+        var here = Set(AppDefaults.store.stringArray(forKey: asksHereKey) ?? [])
+        if on { here.remove(binderID.uuidString) } else { here.insert(binderID.uuidString) }
+        AppDefaults.store.set(here.sorted(), forKey: asksHereKey)
+    }
+
+    /// The hub this binder is linked to, when it is.
+    private var hubPlace: HubLink.Place? {
+        binderID.flatMap { Store.shared.binder($0) }.flatMap { HubLinks.place(of: $0) }
+    }
+
     private func ask() {
         let question = query.trimmed
         guard !question.isEmpty, !(run?.isWorking == true && run?.question == question) else { return }
         stopAsking()
+        if askHub, let place = hubPlace {
+            hubAnswer = HubAskState(question: question)
+            let sources = scope
+            asking = Task {
+                do {
+                    let answer = try await HubBrainClient.ask(question, place: place)
+                    guard !Task.isCancelled, hubAnswer?.question == question else { return }
+                    hubAnswer?.answer = answer
+                    hubAnswer?.working = false
+                } catch {
+                    guard !Task.isCancelled, hubAnswer?.question == question else { return }
+                    // The hub can't answer here (signed out, another hub, one from before its brain): this Mac does.
+                    if error is HubBrainClient.Failure, (error as? HubBrainClient.Failure).map({ if case .refused = $0 { false } else { true } }) == true {
+                        hubAnswer?.problem = "\(error.localizedDescription) Answered from this Mac instead."
+                        hubAnswer?.working = false
+                        let run = AskRun(question: question)
+                        self.run = run
+                        _ = await run.run(with: knowledge, binder: binderID, sources: sources)
+                        return
+                    }
+                    hubAnswer?.problem = error.localizedDescription
+                    hubAnswer?.working = false
+                }
+            }
+            return
+        }
         let run = AskRun(question: question)
         self.run = run
         let sources = scope
@@ -414,6 +471,7 @@ struct KnowledgeView: View {
         asking?.cancel()
         asking = nil
         run = nil
+        hubAnswer = nil
     }
 }
 

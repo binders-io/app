@@ -68,8 +68,9 @@ private struct TodayPage: View {
                         VStack(alignment: .leading, spacing: 16) {
                             journal
                             if !data.meetings.isEmpty || !tasks.isEmpty {
-                                section(data.meetings.isEmpty ? "Promises and to-dos" : "Meetings, promises and to-dos") {
-                                    TaskBoard(tasks: tasks, binderName: { id in binders.first { $0.id == id }?.name })
+                                // To-dos are cards now: the ones made this day, promises and all.
+                                section("Cards made this day") {
+                                    OpenCardsList(madeOn: day)
                                 }
                                 .transition(.filed)
                             }

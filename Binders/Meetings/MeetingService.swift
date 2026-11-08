@@ -828,6 +828,8 @@ final class MeetingService {
             activity[meetingID] = nil
         }
         Store.shared.save()
+        // Its notes written: to its binder's hub, when the binder sends meetings as they finish.
+        if record.errorMessage == nil, exists(record) { HubAutoSend.meetingFinished(record) }
     }
 
     /// When the mic track turned into nothing but zeros for at least the last 30% of the call (a dead device, not a quiet room).

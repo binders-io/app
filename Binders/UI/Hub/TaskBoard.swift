@@ -131,10 +131,14 @@ struct TaskBoard: View {
     @Query private var linkedCards: [TaskCard]
     @State private var hovered: String?
 
-    init(tasks: [TaskEntry], limit: Int? = nil, binderName: ((UUID?) -> String?)? = nil) {
+    /// Only the open ones with no card: to-dos are cards, so the list is for what didn't get one.
+    var hidesCarded = false
+
+    init(tasks: [TaskEntry], limit: Int? = nil, binderName: ((UUID?) -> String?)? = nil, hidesCarded: Bool = false) {
         self.tasks = tasks
         self.limit = limit
         self.binderName = binderName
+        self.hidesCarded = hidesCarded
         _linkedCards = Query(filter: Self.cards(for: tasks.filter { !$0.done }.map(\.ref)))
     }
 
@@ -147,8 +151,11 @@ struct TaskBoard: View {
         linkedCards.reduce(into: [:]) { cards, card in if let todo = card.sourceRef { cards[todo] = card } }
     }
 
-    private var openTasks: [TaskEntry] { tasks.filter { !$0.done && (ownerFilter == nil || $0.owner == ownerFilter) } }
-    private var doneTasks: [TaskEntry] { tasks.filter { $0.done && (ownerFilter == nil || $0.owner == ownerFilter) } }
+    private var openTasks: [TaskEntry] {
+        let carded = hidesCarded ? cardsByTodo : [:]
+        return tasks.filter { !$0.done && (ownerFilter == nil || $0.owner == ownerFilter) && carded[$0.ref] == nil }
+    }
+    private var doneTasks: [TaskEntry] { hidesCarded ? [] : tasks.filter { $0.done && (ownerFilter == nil || $0.owner == ownerFilter) } }
 
     private var owners: [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
@@ -476,5 +483,25 @@ struct BinderCard: View {
         .buttonStyle(.plain)
         .binderTint(binder.colorIndex)
         .onHover { hovering = $0 }
+    }
+}
+
+/// To-dos that got no card (promises and moments in a binder whose board is a hub's, older ones the move to cards left),
+/// under a header, only when there are some: what you said you'd do never goes out of sight.
+struct UnboardedTodos: View {
+    let tasks: [TaskEntry]
+    var limit: Int? = 6
+    var binderName: ((UUID?) -> String?)? = nil
+    @Query(filter: #Predicate<TaskCard> { $0.sourceRef != nil }) private var carded: [TaskCard]
+
+    var body: some View {
+        let refs = Set(carded.compactMap(\.sourceRef))
+        let open = tasks.filter { !$0.done && !refs.contains($0.ref) && UUID(uuidString: $0.ref) != nil }
+        if !open.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Not on a board · \(open.count)").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                TaskBoard(tasks: open, limit: limit, binderName: binderName, hidesCarded: true)
+            }
+        }
     }
 }

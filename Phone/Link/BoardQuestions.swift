@@ -120,7 +120,7 @@ final class BoardQuestions {
     }
 
     private func look(_ connection: MacConnection) async {
-        guard let pairing = connection.mac?.device.uuidString,
+        guard let pairing = connection.brainKey,
               let text = try? await connection.call("list_tasks", ["column": BoardColumn.blocked.rawValue]),
               let waiting = try? MacConnection.decode([Card].self, from: text) else { return }
         let primed = primedFor == pairing
@@ -291,7 +291,7 @@ final class BoardQuestions {
         // Sent, or turned down: `answerSettled` has already said so.
         guard result == .kept else { return }
         let note = UNMutableNotificationContent()
-        note.body = "\(yours) waits on this iPhone. It goes to \(connection.mac?.name ?? "your Mac") the next time Binders reaches it."
+        note.body = "\(yours) waits on this iPhone. It goes to \(connection.brainName ?? "your Mac") the next time Binders reaches it."
         note.userInfo = ["card": card]
         try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: Self.noteIdentifier(card), content: note, trigger: nil))
     }
@@ -303,7 +303,7 @@ final class BoardQuestions {
         center.removeDeliveredNotifications(withIdentifiers: [Self.noteIdentifier(card)])
         guard !sent else { return }
         let note = UNMutableNotificationContent()
-        note.body = "An answer you typed didn't go: its question isn't waiting on \(connection?.mac?.name ?? "your Mac") any more."
+        note.body = "An answer you typed didn't go: its question isn't waiting on \(connection?.brainName ?? "your Mac") any more."
         center.add(UNNotificationRequest(identifier: Self.noteIdentifier(card), content: note, trigger: nil))
     }
 
@@ -361,11 +361,11 @@ final class BoardQuestions {
         let what = decision.approve ? "approval" : "decline"
         // Only to a Mac that takes them (one whose agents ask for approval at all).
         guard connection.macFeatures.contains(LinkFeatures.approvals) else {
-            return ("", "\(connection.mac?.name ?? "Your Mac") needs a newer Binders to take your \(what).")
+            return ("", connection.brain == .hub ? "Your hub doesn't take your \(what) from here yet." : "\(connection.brainName ?? "Your Mac") needs a newer Binders to take your \(what).")
         }
         do {
             guard let reply = try await connection.request(LinkFeatures.decisionMethod, decision.params) as? [String: Any] else {
-                return ("", "\(connection.mac?.name ?? "Your Mac") is out of reach, so your \(what) didn't go. Open the card to try again.")
+                return ("", "\(connection.brainName ?? "Your Mac") is out of reach, so your \(what) didn't go. Open the card to try again.")
             }
             return (reply["message"] as? String ?? "", nil)
         } catch LinkClient.Failure.rejected(let message) {

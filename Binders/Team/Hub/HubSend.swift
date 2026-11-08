@@ -91,6 +91,14 @@ enum HubSend {
         store.insert(note)
     }
 
+    /// One meeting, as its note in the binder's Meetings (a capture in Captures): what sending it on its own does, when a
+    /// binder sends each new meeting as it finishes (HubAutoSend).
+    static func sendOne(_ meeting: MeetingRecord, to binder: BinderRecord, transcript: Bool) {
+        guard Store.shared.allowsSave() else { return }
+        keep(meeting, in: folder(meeting.isConversation ? .captures : .meetings, in: binder), binder: binder, transcript: transcript)
+        Store.shared.save()
+    }
+
     /// A meeting or capture as its note: updated where it is, or made in its folder.
     private static func keep(_ meeting: MeetingRecord, in folder: FolderRecord, binder: BinderRecord, transcript: Bool) {
         let store = Store.shared

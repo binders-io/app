@@ -13,6 +13,8 @@ struct HubSendSheet: View {
     @State private var sending = false
     @State private var result: String?
     @State private var counts: [HubSend.Part: Int] = [:]
+    @State private var sendsMeetings = false
+    @State private var sendsTranscripts = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -30,6 +32,24 @@ struct HubSendSheet: View {
                 row(.knowledge, "Knowledge", "people, projects and the rest found in this binder, with their links")
                 row(.dictations, "Dictations", "everything dictated on this Mac, and what you said to yourself, a note a day")
             }
+            Divider()
+            Toggle(isOn: Binding(get: { sendsMeetings }, set: { on in
+                sendsMeetings = on
+                HubAutoSend.set(binder, on)
+            })) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Send each new meeting as it finishes")
+                    Text("Its notes go to Meetings on the hub once they're written, for the hub's brain and Distill to take on. A note someone has changed there is left alone.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .fitProbe("hubSend.auto")
+            if sendsMeetings {
+                Toggle("With each meeting's transcript, word for word", isOn: Binding(get: { sendsTranscripts }, set: { on in
+                    sendsTranscripts = on
+                    AppDefaults.store.set(on, forKey: HubAutoSend.transcriptKey)
+                }))
+                .padding(.leading, 22).font(.callout)
+            }
             if let result { StatusLabel(result, .done).fixedSize(horizontal: false, vertical: true).fitProbe("hubSend.result") }
             HStack {
                 Spacer()
@@ -45,6 +65,10 @@ struct HubSendSheet: View {
         .pageGround()
         .fitProbe("hubSend")
         .task { await count() }
+        .onAppear {
+            sendsMeetings = HubAutoSend.isOn(binder)
+            sendsTranscripts = AppDefaults.store.bool(forKey: HubAutoSend.transcriptKey)
+        }
     }
 
     private func row(_ part: HubSend.Part, _ name: String, _ detail: String) -> some View {

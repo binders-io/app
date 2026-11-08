@@ -186,12 +186,89 @@ final class BoardService {
     @discardableResult
     func create(from todo: TodoItem, column: BoardColumn = .ready, binderID: UUID? = nil, title: String? = nil, details: String = "",
                 by actor: BoardActor) -> (card: TaskCard, existed: Bool) {
-        if let card = card(forTodo: todo.id) { return (card, true) }
+        if let card = card(forTodo: todo.id) {
+            // The card a to-do got on its own, untouched in Backlog: asked for now (an agent to start, Give to, a card from
+            // the iPhone), it becomes the card asked for, with the title and details given, in the column and binder asked
+            // for, and is reported as made, so the caller gives it out as it would a new one. One that has moved on, or a
+            // binder it can't go to, stays as it is.
+            guard column != .backlog, isOwnUntouched(card) else { return (card, true) }
+            if let binderID, binderID != card.binderID {
+                guard card.binderID == todo.binderID, let binder = store.binder(binderID) else { return (card, true) }
+                do { try moveBinder(card, to: binder, by: actor) } catch { return (card, true) }
+            }
+            if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { card.title = title }
+            if !details.isEmpty { card.details = details }
+            do { try move(card, to: column, by: actor) } catch { return (card, true) }
+            return (card, false)
+        }
         let owner = todo.owner.flatMap { $0.isEmpty || $0 == TranscriptSegment.you ? nil : $0 }
         let card = create(title: title ?? todo.text, details: details.isEmpty ? (owner.map { "For \($0)." } ?? "") : details,
                           binderID: binderID ?? todo.binderID, column: column, due: todo.due,
                           source: (todo.sourceKind, todo.sourceID.uuidString, todo.sourceTitle), sourceRef: todo.id, by: actor)
         return (card, false)
+    }
+
+    /// A to-do just made: to-dos are cards, so it gets one in Backlog, unless what made it gives it a card itself straight
+    /// after (Command Mode's router, a moment handed to an agent, a capture's offer), which then wins. In a binder linked
+    /// to a hub, whose board is the team's, only what someone asked for goes there: a to-do said as a command, added on the
+    /// iPhone, by a link or by an agent, never a promise writing capture noticed in your messages or a moment of yours.
+    func todoMade(_ commitment: CommitmentRecord) {
+        guard mayGoOnBoard(commitment) else { return }
+        let id = commitment.id
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, let record = Store.shared.commitments().first(where: { $0.id == id }), record.status == "open",
+                  self.card(forTodo: id.uuidString) == nil, let item = Todos.find(id.uuidString) else { return }
+            self.create(from: item, column: .backlog, by: .you)
+        }
+    }
+
+    /// Whether a to-do went to an agent: its card is past Backlog, or an agent holds it. A to-do's own card waits in Backlog.
+    func handedOver(_ todo: String) -> Bool {
+        guard let card = card(forTodo: todo) else { return false }
+        return card.column != .backlog || card.assigneeIsAgent
+    }
+
+    /// Whether a to-do's card may be made where the to-do is: on a board of this Mac's own, always; on a binder linked to a
+    /// hub, whose board is the team's, only when you put it there yourself: added on your iPhone into that binder, or said
+    /// as a command with that binder open. Never what writing capture noticed, a moment of yours, an agent or a link, nor a
+    /// binder the router picked for you.
+    func mayGoOnBoard(_ commitment: CommitmentRecord) -> Bool {
+        let binder = store.binder(commitment.binderID) ?? store.defaultBinder()
+        guard HubLinks.place(of: binder) != nil else { return true }
+        switch commitment.todoOrigin {
+        case .phone: return true
+        case .voice: return binder.id == AppSettings.shared.currentBinderID
+        default: return false
+        }
+    }
+
+    /// The card a to-do got on its own and nobody has touched since: in Backlog, nobody's, and nothing on its timeline but
+    /// its making. Taking the to-do back takes it too, and asking for a card for the to-do makes it that card.
+    func isOwnUntouched(_ card: TaskCard) -> Bool {
+        card.column == .backlog && card.assignee == nil && card.meantFor == nil && timeline(card.id).allSatisfy { $0.kind == .created }
+    }
+
+    /// Once: the to-dos still open from before to-dos were cards each get a card in Backlog: the last 90 days' and at most
+    /// a hundred, newest first, in binders of this Mac's own (one linked to a hub keeps its team's board as it is).
+    func makeCardsForOpenTodos() {
+        let key = "todosAreCards"
+        let defaults = AppDefaults.store
+        // A library that didn't open finds nothing: tried again on a launch where it does.
+        guard !defaults.bool(forKey: key), store.canSave else { return }
+        let since = Date().addingTimeInterval(-90 * 86_400)
+        var made = 0
+        let open = Store.shared.commitments().filter { $0.status == "open" && $0.createdAt >= since }.sorted { $0.createdAt > $1.createdAt }
+        for record in open where made < 100 && card(forTodo: record.id.uuidString) == nil {
+            // On this Mac's own boards only: a binder linked to a hub keeps its team's board as it is.
+            if HubLinks.place(of: store.binder(record.binderID) ?? store.defaultBinder()) != nil { continue }
+            guard let item = Todos.find(record.id.uuidString) else { continue }
+            create(from: item, column: .backlog, by: .you)
+            made += 1
+        }
+        Store.shared.save()
+        defaults.set(true, forKey: key)
+        if made > 0 { Log.app.notice("To-dos became cards: \(made)") }
     }
 
     /// Put on Board: a card in the note's binder, in Backlog, with the note's title and, in its details, its first lines
@@ -600,6 +677,10 @@ final class BoardService {
 
     /// A card gone from this Mac only: deleted here, or by the hub (`HubBoard`).
     func removeHere(_ card: TaskCard) {
+        // A to-do's card deleted: the to-do is set aside with it, its reminder too, rather than left open with nowhere to show.
+        if let ref = card.sourceRef, let uuid = UUID(uuidString: ref), let record = Store.shared.commitments().first(where: { $0.id == uuid }), record.status == "open" {
+            if let commitments { commitments.setStatus(record, "dismissed") } else { record.status = "dismissed" }
+        }
         // Its window goes first, with what it shows, so no view reads the card once it's gone.
         CardWindows.shared.cardDeleted(card.id)
         MacNotifications.shared.withdrawQuestion(card.id)

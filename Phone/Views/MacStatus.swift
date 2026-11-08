@@ -55,7 +55,7 @@ private struct MacStatusPill: ViewModifier {
                 } else {
                     // Out of reach: a problem, in ink with its glyph, never red.
                     Image(systemName: Problem.symbol)
-                    Text("Mac offline")
+                    Text(MacConnection.onHub ? "Hub offline" : "Mac offline")
                     Text("·").foregroundStyle(Palette.muted)
                     Text("Retry").foregroundStyle(Palette.accentText)
                 }
@@ -74,9 +74,9 @@ private struct MacStatusPill: ViewModifier {
         .popover(isPresented: $details) {
             MacStatusDetails().presentationCompactAdaptation(.popover)
         }
-        .accessibilityLabel(status == .offline ? "Mac offline" : "Connecting to your Mac")
+        .accessibilityLabel(status == .offline ? (MacConnection.onHub ? "Hub offline" : "Mac offline") : "Connecting to \(MacConnection.brainWords)")
         .accessibilityValue(connection.lastSeen.map { "Last seen \($0.seenPhrase())" } ?? "")
-        .accessibilityHint(status == .offline ? "Tries again, and says when your Mac was last seen." : "Says when your Mac was last seen.")
+        .accessibilityHint(status == .offline ? "Tries again, and says when \(MacConnection.brainWords) was last seen." : "Says when \(MacConnection.brainWords) was last seen.")
         .accessibilityIdentifier("macStatus")
     }
 
@@ -86,7 +86,7 @@ private struct MacStatusPill: ViewModifier {
     /// Shows a status once it has lasted a moment, and changes or hides it at once after that. VoiceOver hears when the
     /// Mac goes out of reach, and when it's back.
     private func settle(_ status: MacConnection.LinkStatus?) async {
-        let name = connection.mac?.name ?? "your Mac"
+        let name = connection.brainName ?? "\(MacConnection.brainWords)"
         guard let status else {
             if shown == .offline { UIAccessibility.post(notification: .announcement, argument: "Reconnected to \(name)") }
             details = false
@@ -110,7 +110,7 @@ private struct MacStatusDetails: View {
     @Environment(MacConnection.self) private var connection
 
     var body: some View {
-        let name = connection.mac?.name ?? "Your Mac"
+        let name = connection.brainName ?? "\(MacConnection.BrainWords)"
         let offline = connection.linkStatus == .offline
         VStack(alignment: .leading, spacing: 10) {
             Text(offline ? "\(name) is out of reach" : "Connecting to \(name)…")
@@ -126,7 +126,7 @@ private struct MacStatusDetails: View {
             if !connection.isConnected, let tried = LinkDial.summary(connection.lastAttempts, again: connection.state == .connecting) {
                 Text(tried).font(.footnote).foregroundStyle(Palette.muted)
             }
-            Text("Screens show what they had. What you add meanwhile waits on this iPhone and goes when your Mac is back.")
+            Text("Screens show what they had. What you add meanwhile waits on this iPhone and goes when \(connection.brainPhrase) is back.")
                 .font(.footnote)
                 .foregroundStyle(Palette.muted)
             Button { connection.retryNow() } label: {
@@ -162,9 +162,9 @@ struct MacButton: View {
     @State private var showing = false
 
     var body: some View {
-        if connection.mac != nil {
-            Button { showing = true } label: { Image(systemName: "laptopcomputer") }
-                .accessibilityLabel("Your Mac")
+        if connection.hasBrain {
+            Button { showing = true } label: { Image(systemName: connection.brain == .hub ? "server.rack" : "laptopcomputer") }
+                .accessibilityLabel(connection.brain == .hub ? "Your hub" : "Your Mac")
                 .accessibilityValue(value)
                 .sheet(isPresented: $showing) { MacSheet() }
         }
@@ -194,7 +194,7 @@ struct WaitingForMac: View {
         if connection.linkStatus == .connecting || trying {
             ProgressView().tint(Palette.muted).frame(maxWidth: .infinity, minHeight: 120)
         } else {
-            EmptyState(title: "Not on this iPhone yet", symbol: "laptopcomputer", description: "\(what) once your Mac answers.") {
+            EmptyState(title: "Not on this iPhone yet", symbol: connection.brain == .hub ? "server.rack" : "laptopcomputer", description: "\(what) once \(connection.brainPhrase) answers.") {
                 Button("Try Again") {
                     // With the link down, connecting again reloads every screen.
                     guard connection.isConnected else { return connection.retryNow() }

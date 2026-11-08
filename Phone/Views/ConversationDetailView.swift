@@ -36,7 +36,7 @@ struct ConversationDetailView: View {
                     suggestionsSection
                     if let notes, !notes.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Label("Notes from \(connection.mac?.name ?? "your Mac")", systemImage: "desktopcomputer")
+                            Label("Notes from \(connection.brainName ?? "\(MacConnection.brainWords)")", systemImage: "desktopcomputer")
                                 .font(Typeface.title(.headline)).foregroundStyle(Palette.ink)
                             Text([notes.title, notes.binder].filter { !$0.isEmpty }.joined(separator: " · "))
                                 .font(.subheadline).foregroundStyle(Palette.muted)
@@ -102,7 +102,7 @@ struct ConversationDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(agents?.paused == true ? "Agents are paused on your Mac: it waits in Ready until you resume them." : "It goes to Ready on its binder's board, and your Mac hands it over.")
+            Text(agents?.paused == true ? "Agents are paused on \(MacConnection.brainWords): it waits in Ready until you resume them." : "It goes to Ready on its binder's board, and \(MacConnection.brainWords) hands it over.")
         }
         // The first time a card goes to an agent from here: where it goes, and what goes with it (App Store 5.1.2(i)).
         .confirmationDialog(consenting.map { "Give cards to \($0.agent.name)?" } ?? "", isPresented: Binding(get: { consenting != nil }, set: { if !$0 { consenting = nil } }),
@@ -121,7 +121,7 @@ struct ConversationDetailView: View {
     @ViewBuilder
     private var suggestionsSection: some View {
         // Offers need the Mac to act on them; answers can be read without one.
-        let offered = suggestions.forConversation(id).filter { ($0.status == .offered && connection.mac != nil) || $0.kind == .answer }
+        let offered = suggestions.forConversation(id).filter { ($0.status == .offered && connection.hasBrain) || $0.kind == .answer }
         if !offered.isEmpty {
             let waits = offered.contains { $0.kind != .answer }
             VStack(alignment: .leading, spacing: 12) {
@@ -146,7 +146,7 @@ struct ConversationDetailView: View {
                                         }
                                     }
                                     .buttonStyle(.bordered)
-                                    .accessibilityHint(list.paused ? "Agents are paused on your Mac, so it waits in Ready." : "It goes to Ready, and your Mac hands it over.")
+                                    .accessibilityHint(list.paused ? "Agents are paused on \(MacConnection.brainWords), so it waits in Ready." : "It goes to Ready, and \(MacConnection.brainWords) hands it over.")
                                 }
                                 Button("Not Now") { act(suggestion.id, accept: false) }.buttonStyle(.bordered)
                             }
@@ -331,16 +331,16 @@ struct ConversationDetailView: View {
 
     /// Written down and waiting for the Mac: why, and what comes next.
     private var queuedWords: String {
-        guard connection.mac != nil else { return "on this iPhone until you pair a Mac" }
-        guard connection.takesConversations else { return "waiting here until Binders on your Mac is updated" }
-        return connection.isConnected ? "going to your Mac" : "waiting for your Mac, and goes when it's back"
+        guard connection.hasBrain else { return "on this iPhone until you pair a Mac" }
+        guard connection.takesConversations else { return "waiting here until \(MacConnection.onHub ? "your hub" : "Binders on \(MacConnection.brainWords)") is updated" }
+        return connection.isConnected ? "going to \(MacConnection.brainWords)" : "waiting for \(MacConnection.brainWords), and goes when it's back"
     }
 
     private func details(_ conversation: CapturedConversation) -> String {
         var parts = ["\(max(1, Int((conversation.duration / 60).rounded()))) min"]
         if let words = conversation.words { parts.append("\(words) words") }
         switch conversation.state {
-        case .sent: parts.append(conversation.sharedVia.map { "shared by \($0)" } ?? "sent to your Mac")
+        case .sent: parts.append(conversation.sharedVia.map { "shared by \($0)" } ?? "sent to \(MacConnection.brainWords)")
         case .queued: parts.append(conversation.sharedVia.map { "shared by \($0)" } ?? queuedWords)
         case .failed where conversation.notKept != nil:
             parts.append("not kept: \(conversation.notKept ?? "")")
@@ -417,12 +417,12 @@ struct ConversationDetailView: View {
         case CaptureStep.transcribing: return "Writing it down" + note
         case CaptureStep.transcribed: return "Written down" + (step.note.map { " · \($0)" } ?? "")
         case CaptureStep.labelled: return "Voices told apart" + (step.note.map { ": \($0)" } ?? "")
-        case CaptureStep.queued: return "Ready for your Mac"
+        case CaptureStep.queued: return "Ready for \(MacConnection.brainWords)"
         case CaptureStep.sent: return "Sent" + (step.note.map { " to \($0)" } ?? "")
         case CaptureStep.failed: return "Didn't work" + (step.note.map { ": \($0)" } ?? "")
         case CaptureStep.retry: return "Tried again" + (step.note.map { ", \($0)" } ?? "")
         case CaptureStep.filed: return "Filed" + note
-        case CaptureStep.notKept: return "Not kept: hidden on your Mac, and deleted there after a week"
+        case CaptureStep.notKept: return "Not kept: hidden on \(MacConnection.brainWords), and deleted there after a week"
         case CaptureStep.dropped: return "Not kept" + (step.note.map { ": \($0)" } ?? "")
         case CaptureStep.notAMoment: return "Not a moment" + (step.note.map { ": \($0)" } ?? "")
         default: return step.step + note
@@ -433,11 +433,11 @@ struct ConversationDetailView: View {
         switch conversation.state {
         case .recording: "Still listening. The transcript is written once the conversation is over, or now if you wrap it up."
         case .failed where conversation.notKept == CapturedConversation.nothingToWriteDown:
-            "Not kept: the speech model found no words in it, as with noise, music or a language it can't read. Nothing went to your Mac\(conversation.audioDeleted ? ", and its audio is deleted" : "")."
+            "Not kept: the speech model found no words in it, as with noise, music or a language it can't read. Nothing went to \(MacConnection.brainWords)\(conversation.audioDeleted ? ", and its audio is deleted" : "")."
         case .failed where conversation.notKept == CapturedConversation.tooShort:
-            "Not kept: too little speech to write down. Nothing of it was kept but when it was heard: nothing went to your Mac, and its audio is deleted."
+            "Not kept: too little speech to write down. Nothing of it was kept but when it was heard: nothing went to \(MacConnection.brainWords), and its audio is deleted."
         case .failed where conversation.notKept != nil:
-            "Not kept: \(conversation.notKept ?? ""). Nothing went to your Mac\(conversation.audioDeleted ? ", and its audio is deleted" : "")."
+            "Not kept: \(conversation.notKept ?? ""). Nothing went to \(MacConnection.brainWords)\(conversation.audioDeleted ? ", and its audio is deleted" : "")."
         case .failed: conversation.canRetry ? "It couldn't be written down. It's tried again when Binders opens." : "It couldn't be written down."
         default: CaptureModels.mayInferInBackground && conversation.appOnly != true
             ? "The transcript is written on this iPhone, right away while Binders is open, or while the phone charges."

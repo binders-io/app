@@ -550,7 +550,7 @@ final class LinkServer {
                            LinkFeatures.dedupe, LinkFeatures.askProgress, LinkFeatures.approvals, MomentPayload.addsFeature, LinkFeatures.giveTo,
                            LinkFeatures.addresses, MomentPayload.agreedFeature, LinkFeatures.commentWakes, MomentPayload.autoFeature,
                            ConversationPayload.soloFeature, LinkFeatures.folders, LinkFeatures.distill, LinkFeatures.teamAgents, LinkFeatures.manager, LinkFeatures.chats,
-                           LinkFeatures.sessions]
+                           LinkFeatures.sessions, LinkFeatures.todosAreCards]
 
     /// What became of what the phone sent, for the ids it asks after (at most 50); ones this Mac doesn't know are left out.
     fileprivate func outcomes(_ ids: [String]) -> [[String: Any]] {

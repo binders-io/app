@@ -271,10 +271,12 @@ final class DictationSession {
         let result = await DictationCleanup.run(raw, app: app, budget: TimeBudget(seconds: LinkTimeouts.cleanup),
                                                 mac: { budget in await connection.format(raw, within: budget) }, device: model)
         switch result.cleaner {
-        case .mac(let name): return (result.text, name.isEmpty ? "your Mac" : "your Mac (\(name))")
+        case .mac(let name):
+            let brain = connection.brain == .hub ? "your hub" : "your Mac"
+            return (result.text, name.isEmpty ? brain : "\(brain) (\(name))")
         case .device: return (result.text, "this iPhone")
         case .rules: return (result.text, model == nil ? "Binders' rules (no model)" : "Binders' rules")
-        case .outOfTime(let mac): return (result.text, mac ? "Binders' rules (your Mac took too long)" : "Binders' rules (this iPhone took too long)")
+        case .outOfTime(let mac): return (result.text, mac ? "Binders' rules (\(connection.brain == .hub ? "your hub" : "your Mac") took too long)" : "Binders' rules (this iPhone took too long)")
         }
     }
 

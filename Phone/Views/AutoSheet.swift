@@ -173,8 +173,8 @@ struct AutoSheet: View {
     private var stateLines: [String] {
         guard sample == nil else { return [] }
         var lines: [String] = []
-        if connection.mac != nil, !macHasAuto { lines.append(Words.macNeedsUpdate) } else if list == nil { lines.append(Words.notHeard) }
-        if connection.mac != nil, macHasAuto, !soloMac { lines.append(AutoPhoneText.SoloSheet.macAutoNotSolo) }
+        if connection.hasBrain, !macHasAuto { lines.append(Words.macNeedsUpdate) } else if list == nil { lines.append(Words.notHeard) }
+        if connection.hasBrain, macHasAuto, !soloMac { lines.append(AutoPhoneText.SoloSheet.macAutoNotSolo) }
         if let why = ConversationProcessor.shared.whyMomentsWait() { lines.append(AutoPhoneText.notWrittenDownNow(why)) }
         return lines
     }

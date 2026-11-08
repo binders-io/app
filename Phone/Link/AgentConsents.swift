@@ -17,7 +17,22 @@ enum AgentConsents {
     /// Answers typed into a question's notification before you'd said yes to that agent, by card.
     private static let heldKey = "answersAwaitingConsent"
 
-    private static func key(_ name: String) -> String { name.trimmingCharacters(in: .whitespaces).lowercased() }
+    /// A yes is kept per brain: a Mac's agents by name, as always; a hub's under its address too. So a yes given to an agent
+    /// on your Mac never counts for one of the same name on a hub (a teammate's runner, say), nor the other way round.
+    private static func key(_ name: String) -> String {
+        let bare = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard let hub = hubPrefix else { return bare }
+        return hub + bare
+    }
+
+    /// "hub:<address>|" with the hub as the brain; nil with the Mac.
+    private static var hubPrefix: String? {
+        guard MacConnection.onHub else { return nil }
+        return "hub:\(HubBrain.load()?.address.absoluteString.lowercased() ?? "")|"
+    }
+
+    /// Names said yes to before fingerprints: only ever a Mac's.
+    private static func namedBefore(_ name: String) -> Bool { hubPrefix == nil && names.contains(name) }
 
     private static var consents: [String: String] {
         get { UserDefaults.standard.dictionary(forKey: consentsKey) as? [String: String] ?? [:] }
@@ -50,21 +65,21 @@ enum AgentConsents {
     static func agreed(_ agent: AgentList.Agent) -> Bool {
         let given = consents[key(agent.name)]
         if let fingerprint = agent.fingerprint, !fingerprint.isEmpty { return given == fingerprint }
-        return given != nil || names.contains(agent.name)
+        return given != nil || namedBefore(agent.name)
     }
 
     static func agree(_ agent: AgentList.Agent) {
         var all = consents
         all[key(agent.name)] = agent.fingerprint ?? ""
         consents = all
-        if !names.contains(agent.name) { UserDefaults.standard.set(names + [agent.name], forKey: namesKey) }
+        if hubPrefix == nil, !names.contains(agent.name) { UserDefaults.standard.set(names + [agent.name], forKey: namesKey) }
     }
 
     /// For a name alone, as a moment's Give to has it: the agent by that name as it's set up now, or, before the iPhone
     /// has heard who the agents are, a yes to the name given before.
     static func agreed(toName name: String, connection: MacConnection? = nil) -> Bool {
         if let agent = agent(named: name, connection: connection) { return agreed(agent) }
-        return consents[key(name)] != nil || names.contains(name)
+        return consents[key(name)] != nil || namedBefore(name)
     }
 
     static func agree(toName name: String, connection: MacConnection? = nil) {
@@ -82,7 +97,11 @@ enum AgentConsents {
 
     /// Every yes given on this iPhone, by name as it's kept (trimmed, lowercased), with the fingerprint each had: what a
     /// "Binders, …" said in your voice carries to a Mac that reads it (MomentAgreement).
-    static func agreedFingerprints() -> [String: String] { consents }
+    static func agreedFingerprints() -> [String: String] {
+        // This brain's only, by name as the Mac reads them.
+        guard let hub = hubPrefix else { return consents.filter { !$0.key.hasPrefix("hub:") } }
+        return Dictionary(uniqueKeysWithValues: consents.compactMap { $0.key.hasPrefix(hub) ? (String($0.key.dropFirst(hub.count)), $0.value) : nil })
+    }
 
     // MARK: What's said
 

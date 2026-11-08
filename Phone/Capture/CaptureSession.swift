@@ -29,7 +29,7 @@ enum MicrophoneUsers {
     static var isClaimed: Bool { !holders.isEmpty }
 
     /// What capture says while it steps aside: the calibration bench ("bench…") or a dictation has the microphone.
-    static var pausedReason: String { holders.contains { $0.hasPrefix("bench") } ? "While you calibrate" : "While you dictate" }
+    static var pausedReason: String { holders.contains { $0.hasPrefix("bench") } ? "While you calibrate" : holders.contains("talk") ? "While you talk with your hub" : "While you dictate" }
 
     /// Once another user's engine is off: true when capture is listening again, so the audio session must stay on.
     static var captureNeedsSession: Bool { CaptureSession.shared.isListening }
@@ -559,7 +559,7 @@ final class CaptureSession {
         // From a few seconds of speech for a Mac that keeps a wrapped-up capture however short (one that says what became
         // of captures), or none paired yet; an older Mac calls anything under 40 words small talk, so the usual minimum.
         let connection = MacConnection.current
-        let minimum = connection?.mac == nil || connection?.hasOutcomes == true ? CaptureWorker.wrapUpMinimum : ConversationSplitter.Settings().minSpeech
+        let minimum = connection?.hasBrain != true || connection?.hasOutcomes == true ? CaptureWorker.wrapUpMinimum : ConversationSplitter.Settings().minSpeech
         wrapUpKeepsFrom = minimum
         Task { await worker.wrapUp(keepingFrom: minimum) }
     }

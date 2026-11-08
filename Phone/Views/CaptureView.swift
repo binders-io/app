@@ -87,14 +87,14 @@ struct CaptureView: View {
                 if !models.isTranscriberDownloaded { SpeechModelDownload() }
                 if waitingForNewerMac {
                     // A wait with its reason and what ends it: ink, with its glyph.
-                    Label("Update Binders on your Mac to receive captures. They wait here until then.", systemImage: "arrow.down.circle")
+                    Label("Update \(MacConnection.onHub ? "your hub" : "Binders on \(MacConnection.brainWords)") to receive captures. They wait here until then.", systemImage: "arrow.down.circle")
                         .font(.footnote).foregroundStyle(Palette.ink)
                 }
             } footer: {
-                if let mac = connection.mac {
-                    Text("Binders listens for conversations, writes them down on this iPhone and sends only the text to \(mac.name). Audio never leaves this iPhone and is deleted once it's written down. Mute turns the microphone off completely.")
+                if let name = connection.brainName, connection.hasBrain {
+                    Text("Binders listens for conversations, writes them down on this iPhone and sends only the text to \(name). Audio never leaves this iPhone and is deleted once it's written down. Mute turns the microphone off completely.")
                 } else {
-                    Text("Binders listens for conversations and writes them down on this iPhone; once you pair a Mac, only the text goes to it. Audio never leaves this iPhone and is deleted once it's written down. Mute turns the microphone off completely.")
+                    Text("Binders listens for conversations and writes them down on this iPhone; once you pair a Mac or sign in to a hub, only the text goes to it. Audio never leaves this iPhone and is deleted once it's written down. Mute turns the microphone off completely.")
                 }
             }
             .surfaceRows()
@@ -118,11 +118,11 @@ struct CaptureView: View {
                     // The first time, what it does with what you say, before it does it.
                     if on, !UserDefaults.standard.bool(forKey: "momentsExplained") { explainingMoments = true } else { moments.isOn = on }
                 }))
-                    .disabled(connection.mac != nil && !connection.takesMoments)
+                    .disabled(connection.hasBrain && !connection.takesMoments)
                     .accessibilityIdentifier("momentsToggle")
                 if moments.isOn {
                     MomentModeRow(choosingAuto: $choosingAuto)
-                        .disabled(connection.mac != nil && !connection.takesMoments)
+                        .disabled(connection.hasBrain && !connection.takesMoments)
                 }
                 if let timings = moments.timingSummary { MomentTimingsRow(summary: timings) }
                 // Graduation is Suggest's own: its kinds show only there.
@@ -189,10 +189,10 @@ struct CaptureView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            if connection.mac == nil {
+            if !connection.hasBrain {
                 Text("All-day capture listens with this iPhone's microphone and writes down what's said, on this iPhone; once you pair a Mac, the text goes to it. Many places require everyone's consent before a conversation is recorded. Let the people around you know, and mute it or turn it off when someone objects.")
             } else {
-                Text("All-day capture listens with this iPhone's microphone and sends what's said, as text, to your Mac. Many places require everyone's consent before a conversation is recorded. Let the people around you know, and mute it or turn it off when someone objects.")
+                Text("All-day capture listens with this iPhone's microphone and sends what's said, as text, to \(connection.brainPhrase). Many places require everyone's consent before a conversation is recorded. Let the people around you know, and mute it or turn it off when someone objects.")
             }
         }
         .toolbar {
@@ -327,7 +327,10 @@ struct CaptureView: View {
 
     /// How things said to yourself are told apart, and whether this iPhone's model checks them too.
     private var momentsFooter: String {
-        if connection.mac != nil && !connection.takesMoments { return "Needs a newer Binders on your Mac." }
+        if connection.hasBrain && !connection.takesMoments {
+            // A hub without a model can't act on what you say to yourself; a Mac from before moments can't either.
+            return connection.brain == .hub ? "Needs a model on your hub: set one in its Settings, under Brain." : "Needs a newer Binders on your Mac."
+        }
         let checks = OnDeviceModel.isAvailable
             ? "It goes by a cue like “I need to”, your voice and the quiet around it, and Apple Intelligence on this iPhone has to agree what it is."
             : "It goes by a cue like “I need to”, your voice and the quiet around it. Apple Intelligence isn't on this iPhone, so those three decide alone."
@@ -337,7 +340,7 @@ struct CaptureView: View {
     }
 
     private var waitingForNewerMac: Bool {
-        connection.mac != nil && !connection.takesConversations && connection.outbox.contains { $0.tool == PendingSave.conversation }
+        connection.hasBrain && !connection.takesConversations && connection.outbox.contains { $0.tool == PendingSave.conversation }
     }
 
     /// "5 · 3 filed · 1 not kept": today's captures, and what became of them, on the Mac or, for one with nothing to write
@@ -371,7 +374,7 @@ extension CaptureEntry {
         if let notKept { return notKept }
         let prefix = "Not kept: "
         if let outcome, outcome.hasPrefix(prefix), outcome.count > prefix.count { return String(outcome.dropFirst(prefix.count)) }
-        return "not kept by your Mac"
+        return "not kept by \(MacConnection.brainWords)"
     }
 }
 
@@ -422,10 +425,10 @@ struct CaptureSettingsView: View {
             } header: {
                 Text("After a capture")
             } footer: {
-                if connection.mac == nil {
+                if !connection.hasBrain {
                     Text("Tells you when captures are waiting to be written down. Once you pair a Mac, it also offers what you said you'd do for the binder's board, and answers to questions your binders hold.")
                 } else {
-                    Text("Once your Mac has written a capture up, it offers to put what you said you'd do, and the ideas in it, on the binder's board or give them to an agent, and answers a question you asked if your binders hold the answer. They wait on the capture either way; turn them on or off for good in Binders on your Mac, Settings → All-day capture. This iPhone also tells you when captures are waiting to be written down.")
+                    Text("Once \(MacConnection.brainWords) has written a capture up, it offers to put what you said you'd do, and the ideas in it, on the binder's board or give them to an agent, and answers a question you asked if your binders hold the answer. They wait on the capture either way; turn them on or off for good in \(MacConnection.onHub ? "your hub" : "Binders on \(MacConnection.brainWords)"), Settings → All-day capture. This iPhone also tells you when captures are waiting to be written down.")
                 }
             }
             .surfaceRows()
@@ -563,7 +566,7 @@ private struct EarlierCapturesPage: View {
                         NavigationLink { CaptureListPage(scope: .day(day.day)) } label: { DayRow(day: day.day, captures: day.conversations) }
                     }
                 } footer: {
-                    Text("Captures leave this iPhone after 30 days, once they're with your Mac or weren't kept.")
+                    Text("Captures leave this iPhone after 30 days, once they're with \(MacConnection.brainWords) or weren't kept.")
                 }
                 .surfaceRows()
             }
@@ -697,7 +700,7 @@ private struct NotKeptSummaryRow: View {
     private var reasons: String {
         var seen: [String] = []
         for capture in captures {
-            let reason = capture.notKept ?? "not kept by your Mac"
+            let reason = capture.notKept ?? "not kept by \(MacConnection.brainWords)"
             if !seen.contains(reason) { seen.append(reason) }
         }
         guard let last = seen.popLast() else { return "" }
@@ -735,15 +738,16 @@ private struct CaptureRow: View {
 
     /// Written down, and where it is now.
     private var queuedLabel: String {
-        if connection.mac == nil { return "On this iPhone" }
+        if !connection.hasBrain { return "On this iPhone" }
+        if connection.brain == .hub { return connection.takesConversations ? "Waiting for your hub" : "Waiting for a newer hub" }
         return connection.takesConversations ? "Waiting for Mac" : "Waiting for a newer Mac app"
     }
 
     /// What comes next for one written down and waiting for the Mac, after that word: nil while it's on its way.
     private var queuedNext: String? {
-        guard connection.mac != nil else { return "goes to your Mac once you pair one" }
-        guard connection.takesConversations else { return "goes once Binders on your Mac is updated" }
-        return connection.isConnected ? nil : "goes when your Mac is back"
+        guard connection.hasBrain else { return "goes to \(MacConnection.brainWords) or hub once you have one" }
+        guard connection.takesConversations else { return connection.brain == .hub ? "goes once your hub is updated" : "goes once Binders on your Mac is updated" }
+        return connection.isConnected ? nil : "goes when \(connection.brainPhrase) is back"
     }
 }
 
@@ -804,7 +808,7 @@ private struct MomentTimingsRow: View {
         } label: {
             Text("Timings")
             Text((summary.count == 1 ? "The last moment" : "The last \(summary.count) moments")
-                 + (summary.waited > 0 ? ", not counting \(summary.waited) that waited for your Mac" : ""))
+                 + (summary.waited > 0 ? ", not counting \(summary.waited) that waited for \(MacConnection.brainWords)" : ""))
         }
         .accessibilityIdentifier("momentTimings")
     }
@@ -855,7 +859,7 @@ struct MomentRow: View {
                     .accessibilityIdentifier("momentStop")
             }
             if let giving = connection.givingLater(moment: moment.id) {
-                Label("Goes to \(giving.agent ?? "the agent") when your Mac is back", systemImage: "clock").font(.caption).foregroundStyle(Palette.muted)
+                Label("Goes to \(giving.agent ?? "the agent") when \(MacConnection.brainWords) is back", systemImage: "clock").font(.caption).foregroundStyle(Palette.muted)
             } else if let message {
                 Text(message).font(.caption).foregroundStyle(Palette.muted)
             }
@@ -928,9 +932,9 @@ struct MomentRow: View {
         case "undone": "Taken back"
         case "dismissed": "Not added"
         // Who has it; the line under your words says what comes next.
-        case "working": "Your Mac is on it"
+        case "working": "\(MacConnection.BrainWords) is on it"
         case "nothing": "Nothing to do"
-        default: moment.state == "kept" ? "Waiting for your Mac" : moment.state == "refused" ? "Your Mac couldn't read it" : "Sent"
+        default: moment.state == "kept" ? "Waiting for \(MacConnection.brainWords)" : moment.state == "refused" ? "\(MacConnection.BrainWords) couldn't read it" : "Sent"
         }
     }
 
@@ -989,7 +993,7 @@ struct MomentModeRow: View {
 
     /// Lane Y2, in Auto: whether, and when, what you think out loud goes.
     private var soloState: String? {
-        guard center.mode == .auto, connection.mac != nil else { return nil }
+        guard center.mode == .auto, connection.hasBrain else { return nil }
         let features = connection.macFeatures
         guard features.contains(MomentPayload.autoFeature) else { return nil }
         guard soloMac else { return AutoPhoneText.macAutoNotSolo }
@@ -1003,7 +1007,7 @@ struct MomentModeRow: View {
         let adds = features.contains(MomentPayload.addsFeature)
         switch center.mode {
         case .suggest: return nil
-        case .add: return adds || connection.mac == nil ? nil : AutoPhoneText.macNoAdds
+        case .add: return adds || !connection.hasBrain ? nil : AutoPhoneText.macNoAdds
         case .auto:
             let list = AgentConsents.agents(connection)
             return AutoPhoneText.modeLine(AutoPhoneText.ModeFacts(

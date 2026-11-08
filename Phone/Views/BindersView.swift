@@ -21,7 +21,8 @@ struct BindersView: View {
     @State private var suggestions = SuggestionCenter.shared
     @State private var moments = MomentCenter.shared
     @State private var path = NavigationPath()
-    @State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
+@State private var asking = UserDefaults.standard.string(forKey: "open") == "ask"
+    @State private var talking: TalkSession? = UserDefaults.standard.string(forKey: "open") == "talk" ? TalkSession() : nil
     @State private var dictating = UserDefaults.standard.string(forKey: "open") == "dictate"
     @State private var settingUpKeyboard = UserDefaults.standard.string(forKey: "open") == "keyboard"
     @State private var writing = UserDefaults.standard.string(forKey: "open") == "newnote"
@@ -50,13 +51,17 @@ struct BindersView: View {
                     case .moments: path.append(MomentLink.waiting)
                     }
                 }
+                // To-dos are cards now: what you said you'd do is on the board. A Mac from before keeps them as to-dos, and
+                // one not on a board (a promise in a binder whose board is a hub's) still shows here.
                 Section("Everything") {
-                    NavigationLink(value: Place.allTodos) {
-                        HStack {
-                            Label("To-dos", systemImage: "checklist")
-                            Spacer()
-                            if let openTodos, openTodos > 0 {
-                                Text("\(openTodos)").font(Typeface.count(.body)).foregroundStyle(Palette.muted).rollingCount(openTodos)
+                    if showsTodos {
+                        NavigationLink(value: Place.allTodos) {
+                            HStack {
+                                Label(cardsAreTodos ? "Not on a Board" : "To-dos", systemImage: "checklist")
+                                Spacer()
+                                if let openTodos, openTodos > 0 {
+                                    Text("\(openTodos)").font(Typeface.count(.body)).foregroundStyle(Palette.muted).rollingCount(openTodos)
+                                }
                             }
                         }
                     }
@@ -71,7 +76,7 @@ struct BindersView: View {
                 .surfaceRows()
                 Section("Binders") {
                     ForEach(binders.filter { !$0.archived }) { binder in
-                        NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder, openTodos: todosByBinder[binder.name] ?? 0) }
+                        NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder) }
                     }
                 }
                 .surfaceRows()
@@ -79,7 +84,7 @@ struct BindersView: View {
                 if !archived.isEmpty {
                     Section("Archived") {
                         ForEach(archived) { binder in
-                            NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder, openTodos: todosByBinder[binder.name] ?? 0) }
+                            NavigationLink(value: Place.binder(binder)) { BinderRow(binder: binder) }
                         }
                     }
                     .surfaceRows()
@@ -117,9 +122,11 @@ struct BindersView: View {
                     Button { asking = true } label: { Image(systemName: "text.magnifyingglass") }
                         .accessibilityLabel("Ask")
                 }
+                ToolbarItem(placement: .topBarLeading) { TalkButton(talk: $talking) }
                 ToolbarItem(placement: .topBarTrailing) { MacButton() }
             }
             .sheet(isPresented: $asking) { AskView() }
+            .fullScreenCover(item: $talking) { TalkView(talk: $0) }
             .safeAreaInset(edge: .bottom) { if !talkControlShown { DictateButton { dictating = true } } }
             .sheet(isPresented: $dictating) { DictationSheet() }
             .sheet(isPresented: $settingUpKeyboard) { KeyboardSetupView() }
@@ -180,8 +187,12 @@ struct BindersView: View {
         openForDevelopment()
     }
 
+    /// The Mac makes cards of to-dos: the list is for the ones that have none.
+    private var cardsAreTodos: Bool { connection.macFeatures.contains(LinkFeatures.todosAreCards) }
+    private var showsTodos: Bool { !cardsAreTodos || (openTodos ?? 0) > 0 }
+
     private func count(_ todos: [Todo]) {
-        let open = TodoBoard.deduplicated(todos)
+        let open = TodoBoard.deduplicated(todos).filter { !cardsAreTodos || !$0.isOnBoard }
         openTodos = open.count
         todosByBinder = Dictionary(grouping: open.compactMap(\.binder), by: { $0 }).mapValues(\.count)
     }
@@ -249,19 +260,18 @@ struct BinderDetailView: View {
     @State private var dictating = false
 
     enum Section: String, CaseIterable {
-        case todos = "To-dos", board = "Board", meetings = "Meetings", notes = "Notes"
+        case board = "Board", meetings = "Meetings", notes = "Notes"
     }
 
     init(binder: BinderInfo) {
         self.binder = binder
         let asked = UserDefaults.standard.string(forKey: "section").flatMap { Section(rawValue: $0) }
-        _section = State(initialValue: asked ?? .todos)
+        _section = State(initialValue: asked ?? .board)
     }
 
     var body: some View {
         Group {
             switch section {
-            case .todos: TodoBoard(binder: binder.name, allowsAdding: true)
             case .board: CardBoardView(binder: binder.name)
             case .meetings: MeetingsList(binder: binder.name)
             case .notes: NotesList(binder: binder.name, binderInfo: binder)

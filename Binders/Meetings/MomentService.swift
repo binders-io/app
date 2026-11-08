@@ -1158,7 +1158,11 @@ final class MomentService {
         case .todo:
             if let todo = Store.shared.commitments().first(where: { $0.id.uuidString == state.todo }) {
                 if todo.status == "done" { return (false, "It's done already, so it stays.") }
-                if controller.board.card(forTodo: todo.id.uuidString) != nil { return (false, "It's on a board now: take it off there.") }
+                // Its own card, made for it and not touched since, goes with it; one that has moved on stays, for the board.
+                if let card = controller.board.card(forTodo: todo.id.uuidString) {
+                    guard controller.board.isOwnUntouched(card) else { return (false, "It's on a board now: take it off there.") }
+                    controller.board.delete(card)
+                }
                 controller.commitments.remove(todo)
             }
             state.outcome = CaptureOutcome(id: id, state: "undone", line: "Took “\(state.task)” off \(binder)", title: "Taken back", settled: true)

@@ -940,7 +940,7 @@ private struct AllDayCaptureSettings: View {
         } header: {
             SettingsHeading(part: .allDay)
         } footer: {
-            Text("Binders listens through the day and cuts it into conversations. Only speech is written to disk, with a second either side, and the audio is deleted once it's written down. Each conversation is summarized, its promises become to-dos, and it's filed in the binder it belongs to, never shared with your team. It pauses while a meeting is recorded, and what you dictate isn't part of a conversation. If your iPhone listens too, a conversation near both is written down twice.")
+            Text("Binders listens through the day and cuts it into conversations. Only speech is written to disk, with a second either side, and the audio is deleted once it's written down. Each conversation is summarized, its promises become cards, and it's filed in the binder it belongs to, never shared with your team. It pauses while a meeting is recorded, and what you dictate isn't part of a conversation. If your iPhone listens too, a conversation near both is written down twice.")
         }
         Section {
             Toggle("Offer cards for what you said you'd do", isOn: $settings.suggestCards)
@@ -1131,7 +1131,7 @@ private struct WritingCaptureSettings: View {
 
         Section("What happens to it") {
             Stepper("Keep captured writing for \(settings.captureRetentionDays) days", value: $settings.captureRetentionDays, in: 7...730, step: 7)
-            Toggle("Turn promises and asks in captured messages into to-dos (uses your language model)", isOn: $settings.captureCommitments)
+            Toggle("Turn promises and asks in captured messages into cards (uses your language model)", isOn: $settings.captureCommitments)
             Toggle("Remind me on the day a promise is due", isOn: $settings.commitmentReminders)
             Button("Open the capture log") { HubWindowController.shared.show(section: .writing) }
         }
@@ -1733,7 +1733,7 @@ private struct MCPSettings: View {
             } header: {
                 Text("Work on the hub's cards")
             } footer: {
-                Text("Binders linked to a hub keep their notes and cards there, so this server leaves them out for agents, and Binders doesn't wake your agents for their cards. Set Up gives a tool an agent of its own on the hub, taking work only from the binders linked here, and adds the hub's server to the tool with that agent's token. The hub's runner can start agents for those cards too. Meetings, captures, to-dos and knowledge stay here.")
+                Text("Binders linked to a hub keep their notes and cards there, so this server leaves them out for agents, and Binders doesn't wake your agents for their cards. Set Up gives a tool an agent of its own on the hub, taking work only from the binders linked here, and adds the hub's server to the tool with that agent's token. The hub's runner can start agents for those cards too. Meetings, captures and knowledge stay here; the hub's brain answers from its own notes and cards.")
             }
         }
 
